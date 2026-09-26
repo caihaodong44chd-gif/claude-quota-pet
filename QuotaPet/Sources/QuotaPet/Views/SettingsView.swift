@@ -43,6 +43,14 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("宠物形象").font(.system(size: 12))
+                    HStack(spacing: 8) {
+                        ForEach(PetStyle.allCases) { style in
+                            StyleOption(style: style, isSelected: settings.petStyle == style) { settings.petStyle = style }
+                        }
+                    }
+                }
                 SwitchRow("宠物动画", isOn: $settings.animatePet)
                 SwitchRow("单色宠物", subtitle: "跟随菜单栏的黑白配色", isOn: $settings.monochromePet)
             }
@@ -160,6 +168,37 @@ struct SettingsGroup<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.045)))
         }
+    }
+}
+
+/// 形象选项：半身像缩略图 + 名字，选中的描一圈强调色
+struct StyleOption: View {
+    let style: PetStyle
+    let isSelected: Bool
+    let action: () -> Void
+
+    /// 缩略图只在第一次用到时拼一次
+    private static let thumbnails = Dictionary(uniqueKeysWithValues: PetStyle.allCases.map {
+        ($0, PetSprites.frames(for: .normal, style: $0)[0].portrait)
+    })
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                PetImage(grid: Self.thumbnails[style] ?? PixelGrid(width: 64, height: 64), pixel: 0.75)
+                Text(style.label).font(.system(size: 11))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 1.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(style.label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

@@ -1,7 +1,8 @@
 """把定稿的像素宠物导出成 Swift 数据：Sources/QuotaPetCore/Pet/PetArt.swift
 
-底图（不带五官）+ 可以叠上去的补丁（眼睛、嘴、小道具）。补丁是拿「底图」和「画上某个部件后的图」逐像素比出来的，
+每款形象（chibi4.STYLES）各一套：底图（不带五官）+ 可以叠上去的补丁（眼睛、嘴、小道具）。补丁是拿「底图」和「画上某个部件后的图」逐像素比出来的，
 所以 App 里组合出来的画面和 design/pet_pixel.py 出的预览图完全一样。
+各款共用一张调色板：某款改了颜色的字符（比如猫耳的头发 H），导出时换成调色板里没用过的字符。
 用法：python3 design/export_swift.py
 """
 import importlib.util, os
@@ -37,6 +38,10 @@ EXTRAS = {
         "question": [([".ZZ.", "Z..Z", "...Z", "..Z.", ".Z..", "....", ".Z.."], 3, 3)],
     },
 }
+# 改了颜色的字符换成这里的字符（要是合法的 Swift 字符串内容，不能是 '.'）
+SPARE = "0123456789acgijlmoprtuvxyzDIJLRUV"
+# 单色模式靠这几个颜色挖空脸，各款都不能改
+FIXED = set("SsPW")
 EYES = ["open", "sparkle", "tired", "cry", "closed", "happy"]
 MOUTHS = ["small", "open", "wavy", "o"]
 
@@ -51,23 +56,37 @@ def diff_patch(base, g):
     return x0, y0, rows
 
 
-def layers(size):
-    if size == "icon":
-        base = c4.icon(eyes="none", mouth="none")
-        with_eyes = lambda e: pp.icon(eyes=e, mouth="none")
-        with_mouth = lambda m: c4.icon(eyes="none", mouth=m)
-    else:
-        base = c4.portrait(eyes="none", mouth="none")
-        with_eyes = lambda e: pp.portrait(eyes=e, mouth="none")
-        with_mouth = lambda m: c4.portrait(eyes="none", mouth=m)
-    eyes = {e: diff_patch(base, with_eyes(e)) for e in EYES}
+def recolor_maps():
+    """每款形象：原字符 → 导出用的字符；颜色一样的共用一个字符"""
+    palette = dict(c4.PAL)
+    by_color = {rgb: ch for ch, rgb in palette.items() if ch not in FIXED}
+    spare = [ch for ch in SPARE if ch not in palette]
+    maps = {}
+    for style, st in c4.STYLES.items():
+        assert not FIXED & st["colors"].keys(), f"{style} 不能改 {''.join(sorted(FIXED))} 的颜色"
+        m = {}
+        for ch, rgb in sorted(st["colors"].items()):
+            if rgb not in by_color:
+                assert spare, "SPARE 里的字符用完了，往里加几个没用过的字符"
+                new = spare.pop(0)
+                palette[new], by_color[rgb] = rgb, new
+            m[ch] = by_color[rgb]
+        maps[style] = m
+    return maps, palette
+
+
+def layers(size, style, recolor):
+    shapes, faces = {"icon": (c4.icon, pp.icon), "portrait": (c4.portrait, pp.portrait)}[size]
+    recolored = lambda rows: [[recolor.get(ch, ch) for ch in row] for row in rows]
+    base = recolored(shapes(eyes="none", mouth="none", style=style))
+    eyes = {e: diff_patch(base, recolored(faces(eyes=e, mouth="none", style=style))) for e in EYES}
     # 32 像素里「小嘴」细到画不出来（定稿的头像平时就没有嘴），空的补丁不导出
-    mouths = {m: p for m in MOUTHS if (p := diff_patch(base, with_mouth(m)))}
+    mouths = {m: p for m in MOUTHS if (p := diff_patch(base, recolored(shapes(eyes="none", mouth=m, style=style))))}
     extras = {}
     for name, parts in EXTRAS[size].items():
         g = [row[:] for row in base]
         for rows, x, y in parts:
-            c4.stamp(g, rows, x, y)
+            c4.stamp(g, ["".join(r) for r in recolored(rows)], x, y)
         extras[name] = diff_patch(base, g)
     return ["".join(r) for r in base], eyes, mouths, extras
 
@@ -85,20 +104,27 @@ def swift_patches(d, indent):
     return out + pad + "]"
 
 
+def swift_layers(layer):
+    base, eyes, mouths, extras = layer
+    return f"""Layers(
+            base: {swift_rows(base, 12)},
+            eyes: {swift_patches(eyes, 12)},
+            mouths: {swift_patches(mouths, 12)},
+            extras: {swift_patches(extras, 12)}
+        )"""
+
+
 def main():
-    parts = []
-    for size in ("icon", "portrait"):
-        base, eyes, mouths, extras = layers(size)
-        parts.append((size, base, eyes, mouths, extras))
-    used = sorted(({ch for _, base, eyes, mouths, extras in parts for ch in "".join(base)}
-                   | {ch for *_, eyes, mouths, extras in parts for d in (eyes, mouths, extras) for p in d.values() for ch in "".join(p[2])})
-                  - {"."})
-    palette = "".join(f'        "{ch}": 0x{r:02X}{g:02X}{b:02X},\n' for ch in used for (r, g, b) in [c4.PAL[ch]])
+    maps, full_palette = recolor_maps()
+    parts = {style: {size: layers(size, style, maps[style]) for size in ("icon", "portrait")} for style in c4.STYLES}
+    used = sorted({ch for sizes in parts.values() for base, eyes, mouths, extras in sizes.values()
+                   for ch in "".join(base) + "".join("".join(p[2]) for d in (eyes, mouths, extras) for p in d.values())} - {"."})
+    palette = "".join(f'        "{ch}": 0x{r:02X}{g:02X}{b:02X},\n' for ch in used for (r, g, b) in [full_palette[ch]])
 
     s = '''// 由 design/export_swift.py 生成，不要手改。
 // 想改宠物：改 design/ 里的 Python 原型，python3 design/pet_pixel.py 出预览图，满意了再运行 python3 design/export_swift.py。
 
-/// 宠物的像素数据：一张不带五官的底图，加上可以叠上去的眼睛、嘴、小道具。
+/// 宠物的像素数据：每款形象一张不带五官的底图，加上可以叠上去的眼睛、嘴、小道具。
 public enum PetArt {
     struct Patch: Sendable {
         let x: Int
@@ -113,26 +139,28 @@ public enum PetArt {
         let extras: [String: Patch]
     }
 
-    /// 调色板：字符 → 0xRRGGBB
+    /// 一款形象：菜单栏头像 32×32（显示成 16pt）+ 面板半身像 64×64
+    struct Look: Sendable {
+        let icon: Layers
+        let portrait: Layers
+    }
+
+    /// 调色板（各款共用）：字符 → 0xRRGGBB
     public static let palette: [Character: UInt32] = [
 ''' + palette + '''    ]
 '''
-    for size, base, eyes, mouths, extras in parts:
-        title = "菜单栏头像 32×32（显示成 16pt）" if size == "icon" else "面板半身像 64×64"
+    for style, sizes in parts.items():
         s += f'''
-    /// {title}
-    static let {size} = Layers(
-        base: {swift_rows(base, 8)},
-        eyes: {swift_patches(eyes, 8)},
-        mouths: {swift_patches(mouths, 8)},
-        extras: {swift_patches(extras, 8)}
+    /// {c4.STYLES[style]["label"]}
+    static let {style} = Look(
+        icon: {swift_layers(sizes["icon"])},
+        portrait: {swift_layers(sizes["portrait"])}
     )
 '''
     s += "}\n"
     with open(OUT, "w") as f:
         f.write(s)
-    print("写好了", os.path.normpath(OUT), f"（{len(s) // 1024} KB，调色板 {len(used)} 色）")
-
+    print("写好了", os.path.normpath(OUT), f"（{len(s) // 1024} KB，{len(parts)} 款形象，调色板 {len(used)} 色）")
 
 if __name__ == "__main__":
     main()

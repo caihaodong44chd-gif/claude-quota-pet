@@ -9,7 +9,31 @@ public struct PetFrame: Hashable, Sendable {
     public let duration: TimeInterval
 }
 
-/// 宠物：橙色长发、别着星芒花饰的原创像素角色（参考「Claude 娘」风格）。
+/// 宠物的形象：表情、动画都一样，只是发色、饰品不同
+public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
+    /// 橙色长发，别着星芒花饰和黑色蝴蝶结
+    case classic
+    /// 银紫色长发，猫耳
+    case neko
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .classic: return "经典"
+        case .neko: return "猫耳"
+        }
+    }
+
+    var art: PetArt.Look {
+        switch self {
+        case .classic: return PetArt.classic
+        case .neko: return PetArt.neko
+        }
+    }
+}
+
+/// 宠物：原创像素角色（参考「Claude 娘」风格），有几款形象可选（PetStyle）。
 /// 像素数据在 PetArt.swift（由 design/export_swift.py 生成），这里只负责按心情把五官和小道具叠到底图上。
 public enum PetSprites {
     public static let iconSize = 32
@@ -18,9 +42,10 @@ public enum PetSprites {
     /// 眼睛：open 平时 / sparkle 星星眼 / happy 笑眯眼 / tired 半睁 / cry >< / closed 闭眼
     /// 嘴：small / open / wavy / o
     /// 小道具：starBig / starSmall / sweatA / sweatB / tearsA / tearsB / zzzA / zzzB / question
-    static func frame(_ eyes: String, _ mouth: String, _ extras: [String] = [], _ duration: TimeInterval) -> PetFrame {
-        PetFrame(icon: compose(PetArt.icon, eyes: eyes, mouth: mouth, extras: extras),
-                 portrait: compose(PetArt.portrait, eyes: eyes, mouth: mouth, extras: extras),
+    static func makeFrame(_ art: PetArt.Look, _ eyes: String, _ mouth: String, _ extras: [String],
+                      _ duration: TimeInterval) -> PetFrame {
+        PetFrame(icon: compose(art.icon, eyes: eyes, mouth: mouth, extras: extras),
+                 portrait: compose(art.portrait, eyes: eyes, mouth: mouth, extras: extras),
                  duration: duration)
     }
 
@@ -34,7 +59,10 @@ public enum PetSprites {
         return grid
     }
 
-    public static func frames(for mood: PetMood) -> [PetFrame] {
+    public static func frames(for mood: PetMood, style: PetStyle = .classic) -> [PetFrame] {
+        func frame(_ eyes: String, _ mouth: String, _ extras: [String], _ duration: TimeInterval) -> PetFrame {
+            makeFrame(style.art, eyes, mouth, extras, duration)
+        }
         switch mood {
         case .energetic:  // 星星眼，头顶的星星一闪一闪，偶尔笑眯眼
             return [

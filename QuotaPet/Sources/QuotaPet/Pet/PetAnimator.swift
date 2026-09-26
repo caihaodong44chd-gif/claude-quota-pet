@@ -7,6 +7,7 @@ import QuotaPetCore
 final class PetAnimator: ObservableObject {
     @Published private(set) var frame: PetFrame
     private(set) var mood: PetMood = .loading
+    private var style: PetStyle
 
     private var frames: [PetFrame]
     private var index = 0
@@ -20,9 +21,20 @@ final class PetAnimator: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     init(settings: AppSettings) {
-        frames = PetSprites.frames(for: .loading)
+        style = settings.petStyle
+        frames = PetSprites.frames(for: .loading, style: style)
         frame = frames[0]
         animates = settings.animatePet
+
+        settings.$petStyle
+            .dropFirst()
+            .sink { [weak self] style in
+                guard let self else { return }
+                self.style = style
+                frames = PetSprites.frames(for: mood, style: style)
+                restart()
+            }
+            .store(in: &cancellables)
 
         settings.$animatePet
             .dropFirst()
@@ -53,7 +65,7 @@ final class PetAnimator: ObservableObject {
     func setMood(_ mood: PetMood) {
         guard mood != self.mood else { return }
         self.mood = mood
-        frames = PetSprites.frames(for: mood)
+        frames = PetSprites.frames(for: mood, style: style)
         index = 0
         restart()
     }

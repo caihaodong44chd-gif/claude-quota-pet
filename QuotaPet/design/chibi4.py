@@ -38,6 +38,20 @@ PAL = {
     "b": (122, 62, 40),    # 书皮
     "k": (78, 38, 26),     # 书脊
 }
+# 可选的形象：饰品和配色。colors 只写和经典款不一样的颜色，皮肤、腮红、眼睛高光（SsPW）不能改，单色模式靠它们挖空脸
+STYLES = {
+    "classic": dict(label="经典", accessory="flower", colors={}),
+    "neko": dict(label="猫耳", accessory="ears", colors={
+        "H": (228, 222, 238), "h": (252, 250, 255), "d": (190, 180, 210), "e": (160, 148, 184),
+        "A": (88, 48, 132), "B": (146, 90, 200), "C": (204, 160, 240), "E": (40, 20, 60),
+        "K": (70, 54, 88), "N": (88, 64, 120), "n": (120, 96, 150)}),
+}
+
+
+def palette(style="classic"):
+    return {**PAL, **STYLES[style]["colors"]}
+
+
 KEYS = ["."] + list(PAL)
 IDX = {k: i for i, k in enumerate(KEYS)}
 SS = 8  # 超采样倍数
@@ -124,9 +138,18 @@ def mirror(pts):
 
 # ---------------------------------------------------------------- 角色（世界坐标：头像画布 32×32）
 
-def draw_character(c, portrait=False):
+def draw_character(c, portrait=False, style="classic"):
+    accessory = STYLES[style]["accessory"]
     # 后面的长发：头顶不要太厚，两侧一直垂到画面外
     c.ellipse(16, 12.6, 12.4, 11.0, "H")
+    if accessory == "ears":
+        # 猫耳：从头顶两侧竖起来，内侧粉色；耳根被刘海盖住
+        ear = [(6.0, 8.2), (5.4, 0.2), (12.6, 3.0)]
+        c.poly(ear, "H")
+        c.poly(mirror(ear), "H")
+        inner = [(6.9, 6.6), (6.6, 2.0), (10.6, 3.6)]
+        c.poly(inner, "P")
+        c.poly(mirror(inner), "P")
     left_curtain = [(4.6, 10), (3.4, 17), (2.6, 25), (2.0, 33), (1.6, 42), (2.4, 52), (8.0, 52), (8.4, 42), (8.2, 32), (7.6, 22), (6.8, 13)]
     c.poly(left_curtain, "H")
     c.poly(mirror(left_curtain), "H")
@@ -179,12 +202,13 @@ def draw_character(c, portrait=False):
     c.line([(10.4, 4.6), (9.2, 7.4)], 0.6, "h")
     c.line([(21.6, 4.6), (22.8, 7.4)], 0.6, "h")
 
-    # 花饰（星芒）+ 黑色蝴蝶结，别在右上角，稍微伸出头的轮廓，小图里也认得出
-    c.poly([(26.0, 8.6), (30.4, 7.4), (30.0, 11.6)], "N")
-    c.poly([(25.6, 9.2), (26.8, 14.2), (25.2, 13.8)], "N")
-    c.poly([(26.4, 9.0), (30.2, 14.0), (28.8, 14.8)], "N")
-    c.ellipse(25.2, 6.2, 3.9, 3.9, "K")
-    flower(c, 25.2, 6.2, 3.4)
+    if accessory == "flower":
+        # 花饰（星芒）+ 黑色蝴蝶结，别在右上角，稍微伸出头的轮廓，小图里也认得出
+        c.poly([(26.0, 8.6), (30.4, 7.4), (30.0, 11.6)], "N")
+        c.poly([(25.6, 9.2), (26.8, 14.2), (25.2, 13.8)], "N")
+        c.poly([(26.4, 9.0), (30.2, 14.0), (28.8, 14.8)], "N")
+        c.ellipse(25.2, 6.2, 3.9, 3.9, "K")
+        flower(c, 25.2, 6.2, 3.4)
 
 
 def flower(c, cx, cy, r):
@@ -319,9 +343,9 @@ MOUTH32 = {
 }
 
 
-def icon(eyes="open", mouth="small", extras=(), eye_rows=None, k=1.08, half_gap=None):
+def icon(eyes="open", mouth="small", extras=(), eye_rows=None, k=1.08, half_gap=None, style="classic"):
     c = Canvas(32)
-    draw_character(c)
+    draw_character(c, style=style)
     draw_face(c, eyes, mouth, k=k, half_gap=half_gap)
     g = finish(c.grid())
     for e in extras:
@@ -341,9 +365,9 @@ MOODS = [
 ]
 
 
-def portrait(eyes="open", mouth="small", extras=(), k=1.14, half_gap=None):
+def portrait(eyes="open", mouth="small", extras=(), k=1.14, half_gap=None, style="classic"):
     c = Canvas(64, -4.0, -1.0, 64 / 40)
-    draw_character(c, portrait=True)
+    draw_character(c, portrait=True, style=style)
     draw_face(c, eyes, mouth, k=k, half_gap=half_gap)
     g = finish(c.grid())
     if "star" in extras:
@@ -404,14 +428,15 @@ def extras_vec(c, extras, portrait):
             c.line([(0.8, 1.2), (3.2, 1.2), (0.8, 3.6), (3.2, 3.6)], 0.55, "Z")
 
 
-def to_img(g, px):
+def to_img(g, px, style="classic"):
+    pal = palette(style)
     n = len(g)
     img = Image.new("RGBA", (n * px, n * px), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     for y in range(n):
         for x in range(n):
             if g[y][x] != ".":
-                d.rectangle([x * px, y * px, x * px + px - 1, y * px + px - 1], fill=PAL[g[y][x]] + (255,))
+                d.rectangle([x * px, y * px, x * px + px - 1, y * px + px - 1], fill=pal[g[y][x]] + (255,))
     return img
 
 

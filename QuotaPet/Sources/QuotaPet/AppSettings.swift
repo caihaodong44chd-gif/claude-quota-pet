@@ -15,6 +15,9 @@ final class AppSettings: ObservableObject {
     @Published var visibility: MenuBarVisibility {
         didSet { defaults.set(visibility.rawValue, forKey: Keys.visibility) }
     }
+    @Published var petStyle: PetStyle {
+        didSet { defaults.set(petStyle.rawValue, forKey: Keys.petStyle) }
+    }
     @Published var animatePet: Bool {
         didSet { defaults.set(animatePet, forKey: Keys.animatePet) }
     }
@@ -57,6 +60,7 @@ final class AppSettings: ObservableObject {
         ])
         menuBarText = MenuBarTextMode(rawValue: defaults.string(forKey: Keys.menuBarText) ?? "") ?? .session
         visibility = MenuBarVisibility(rawValue: defaults.string(forKey: Keys.visibility) ?? "") ?? .withClaude
+        petStyle = PetStyle(rawValue: defaults.string(forKey: Keys.petStyle) ?? "") ?? .classic
         animatePet = defaults.bool(forKey: Keys.animatePet)
         monochromePet = defaults.bool(forKey: Keys.monochromePet)
         notificationsEnabled = defaults.bool(forKey: Keys.notificationsEnabled)
@@ -100,6 +104,7 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let menuBarText = "menuBarText"
         static let visibility = "visibility"
+        static let petStyle = "petStyle"
         static let animatePet = "animatePet"
         static let monochromePet = "monochromePet"
         static let notificationsEnabled = "notificationsEnabled"

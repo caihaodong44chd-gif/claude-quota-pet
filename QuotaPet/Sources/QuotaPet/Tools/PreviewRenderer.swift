@@ -9,9 +9,12 @@ enum PreviewRenderer {
     static func renderAll(to dir: URL) {
         _ = NSApplication.shared
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        write(spriteSheet(template: false), to: dir.appendingPathComponent("pet-sheet.png"))
-        write(spriteSheet(template: true), to: dir.appendingPathComponent("pet-sheet-mono.png"))
-        write(menuBarStrip(), to: dir.appendingPathComponent("menubar.png"))
+        for style in PetStyle.allCases {
+            let suffix = style == .classic ? "" : "-\(style.rawValue)"
+            write(spriteSheet(template: false, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix).png"))
+            write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
+            write(menuBarStrip(style: style), to: dir.appendingPathComponent("menubar\(suffix).png"))
+        }
 
         let now = Date()
         for (name, snapshot) in sampleSnapshots(now: now) {
@@ -43,12 +46,12 @@ enum PreviewRenderer {
 
     // MARK: - 宠物动画表：每行一种心情，每列一帧
 
-    static func spriteSheet(template: Bool) -> Data? {
+    static func spriteSheet(template: Bool, style: PetStyle) -> Data? {
         let moods = PetMood.allCases
         let pixel: CGFloat = 3                                  // 32×32 的头像放大 3 倍
         let cell = CGFloat(PetSprites.iconSize) * pixel + 16
         let labelWidth: CGFloat = 104
-        let columns = moods.map { PetSprites.frames(for: $0).count }.max() ?? 1
+        let columns = moods.map { PetSprites.frames(for: $0, style: style).count }.max() ?? 1
         let width = labelWidth + CGFloat(columns) * cell + 8
         let height = CGFloat(moods.count) * cell + 8
         let ink: NSColor = template ? .white : NSColor(white: 0.15, alpha: 1)
@@ -60,7 +63,7 @@ enum PreviewRenderer {
                 ("\(mood.title)\n\(mood.rawValue)" as NSString).draw(
                     at: CGPoint(x: 10, y: y + cell / 2 - 16),
                     withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: ink])
-                for (col, frame) in PetSprites.frames(for: mood).enumerated() {
+                for (col, frame) in PetSprites.frames(for: mood, style: style).enumerated() {
                     let origin = CGPoint(x: labelWidth + CGFloat(col) * cell + 8, y: y + 8)
                     (template ? NSColor(white: 0.24, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
                     NSRect(x: origin.x - 4, y: origin.y - 4, width: cell - 8, height: cell - 8).fill()
@@ -72,7 +75,7 @@ enum PreviewRenderer {
 
     // MARK: - 模拟菜单栏（2 倍分辨率）：浅色 / 深色 × 彩色 / 单色
 
-    static func menuBarStrip() -> Data? {
+    static func menuBarStrip(style: PetStyle) -> Data? {
         let items: [(PetMood, String, NSColor?)] = [
             (.energetic, "27%", nil), (.normal, "63%", nil), (.tired, "82%", .systemOrange),
             (.exhausted, "96%", .systemRed), (.sleeping, "1h23m", nil), (.confused, "", nil),
@@ -89,7 +92,7 @@ enum PreviewRenderer {
                 for (i, item) in items.enumerated() {
                     let x = 10 + CGFloat(i) * itemWidth
                     NSGraphicsContext.current?.shouldAntialias = false
-                    PetRenderer.draw(PetSprites.frames(for: item.0)[0].icon, pixel: 0.5, origin: CGPoint(x: x, y: y + 4),
+                    PetRenderer.draw(PetSprites.frames(for: item.0, style: style)[0].icon, pixel: 0.5, origin: CGPoint(x: x, y: y + 4),
                                      template: row.mono, templateColor: ink)
                     NSGraphicsContext.current?.shouldAntialias = true
                     (item.1 as NSString).draw(

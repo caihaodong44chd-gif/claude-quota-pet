@@ -45,28 +45,35 @@ check(Fmt.ago(at(25, 11, 45), now: at(25, 12)) == "15 分钟前", "ago")
 // MARK: - 宠物
 
 let palette = Set(PetArt.palette.keys.compactMap(\.asciiValue))
-for (name, art, size) in [("头像", PetArt.icon, PetSprites.iconSize), ("半身像", PetArt.portrait, PetSprites.portraitSize)] {
-    check(art.base.count == size && art.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
-    for (kind, patches) in [("眼睛", art.eyes), ("嘴", art.mouths), ("小道具", art.extras)] {
-        for (key, patch) in patches {
-            let width = patch.rows.first?.utf8.count ?? 0
-            check(patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
-                  && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
+for style in PetStyle.allCases {
+    for (name, art, size) in [("头像", style.art.icon, PetSprites.iconSize), ("半身像", style.art.portrait, PetSprites.portraitSize)] {
+        let name = "\(style.label)\(name)"
+        check(art.base.count == size && art.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
+        for (kind, patches) in [("眼睛", art.eyes), ("嘴", art.mouths), ("小道具", art.extras)] {
+            for (key, patch) in patches {
+                let width = patch.rows.first?.utf8.count ?? 0
+                let inside = patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
+                check(inside && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
+            }
         }
     }
-}
-for mood in PetMood.allCases {
-    let frames = PetSprites.frames(for: mood)
-    check(!frames.isEmpty, "\(mood) 要有动画帧")
-    for frame in frames {
-        check(frame.duration > 0, "\(mood) 帧时长 > 0")
-        check(frame.icon.width == 32 && frame.icon.height == 32 && frame.portrait.width == 64 && frame.portrait.height == 64,
-              "\(mood) 头像 32×32、半身像 64×64")
-        check((frame.icon.cells + frame.portrait.cells).allSatisfy { $0 == 0 || palette.contains($0) }, "\(mood) 只能用调色板里的颜色")
+    for mood in PetMood.allCases {
+        let frames = PetSprites.frames(for: mood, style: style)
+        check(frames.count == PetSprites.frames(for: mood).count, "\(style.label) \(mood) 的帧数和经典款一样")
+        for frame in frames {
+            check(frame.duration > 0, "\(style.label) \(mood) 帧时长 > 0")
+            check(frame.icon.width == 32 && frame.icon.height == 32 && frame.portrait.width == 64 && frame.portrait.height == 64,
+                  "\(style.label) \(mood) 头像 32×32、半身像 64×64")
+            let cells = frame.icon.cells + frame.portrait.cells
+            check(cells.allSatisfy { $0 == 0 || palette.contains($0) }, "\(style.label) \(mood) 只能用调色板里的颜色")
+        }
     }
+    // 单色模式靠皮肤挖空脸，每款都得有
+    check(PetSprites.frames(for: .normal, style: style)[0].icon.cells.contains(UInt8(ascii: "S")), "\(style.label)的头像有皮肤色")
+    check(PetSprites.frames(for: .normal, style: style)[0].icon != PixelGrid(rows: style.art.icon.base), "\(style.label)画上了眼睛")
 }
 check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
-check(PetSprites.frames(for: .normal)[0].icon != PixelGrid(rows: PetArt.icon.base), "画上了眼睛")
+check(PetSprites.frames(for: .normal, style: .neko)[0] != PetSprites.frames(for: .normal)[0], "不同形象画出来不一样")
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")

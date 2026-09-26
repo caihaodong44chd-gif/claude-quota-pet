@@ -1,7 +1,7 @@
 """定稿用的像素风宠物：头发、衣服用形状画再转像素（chibi4.py），眼睛手工逐格画（小眼睛）。
 用法：python3 design/pet_pixel.py  → design/out/pixel-final.png
 """
-import importlib.util, os
+import importlib.util, os, sys
 from PIL import Image, ImageDraw
 spec = importlib.util.spec_from_file_location("c4", os.path.join(os.path.dirname(__file__), "chibi4.py"))
 c4 = importlib.util.module_from_spec(spec); spec.loader.exec_module(c4)
@@ -74,8 +74,8 @@ def place(g, eyes, left_center, ey):
     c4.stamp(g, right, n - lx - w, round(ey - h / 2))
 
 
-def portrait(eyes="open", mouth="small", extras=(), eye_set=None):
-    g = c4.portrait(eyes="none", mouth=mouth)
+def portrait(eyes="open", mouth="small", extras=(), eye_set=None, style="classic"):
+    g = c4.portrait(eyes="none", mouth=mouth, style=style)
     x0, y0, sc = -4.0, -1.0, 64 / 40
     left_center, ey = (16 - HALF_GAP - x0) * sc, (EYE_Y - y0) * sc
     lx, rx = round(left_center), 64 - round(left_center)
@@ -89,8 +89,8 @@ def portrait(eyes="open", mouth="small", extras=(), eye_set=None):
     return g
 
 
-def icon(eyes="open", mouth="small", extras=(), eye_set=None):
-    g = c4.icon(eyes="none", mouth=mouth)
+def icon(eyes="open", mouth="small", extras=(), eye_set=None, style="classic"):
+    g = c4.icon(eyes="none", mouth=mouth, style=style)
     place(g, (eye_set or ICON_EYES_M)[eyes], 16 - HALF_GAP, EYE_Y)
     lx, rx, ey = round(16 - HALF_GAP) - 1, round(16 + HALF_GAP), round(EYE_Y)
     for e in extras:
@@ -101,7 +101,43 @@ def icon(eyes="open", mouth="small", extras=(), eye_set=None):
     return g
 
 
-if __name__ == "__main__":
+def styles_sheet(path):
+    """几款形象并排：每款一行，半身像 5 个表情 + 菜单栏头像（放大、浅色/深色菜单栏里的原大）"""
+    font = c4.font
+    PZ, IZ = 3, 4
+    col = 64 * PZ + 16
+    W = 150 + col * len(MOODS) + 32 * IZ + 150
+    row_h = 64 * PZ + 40
+    sheet = Image.new("RGB", (W, 70 + row_h * len(c4.STYLES)), (250, 248, 245))
+    d = ImageDraw.Draw(sheet)
+    for i, (name, *_) in enumerate(MOODS):
+        d.text((150 + i * col, 24), name, fill=(90, 90, 90), font=font(20))
+    for r, (key, st) in enumerate(c4.STYLES.items()):
+        y = 64 + r * row_h
+        d.text((24, y + 64 * PZ // 2 - 16), st["label"], fill=(40, 40, 40), font=font(28))
+        for i, (name, eyes, mouth, extras) in enumerate(MOODS):
+            x = 150 + i * col
+            d.rounded_rectangle([x - 4, y - 4, x + 64 * PZ + 4, y + 64 * PZ + 4], 14, fill=(238, 233, 228))
+            im = c4.to_img(portrait(eyes, mouth, extras, style=key), PZ, key)
+            sheet.paste(im, (x, y), im)
+        x = 150 + len(MOODS) * col
+        d.rounded_rectangle([x - 4, y - 4, x + 32 * IZ + 4, y + 32 * IZ + 4], 12, fill=(238, 233, 228))
+        im = c4.to_img(icon("open", "small", (), style=key), IZ, key)
+        sheet.paste(im, (x, y), im)
+        for j, (bg, ink) in enumerate((((236, 236, 236), (20, 20, 20)), ((34, 34, 36), (240, 240, 240)))):
+            bx, by = x + 32 * IZ + 14, y + 20 + j * 56
+            d.rounded_rectangle([bx, by, bx + 84, by + 46], 8, fill=bg)
+            s1 = c4.to_img(icon("open", "small", (), style=key), 1, key)
+            sheet.paste(s1, (bx + 8, by + 7), s1)
+            d.text((bx + 44, by + 11), "63", fill=ink, font=font(19))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    sheet.save(path)
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["styles"]:
+    styles_sheet(os.path.join(os.path.dirname(__file__), "out", "styles.png"))
+    print("ok")
+elif __name__ == "__main__":
     out = os.path.join(os.path.dirname(__file__), "out")
     font = c4.font
     PZ, IZ = 4, 5
