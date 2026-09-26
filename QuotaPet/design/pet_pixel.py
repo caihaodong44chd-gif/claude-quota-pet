@@ -66,16 +66,6 @@ def _pair(left):
 
 # 按形象换的眼睛（没写的表情用默认的折中大小）：{名字: (半身像, 头像)}
 EYE_SETS = {
-    # 御姐：大一号的垂眼，眼皮平平压住虹膜顶，外眼角的睫毛往下垂，看着慵懒
-    "sultry": ({
-        "open":    _pair([".KKKKKK", "KKAWWEA", "K.AWEEA", "..BEEBB", "..BCCWB", "...CC.."]),
-        "sparkle": _pair([".KKKKKK", "KKAWWWA", "K.WWEEA", "..BWEBB", "..BCCWB", "...CC.."]),
-        "tired":   _pair([".......", ".KKKKKK", "KKBWEEB", "..BCCWB", "...CC.."]),
-    }, {
-        "open":    _pair([".KKKK", "KKWEA", "K.AEB", "..CC."]),
-        "sparkle": _pair([".KKKK", "KKWWA", "K.WEB", "..CC."]),
-        "tired":   _pair([".....", ".KKKK", "KKCWB", "..CC."]),
-    }),
     # 学妹：又大又圆的眼睛，高光多
     "big": ({
         "open":    PORTRAIT_EYES_L["open"],

@@ -47,12 +47,6 @@ STYLES = {
         "H": (228, 222, 238), "h": (252, 250, 255), "d": (190, 180, 210), "e": (160, 148, 184),
         "A": (88, 48, 132), "B": (146, 90, 200), "C": (204, 160, 240), "E": (40, 20, 60),
         "K": (70, 54, 88), "N": (88, 64, 120), "n": (120, 96, 150)}),
-    "mature": dict(label="御姐", hair="wavy", accessory="rose", eyes="sultry", mouth="lips", blush=0.7, draft=True, colors={
-        "H": (138, 36, 58), "h": (196, 84, 104), "d": (100, 22, 40), "e": (74, 14, 30),
-        "A": (120, 30, 40), "B": (196, 66, 70), "C": (240, 150, 110), "E": (50, 10, 16),
-        "K": (58, 20, 30), "M": (204, 30, 58), "T": (240, 96, 116),
-        "Q": (54, 36, 50), "q": (34, 22, 32), "O": (226, 176, 84), "N": (150, 28, 50), "n": (190, 60, 80),
-        "F": (196, 40, 62), "f": (140, 20, 40)}),
     "youth": dict(label="青春", hair="ponytail", accessory="bow", eyes="big", mouth="cat", blush=1.35, colors={
         "H": (186, 118, 72), "h": (232, 172, 118), "d": (146, 86, 48), "e": (116, 64, 32),
         "A": (26, 92, 84), "B": (46, 150, 128), "C": (130, 214, 180), "E": (14, 48, 40),
@@ -175,11 +169,6 @@ def draw_character(c, portrait=False, style="classic"):
         c.poly(mirror(inner), "P")
     if hair == "long":  # 两侧一直垂到画面外
         curtain = [(4.6, 10), (3.4, 17), (2.6, 25), (2.0, 33), (1.6, 42), (2.4, 52), (8.0, 52), (8.4, 42), (8.2, 32), (7.6, 22), (6.8, 13)]
-    elif hair == "wavy":  # 大波浪：外侧一路起伏，越往下越蓬
-        ys = [10 + i * 0.5 for i in range(85)]
-        outer = [(4.0 - 0.08 * (y - 10) - 1.5 * math.sin((y - 12) / 2.0), y) for y in ys]
-        inner = [(8.2 + 0.9 * math.sin((y - 12) / 2.0), y) for y in reversed(ys)]
-        curtain = outer + inner
     else:  # 扎起来了，两边只剩鬓角
         curtain = None
     if curtain:
@@ -203,16 +192,7 @@ def draw_character(c, portrait=False, style="classic"):
         # 魔女的高立领：从肩膀两边竖起来，尖角贴着下巴
         for m in (lambda p: p, mirror):
             c.poly(m([(12.8, 28.2), (6.8, 21.4), (8.6, 28.8), (5.4, 30.6)]), "n")
-    if portrait and accessory == "rose":
-        # 手里一把半开的折扇：酒红、玫红相间，金色扇骨和扇边
-        px, py, r = 9.0, 42.0, 10.0
-        for i in range(8):
-            a0, a1 = math.radians(200 + i * 14), math.radians(214 + i * 14)
-            c.poly([(px, py), (px + r * math.cos(a0), py + r * math.sin(a0)), (px + r * math.cos(a1), py + r * math.sin(a1))],
-                   "N" if i % 2 == 0 else "n")
-        c.arc(px, py, r, r, 200, 312, 0.45, "O")
-        c.ellipse(px + 0.6, py - 1.4, 1.5, 1.3, "S")
-    elif portrait:
+    if portrait:
         # 抱在胸前的书，封面上有星芒
         c.poly([(2.6, 31.2), (11.6, 29.4), (13.2, 42.0), (4.2, 43.6)], "b")
         c.poly([(2.6, 31.2), (3.6, 31.0), (5.2, 43.4), (4.2, 43.6)], "k")
@@ -255,17 +235,6 @@ def draw_character(c, portrait=False, style="classic"):
         c.poly([(26.4, 9.0), (30.2, 14.0), (28.8, 14.8)], "N")
         c.ellipse(25.2, 6.2, 3.9, 3.9, "K")
         flower(c, 25.2, 6.2, 3.4)
-    elif accessory == "rose":
-        # 耳边一朵红花 + 右眼下的泪痣
-        c.ellipse(24.8, 7.2, 3.1, 3.1, "K")
-        flower(c, 24.8, 7.2, 2.7)
-        c.ellipse(21.6, 20.9, 0.55, 0.55, "K")
-        # 黑色颈带 + 金色小吊坠，两边金耳坠
-        c.line([(13.8, 26.0), (16.0, 26.5), (18.2, 26.0)], 0.6, "N")
-        c.ellipse(16.0, 27.1, 0.5, 0.5, "O")
-        for m in (lambda p: p, mirror):
-            c.line(m([(7.6, 23.0), (7.6, 25.2)]), 0.35, "O")
-            c.ellipse(*m([(7.6, 25.6)])[0], 0.55, 0.7, "O")
     elif accessory == "bow":
         # 马尾上的大蝴蝶结 + 刘海上两个发夹
         c.poly([(21.0, 2.6), (17.6, 0.2), (17.4, 5.0)], "N")
@@ -348,10 +317,7 @@ def eye(c, ex, ey, side, kind, k=1.0):
 
 def mouth(c, kind, style="classic"):
     shape = STYLES[style].get("mouth")
-    if kind == "small" and shape == "lips":      # 红唇，嘴角微微上扬
-        c.poly([(14.6, 23.0), (15.5, 22.7), (16.0, 22.9), (16.5, 22.7), (17.5, 22.8), (16.9, 23.8), (15.1, 23.8)], "M")
-        c.line([(15.2, 23.25), (16.8, 23.2)], 0.2, "T")
-    elif kind == "small" and shape == "cat":     # ω
+    if kind == "small" and shape == "cat":       # ω
         c.line([(14.9, 22.9), (15.45, 23.5), (16.0, 23.05), (16.55, 23.5), (17.1, 22.9)], 0.42, "M")
     elif kind == "small":
         c.line([(15.25, 23.1), (16.0, 23.45), (16.75, 23.1)], 0.45, "M")
