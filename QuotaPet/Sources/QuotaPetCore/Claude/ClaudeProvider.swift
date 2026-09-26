@@ -1,6 +1,6 @@
 import Foundation
 
-/// Claude 额度：官方读数（桌面端）+ 本机 Claude Code 日志实时估算。不联网、不读凭据。
+/// Claude 额度：官方读数（桌面端）+ 本机 Claude Code 日志实时估算 + 日志里的限流消息。不联网、不读凭据。
 public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     public struct Config: Equatable, Sendable {
         /// 用本机日志估算两次官方读数之间的用量
@@ -15,6 +15,10 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
     public static let sessionDuration: TimeInterval = 5 * 3600
     public static let weekDuration: TimeInterval = 7 * 86400
+    /// 限流消息里没有账号信息，Claude Code 和桌面端登的可能不是同一个账号。所以同一个窗口里有官方读数时要对得上：
+    /// 限流之后的读数，或者限流之前的读数 + 之间本机的用量，至少要到这么多。同一个账号撞线时这里接近 100
+    /// （给本机看不到的网页 / 手机用量和估算误差留 25 个点）；别的账号撞线时很难刚好这么高
+    static let limitEvidenceFloor = 75.0
 
     public let id = ProviderID.claude
     public let pollInterval: TimeInterval = 60
@@ -58,6 +62,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     public func snapshot(now: Date) throws -> UsageSnapshot {
         let cfg = config
         let requests = scanner.refresh(now: now)
+        let limits = scanner.limitEvents
         var notes: [String] = []
 
         let samples: [PlanUsageSample]
@@ -95,16 +100,18 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let weeklySeries = samples.compactMap { s in s.weekly.map { UsageSample(time: s.time, value: $0) } }
         let session = buildWindow(
             id: "five_hour", title: "5 小时会话", shortTitle: "5h", duration: Self.sessionDuration,
-            series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.usd / sessionRate },
-            resetAnchor: nil, live: cfg.liveEstimate, now: now)
+            series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
+            resetAnchor: nil, limits: limits.filter { $0.window == "five_hour" }, live: cfg.liveEstimate, now: now)
         let weekly = buildWindow(
             id: "seven_day", title: "本周额度", shortTitle: "周", duration: Self.weekDuration,
-            series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.usd / weeklyRate },
-            resetAnchor: cfg.weeklyResetAnchor, live: cfg.liveEstimate, now: now)
+            series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
+            resetAnchor: cfg.weeklyResetAnchor, limits: limits.filter { $0.window == "seven_day" }, live: cfg.liveEstimate, now: now)
 
         let officialAt = samples.last?.time
         if let t = officialAt, now.timeIntervalSince(t) > 45 * 60 {
-            notes.append("官方读数停在\(Fmt.ago(t, now: now))（Claude 桌面端没开？），之后的变化是本机估算。")
+            let rest = [session, weekly].contains { $0.limitReported }
+                ? "「用完了」是 Claude Code 报告的，其余变化是本机估算。" : "之后的变化是本机估算。"
+            notes.append("官方读数停在\(Fmt.ago(t, now: now))（Claude 桌面端没开？），\(rest)")
         }
 
         return UsageSnapshot(
@@ -114,18 +121,44 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     }
 
     /// 官方读数 + 读数之后的本机用量 = 当前百分比。本机用量 = Σ percentOf(请求) × scale
+    /// limits 是这个窗口的限流消息：还没到恢复时间时直接算用完，窗口的开始和重置时间也以它为准
     func buildWindow(id: String, title: String, shortTitle: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
-                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, live: Bool, now: Date) -> UsageWindow {
+                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, limits: [ClaudeLimitEvent] = [],
+                     live: Bool, now: Date) -> UsageWindow {
+        // 和这个窗口的官方读数对不上的限流消息（多半是别的账号，或者额度变了）不用，见 limitEvidenceFloor
+        func matchesOfficial(_ limit: ClaudeLimitEvent) -> Bool {
+            let start = limit.resetsAt.addingTimeInterval(-duration)
+            let readings = series.filter { $0.time >= start && $0.time < limit.resetsAt && $0.time <= now }
+            if let after = readings.last(where: { $0.time > limit.time }) {
+                return after.value >= Self.limitEvidenceFloor
+            }
+            guard let before = readings.last else { return true }  // 这个窗口里还没有官方读数，没法核对
+            var local = 0.0
+            for r in requests where r.time > before.time && r.time <= limit.time {
+                local += percentOf(r)
+            }
+            return before.value + local * scale >= Self.limitEvidenceFloor
+        }
+        // 恢复时间不会比限流晚一个窗口以上，超出的当成格式变了，不用
+        let limits = limits.filter {
+            $0.time <= now && $0.resetsAt > $0.time && $0.resetsAt <= $0.time.addingTimeInterval(duration) && matchesOfficial($0)
+        }
+        let limit = limits.last.flatMap { now < $0.resetsAt ? $0 : nil }  // 还在限流中
+
         var current: InferredWindow?
         var lastReset: Date?
-        if let anchor = resetAnchor {
+        if let limit {
+            current = InferredWindow(start: limit.resetsAt.addingTimeInterval(-duration), end: limit.resetsAt)
+            lastReset = current?.start
+        } else if let anchor = resetAnchor {
             let periods = (now.timeIntervalSince(anchor) / duration).rounded(.down) + 1
             let end = anchor.addingTimeInterval(periods * duration)
             current = InferredWindow(start: end.addingTimeInterval(-duration), end: end)
             lastReset = current?.start
         } else {
-            let inferred = WindowInference.infer(samples: series, activity: requests.map(\.time), duration: duration, now: now)
+            let inferred = WindowInference.infer(samples: series, activity: requests.map(\.time), duration: duration, now: now,
+                                                 knownResets: limits.map(\.resetsAt))
             current = inferred.current
             lastReset = inferred.lastReset
         }
@@ -142,6 +175,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         var percent = 0.0
         var official: Double?
         var officialAt: Date?
+        var limitReported = false
         if let last = series.last, lastReset.map({ $0 <= last.time }) ?? true {
             // 最近的官方读数还属于当前窗口
             official = last.value
@@ -151,8 +185,18 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             // 读数之后窗口已经重置过了，只能从窗口开始累计本机用量
             percent = added(after: window.start, including: true)
         }
-        // 只有官方读数能宣布「用完了」：估算最多到 99%，免得宠物误睡、误发限流提醒
-        if (official ?? 0) < 100 { percent = min(percent, 99) }
+        if let limit {
+            // 服务器已经说用完了：官方读数不到 100（读数比限流早，或者只差一点）就以限流消息为准
+            if (official ?? 0) < 100 {
+                official = 100
+                officialAt = limit.time
+                limitReported = true
+            }
+            percent = max(percent, 100)
+        } else if (official ?? 0) < 100 {
+            // 只有官方读数或限流消息能宣布「用完了」：估算最多到 99%，免得宠物误睡、误发限流提醒
+            percent = min(percent, 99)
+        }
 
         // 5 小时窗口看最近 30 分钟的速度；每周窗口看最近 24 小时，不然一会儿猛用就会误报「几小时后用完」
         let lookback: TimeInterval = duration > 86400 ? 86400 : 1800
@@ -163,7 +207,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         }
 
         return UsageWindow(id: id, title: title, shortTitle: shortTitle, duration: duration, percent: percent,
-                           official: official, officialAt: officialAt, startedAt: current?.start,
+                           official: official, officialAt: officialAt, limitReported: limitReported, startedAt: current?.start,
                            resetsAt: current?.end, burnPerHour: burn, burnLookback: lookback)
     }
 

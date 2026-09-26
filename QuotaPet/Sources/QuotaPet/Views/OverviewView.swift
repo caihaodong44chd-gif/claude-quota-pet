@@ -111,7 +111,10 @@ struct OverviewView<Pet: View>: View {
 
     private func sourceLine(now: Date) -> String {
         guard let snapshot, snapshot.hasData else { return "只读本机文件，不联网、不读登录凭据" }
-        guard snapshot.officialAt != nil else { return "暂无官方读数，数值全部是本机估算" }
+        guard snapshot.officialAt != nil else {
+            return snapshot.windows.contains(where: \.limitReported)
+                ? "暂无桌面端的官方读数：「用完了」是 Claude Code 报告的，其余是本机估算" : "暂无官方读数，数值全部是本机估算"
+        }
         return "Claude 桌面端每 15 分钟记一次官方读数，\(nextOfficialText(now: now))"
     }
 
@@ -179,7 +182,9 @@ struct WindowCard: View {
         if window.official != nil || extra >= 0.5 {
             HStack(spacing: 12) {
                 if let official = window.official, let at = window.officialAt {
-                    LegendItem(color: tint, text: "官方 \(Int(official))%（\(Fmt.ago(at, now: now))）")
+                    LegendItem(color: tint, text: window.limitReported
+                               ? "Claude Code 报告用完了（\(Fmt.ago(at, now: now))）"
+                               : "官方 \(Int(official))%（\(Fmt.ago(at, now: now))）")
                 }
                 if extra >= 0.5 {
                     LegendItem(color: tint.opacity(0.4),

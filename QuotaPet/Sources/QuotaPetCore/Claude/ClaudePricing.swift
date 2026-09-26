@@ -58,6 +58,10 @@ public enum ClaudePricing {
         .haiku: ModelPrice(input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.10, output: 5),
     ]
 
+    /// 缓存读在额度里大约只算 API 价格的一半。与 usage_lab.py 的 CACHE_READ_WEIGHT 保持一致。
+    /// 长对话里缓存读占的成本很大，按原价算的话，换算率会随上下文变长一路漂高（产品规划第 7 节）。
+    public static let cacheReadQuotaWeight = 0.5
+
     /// API 等价花费（美元）
     public static func cost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
         guard let p = prices[family] else { return 0 }
@@ -68,18 +72,28 @@ public enum ClaudePricing {
             + Double(t.output) * p.output
         return sum / 1e6
     }
+
+    /// 其中缓存读的部分（美元）
+    public static func cacheReadCost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
+        Double(t.cacheRead) * (prices[family]?.cacheRead ?? 0) / 1e6
+    }
+
+    /// 额度加权花费：API 等价花费，但缓存读打折。实时估算和学习换算率都用它
+    public static func quotaCost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
+        cost(family, t) - (1 - cacheReadQuotaWeight) * cacheReadCost(family, t)
+    }
 }
 
-/// 美元 ↔ 额度百分比的换算率。所有模型用同一个数：实测额度大致和 API 价格成正比。
+/// 额度加权花费（见 ClaudePricing.quotaCost）↔ 额度百分比的换算率。所有模型用同一个数：实测额度大致和 API 价格成正比。
 ///
-/// 起始值来自 2026-09-25～26 的回归（18 个 15 分钟区间，留一法比较）：一个统一系数误差最小（3.4 个百分点），
-/// 按模型分、按思考程度分、思考 token 单独算都更差；纯 Opus xhigh 和纯 Opus max 都是 $0.349 / 1%，
-/// 说明思考程度的影响已经体现在思考 token 里（按输出计费）。
+/// 2026-09-25～26 的回归（18 个 15 分钟区间，留一法比较）：一个统一系数比按模型分、按思考程度分、思考 token 单独算都准；
+/// 纯 Opus xhigh 和纯 Opus max 都是 $0.349 / 1%，说明思考程度的影响已经体现在思考 token 里（按输出计费）。
+/// 唯一要单独算的是缓存读（打折，见 cacheReadQuotaWeight），起始值也是按加权花费算的。
 /// 之后 App 会从持续记录的区间里自动学习（RateLearner），这两个数只在记录不够时用。
 public struct ClaudeRates: Codable, Equatable, Sendable {
-    /// 每 1% 的 5 小时额度 ≈ 多少美元 API 用量
+    /// 每 1% 的 5 小时额度 ≈ 多少美元额度加权花费
     public var usdPerSessionPercent: Double
-    /// 每 1% 的每周额度 ≈ 多少美元 API 用量
+    /// 每 1% 的每周额度 ≈ 多少美元额度加权花费
     public var usdPerWeeklyPercent: Double
 
     public init(usdPerSessionPercent: Double, usdPerWeeklyPercent: Double) {
@@ -87,6 +101,6 @@ public struct ClaudeRates: Codable, Equatable, Sendable {
         self.usdPerWeeklyPercent = usdPerWeeklyPercent
     }
 
-    /// $0.31 / 1%；每周 = $0.31 ÷ 0.124（usage_lab ratio：1% 的 5 小时额度 ≈ 0.124% 的每周额度）
-    public static let starting = ClaudeRates(usdPerSessionPercent: 0.31, usdPerWeeklyPercent: 2.5)
+    /// 5 小时 $0.27 / 1%，每周 $2.0 / 1%
+    public static let starting = ClaudeRates(usdPerSessionPercent: 0.27, usdPerWeeklyPercent: 2.0)
 }

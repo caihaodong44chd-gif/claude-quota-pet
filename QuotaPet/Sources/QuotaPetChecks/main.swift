@@ -97,6 +97,11 @@ func logLine(_ id: String, _ ts: String, _ model: String, input: Int = 0, output
     #"{"type":"assistant","timestamp":"\#(ts)","message":{"id":"\#(id)","model":"\#(model)","usage":{"input_tokens":\#(input),"cache_creation_input_tokens":\#(cacheWrite1h),"cache_read_input_tokens":\#(cacheRead),"output_tokens":\#(output),"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":\#(cacheWrite1h)}}}}"#
 }
 
+/// Claude Code 被限流时写的 synthetic 消息，resetsAt = 2026-09-25T06:00:00Z
+func limitLine(_ id: String, _ ts: String) -> String {
+    #"{"type":"assistant","timestamp":"\#(ts)","message":{"id":"\#(id)","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"You've hit your session limit"}]},"quotaLimits":{"status":"rejected","resetsAt":1790316000,"rateLimitType":"five_hour"},"error":"rate_limit","isApiErrorMessage":true}"#
+}
+
 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-check-\(UUID().uuidString)")
 let project = tmp.appendingPathComponent("-Users-me-demo")
 try! FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -108,6 +113,9 @@ let content = [
     #"{"type":"user","timestamp":"2026-09-25T02:01:00.000Z","message":{"role":"user","content":"how is my \"usage\""}}"#,
     logLine("m2", "2026-09-25T02:02:00.000Z", "<synthetic>", input: 1, output: 1),
     logLine("m3", "2026-09-25T02:03:00.000Z", "claude-haiku-4-5", input: 1000, output: 2000),
+    limitLine("m5", "2026-09-25T02:05:00.000Z"),
+    limitLine("m6", "2026-09-25T02:06:00.000Z"),  // 限流中又重试了一次
+    #"{"type":"user","timestamp":"2026-09-25T02:07:00.000Z","message":{"role":"user","content":"\"quotaLimits\":{\"status\":\"rejected\"}"}}"#,
     String(sonnetLine.prefix(40)),  // Claude Code 还没写完的半行
 ].joined(separator: "\n")
 try! content.write(to: file, atomically: true, encoding: .utf8)
@@ -119,6 +127,10 @@ let m1 = requests.first { $0.id == "m1" }
 check(m1?.tokens == TokenCounts(input: 10, cacheWrite1h: 2000, cacheRead: 5000, output: 1000), "同一响应各字段取最大值")
 // opus：10×4 + 2000×8 + 5000×0.2 + 1000×20 = 37040 / 1e6
 check(near(m1?.usd, 0.03704), "opus 成本：\(m1?.usd ?? -1)")
+check(near(m1?.cacheReadUSD, 0.001) && near(m1?.quotaUSD, 0.03654), "额度加权花费：缓存读 $0.001 按半价算：\(m1?.quotaUSD ?? -1)")
+check(scanner.limitEvents == [ClaudeLimitEvent(time: ClaudeTranscriptScanner.parseDate("2026-09-25T02:05:00.000Z")!, window: "five_hour",
+                                               resetsAt: Date(timeIntervalSince1970: 1790316000))],
+      "限流消息：重试的去重、留最早那条，用户消息里的同名文字不算：\(scanner.limitEvents)")
 
 let handle = try! FileHandle(forWritingTo: file)
 handle.seekToEndOfFile()
@@ -129,8 +141,8 @@ check(requests.count == 3 && requests.last?.family == .sonnet, "增量读取：�
 check(near(requests.last?.usd, 0.10), "sonnet 1 万输出 tokens = $0.10")
 try? FileManager.default.removeItem(at: tmp)
 
-check(ClaudeRates.starting.usdPerSessionPercent == 0.31 && near(ClaudeRates.starting.usdPerWeeklyPercent, 2.5),
-      "起始换算率：5 小时 $0.31 / 1%，每周 $2.5 / 1%")
+check(ClaudeRates.starting.usdPerSessionPercent == 0.27 && ClaudeRates.starting.usdPerWeeklyPercent == 2.0,
+      "起始换算率：5 小时 $0.27 / 1%，每周 $2.0 / 1%")
 /// 下面的估算测试用 $0.117 / 1%，数字好算
 let testRate = 0.117
 
@@ -171,6 +183,19 @@ do {  // 每周：桌面端最早的读数是 0，说明更早的窗口都结束
     check(r.current?.start == at(23, 17, 58), "每周窗口从读数为 0 之后的第一次使用开始：\(String(describing: r.current))")
 }
 
+do {  // 限流消息给出精确的重置时间：14:00（按第一次使用推的话是 14:15）
+    let activity = [at(20, 9, 15), at(20, 11), at(20, 14, 5)]
+    let r = WindowInference.infer(samples: [], activity: activity, duration: fiveHours, now: at(20, 14, 10), knownResets: [at(20, 14)])
+    check(r.lastReset == at(20, 14) && r.current?.start == at(20, 14, 5), "14:00 重置后，14:05 的使用开启新窗口：\(r)")
+    let guess = WindowInference.infer(samples: [], activity: activity, duration: fiveHours, now: at(20, 14, 10))
+    check(guess.current?.start == at(20, 9, 15), "没有限流消息时，14:05 还算在旧窗口里")
+    // 桌面端读数 100 → 0 只能说明重置在两次读数之间（取中点 13:10），有精确时间就用精确的
+    let samples = [S(time: at(20, 12), value: 100), S(time: at(20, 14, 20), value: 0)]
+    let r2 = WindowInference.infer(samples: samples, activity: [at(20, 9, 15)], duration: fiveHours, now: at(20, 14, 30),
+                                   knownResets: [at(20, 14)])
+    check(r2.lastReset == at(20, 14) && r2.current == nil, "读数跳变区间里的精确重置时间：\(r2)")
+}
+
 // MARK: - 官方读数 + 实时估算
 
 do {
@@ -194,6 +219,34 @@ do {
     let capped = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
                                       requests: heavy, scale: 1, percentOf: percentOf, resetAnchor: nil, live: true, now: at(25, 23, 40))
     check(near(capped.percent, 99), "估算不能宣布用完：官方没到 100% 时最多 99%：\(capped.percent)")
+
+    // 撞线：14:30 官方 85%，14:45 Claude Code 报告限流，18:00 恢复
+    let before = [S(time: at(20, 14, 30), value: 85)]
+    let work = [opus(at(20, 14, 35), usd: 0.117 * 5)]
+    let hit = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 18))
+    func limited(_ series: [S], _ reqs: [ClaudeRequest], _ limits: [ClaudeLimitEvent], now: Date) -> UsageWindow {
+        provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series, requests: reqs,
+                             scale: 1, percentOf: percentOf, resetAnchor: nil, limits: limits, live: true, now: now)
+    }
+    let asleep = limited(before, work, [hit], now: at(20, 14, 50))
+    check(near(asleep.percent, 100) && asleep.official == 100 && asleep.officialAt == at(20, 14, 45) && asleep.limitReported,
+          "限流消息能宣布用完：\(asleep.percent)")
+    check(asleep.startedAt == at(20, 13) && asleep.resetsAt == at(20, 18), "窗口按限流消息里的恢复时间算")
+    check(near(limited(before, work, [], now: at(20, 14, 50)).percent, 90, 1e-3), "没有限流消息时还是 85% + 本机 5%")
+    let bought = limited(before + [S(time: at(20, 14, 55), value: 60)], work, [hit], now: at(20, 15))
+    check(near(bought.percent, 60), "限流之后官方读数明显不到 100（别的账号 / 额度变了）就以官方为准：\(bought.percent)")
+    let stale = limited(before + [S(time: at(20, 14, 48), value: 97)], work, [hit], now: at(20, 14, 50))
+    check(near(stale.percent, 100) && stale.limitReported, "限流之后的读数只差一点（取整、读得早）还是算用完")
+    let confirmed = limited(before + [S(time: at(20, 14, 46), value: 100)], work, [hit], now: at(20, 14, 50))
+    check(near(confirmed.percent, 100) && confirmed.officialAt == at(20, 14, 46) && !confirmed.limitReported, "桌面端也读到 100 时用桌面端的读数")
+    let other = limited([S(time: at(20, 14, 30), value: 20)], work, [hit], now: at(20, 14, 50))
+    check(near(other.percent, 25, 1e-3) && other.resetsAt == at(20, 19, 35), "官方 20% + 本机 5% 离 100 太远：多半是别的账号撞线，不用：\(other.percent)")
+    let closed = limited([], work, [hit], now: at(20, 14, 50))
+    check(near(closed.percent, 100) && closed.resetsAt == at(20, 18), "这个窗口里没有官方读数时没法核对，相信限流消息")
+    let later = limited(before, work + [opus(at(20, 18, 2), usd: 0.117 * 2)], [hit], now: at(20, 18, 10))
+    check(later.official == nil && near(later.percent, 2, 1e-3) && later.startedAt == at(20, 18, 2), "恢复之后从新窗口重新算：\(later)")
+    let bogus = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 20))
+    check(near(limited(before, work, [bogus], now: at(20, 14, 50)).percent, 90, 1e-3), "恢复时间比限流晚 5 小时以上的不可信，不用")
 
     let manual = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
@@ -228,6 +281,15 @@ do {
     check(intervals.last?.sessionDelta == nil && intervals.last?.weeklyDelta == 0, "重置过的区间没有 5 小时增量")
     check(UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 16)).isEmpty, "刚结束 2 分钟内的区间先不记")
 
+    // opus：100 万缓存读 $0.2 + 1 万输出 $0.2 = $0.4，缓存读半价 → 额度加权 $0.3
+    let cached = ClaudeRequest(id: "c", time: at(25, 10, 5), family: .opus, tokens: TokenCounts(cacheRead: 1_000_000, output: 10_000))
+    let withCache = UsageInterval.extract(samples: Array(samples.prefix(2)), requests: [cached], now: at(25, 14)).first
+    check(near(withCache?.usd, 0.4) && near(withCache?.cacheReadUSD, 0.2) && near(withCache?.quotaUSD, 0.3), "区间的额度加权花费：\(String(describing: withCache))")
+    var legacy = intervals[0]
+    legacy.cacheReadUSD = nil
+    check(legacy.quotaUSD == nil && RateLearner.learn([legacy], delta: \.sessionDelta, prior: 0.31).intervals == 0,
+          "旧版本记下的区间没有缓存读花费，不参与学习")
+
     let fit = RateLearner.learn(intervals, delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
     check(near(fit.usdPerPercent, 0.30, 1e-3) && fit.intervals == 2, "换算率 = 本机花费 $3 ÷ 官方增量 10%：\(fit)")
     let cold = RateLearner.learn([], delta: \.sessionDelta, prior: 0.31)
@@ -236,7 +298,10 @@ do {
     older.end = at(20, 10); older.usd = 2.0; older.sessionFrom = 0; older.sessionTo = 4   // 5 天前：$0.5 / 1%
     newer.end = at(25, 10); newer.usd = 0.8; newer.sessionFrom = 0; newer.sessionTo = 4   // 最近：$0.2 / 1%
     let recency = RateLearner.learn([older, newer], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
-    check(recency.usdPerPercent < 0.26, "越近的记录权重越大：\(recency.usdPerPercent)")
+    check(recency.usdPerPercent < 0.21, "越近的记录权重越大：\(recency.usdPerPercent)")
+    older.end = at(25, 4)  // 早 6 小时 = 两个半衰期，权重 1/4：(0.5 + 0.8) ÷ (1 + 4)
+    let halfLife = RateLearner.learn([older, newer], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
+    check(near(halfLife.usdPerPercent, 0.26, 1e-4), "半衰期 3 小时：\(halfLife.usdPerPercent)")
 
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-archive-\(UUID().uuidString)")
     let url = dir.appendingPathComponent("intervals.jsonl")
@@ -245,6 +310,16 @@ do {
     let reopened = IntervalArchive(url: url)
     check(reopened.intervals == intervals, "重启后记录能原样读回来")
     check(reopened.merge(intervals) == 0, "重启后也不会重复记录")
+    var old = intervals[0], other = intervals[1]
+    old.cacheReadUSD = nil
+    other.cacheReadUSD = nil
+    other.usd += 1  // 本机日志已经对不上了
+    let legacyURL = dir.appendingPathComponent("legacy.jsonl")
+    IntervalArchive(url: legacyURL).merge([old, other])
+    let upgraded = IntervalArchive(url: legacyURL)
+    check(upgraded.merge(intervals) == 2, "补全旧记录（1 条）+ 新记录（1 条），对不上的旧记录不动")
+    let reread = IntervalArchive(url: legacyURL).intervals
+    check(reread.count == 3 && reread[0] == intervals[0] && reread[1].cacheReadUSD == nil, "读回来时以补全后的那行为准")
     try? FileManager.default.removeItem(at: dir)
 }
 

@@ -29,6 +29,14 @@ enum DumpCommand {
         }
         print("")
 
+        if !provider.scanner.limitEvents.isEmpty {
+            print("最近的限流消息（Claude Code 日志）：")
+            for l in provider.scanner.limitEvents.suffix(3) {
+                print("  \(Fmt.clock(l.time, now: now))  \(l.window) 用完，\(Fmt.clock(l.resetsAt, now: now)) 恢复")
+            }
+            print("")
+        }
+
         for w in snap.windows {
             var line = "\(w.title)：\(Fmt.percent(w.percent))"
             if let o = w.official, let t = w.officialAt {
@@ -58,7 +66,7 @@ enum DumpCommand {
         }
 
         if let e = snap.estimation {
-            print(String(format: "换算率：5 小时每 1%% ≈ $%.3f，每周每 1%% ≈ $%.2f", e.sessionUSDPerPercent, e.weeklyUSDPerPercent))
+            print(String(format: "换算率：5 小时每 1%% ≈ $%.3f，每周每 1%% ≈ $%.2f（缓存读按半价算）", e.sessionUSDPerPercent, e.weeklyUSDPerPercent))
             let learned = e.learnedIntervals > 0 ? "从 \(e.learnedIntervals) 段有用量的记录里学到" : "记录不够，用起始值"
             print("  \(learned)；一共记录了 \(e.recordedIntervals) 段 → \(IntervalArchive.defaultURL.path)")
         }

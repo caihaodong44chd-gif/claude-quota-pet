@@ -14,6 +14,7 @@
     python3 usage_lab.py snap FH SD [--note 文字]   手动记一个额度快照（5小时% 每周%）
     python3 usage_lab.py ratio                       每周%/5小时% 的换算比
     python3 usage_lab.py calibrate --since ISO时间   回归 + 每周额度估算
+    python3 usage_lab.py backtest                    按 App 的学习方式逐区间回测实时估算
 """
 import argparse
 import collections
@@ -36,6 +37,10 @@ PRICES = {
     "sonnet": (2, 2.5, 4, 0.20, 10),
     "haiku": (1, 1.25, 2, 0.10, 5),
 }
+# 缓存读在额度里大约只算 API 价格的一半（与 ClaudePricing.cacheReadQuotaWeight 一致）
+CACHE_READ_WEIGHT = 0.5
+# 起始换算率，额度加权美元 / 1%（与 ClaudeRates.starting 一致）
+STARTING = {"fh": 0.27, "sd": 2.0}
 FIELDS = ("inp", "cw5", "cw1h", "cr", "out")
 FIELD_NAMES = {"inp": "输入", "cw5": "缓存写5m", "cw1h": "缓存写1h", "cr": "缓存读", "out": "输出"}
 
@@ -50,6 +55,11 @@ def family(model):
 def cost(fam, tok):
     p = PRICES[fam]
     return sum(tok[k] * p[i] for i, k in enumerate(FIELDS)) / 1e6
+
+
+def quota_cost(fam, tok, weight=CACHE_READ_WEIGHT):
+    """额度加权花费：缓存读打折，和 App 的实时估算一样"""
+    return cost(fam, tok) - (1 - weight) * tok["cr"] * PRICES[fam][3] / 1e6
 
 
 def parse_ts(s):
@@ -214,9 +224,9 @@ def cmd_calibrate(args):
     print(f"{'快照时间':<16}{'5h%':>5}{'周%':>5}  " + "".join(f"{f + '$':>9}" for f in fams) + "   备注")
     for s in snaps:
         tok, _ = bucket(reqs, base_t, s[0])
-        x = [cost(f, tok[f]) for f in fams]
+        x = [quota_cost(f, tok[f]) for f in fams]
         rows.append(x + [1.0])  # 截距吸收起始点的取整误差
-        ys.append(s[1] - sum(cost(f, tok[f]) / per for f, per in known.items()))
+        ys.append(s[1] - sum(quota_cost(f, tok[f]) / per for f, per in known.items()))
         print(f"{fmt_ts(s[0]):<16}{s[1]:>5}{s[2]:>5}  " + "".join(f"{v:>9.3f}" for v in x) + f"   {s[3]}")
     coef = lstsq(rows, ys)
     resid = [y - sum(c * v for c, v in zip(coef, r)) for r, y in zip(rows, ys)]
@@ -237,14 +247,48 @@ def cmd_calibrate(args):
         week = window / (100 * ratio) * 100  # 满周额度 ≈ $
         p = PRICES[f]
         t = tok_all[f]
-        mix_cost = cost(f, t)
+        mix_cost = quota_cost(f, t)
         mix_tok = sum(t.values())
-        print(f"【{f}】 1% 5小时额度 ≈ ${per_pct:.3f}   满 5 小时窗口 ≈ ${window:.1f}   满周 ≈ ${week:.0f}（API 等价）")
+        print(f"【{f}】 1% 5小时额度 ≈ ${per_pct:.3f}   满 5 小时窗口 ≈ ${window:.1f}   满周 ≈ ${week:.0f}（缓存读按 {CACHE_READ_WEIGHT:g} 倍算）")
         print(f"   换成纯输出 tokens：5小时 ≈ {window / p[4] * 1e6:,.0f}   每周 ≈ {week / p[4] * 1e6:,.0f}")
         print(f"   换成纯新输入 tokens：5小时 ≈ {window / p[0] * 1e6:,.0f}   每周 ≈ {week / p[0] * 1e6:,.0f}")
         if mix_cost > 0:
             print(f"   按本次实验的实际 token 构成（含缓存）：每周 ≈ {week / mix_cost * mix_tok:,.0f} tokens")
         print()
+
+
+def cmd_backtest(args):
+    """每个 15 分钟区间结束时，用之前的区间学到的换算率估算这段的官方增量，和实际增量比。
+    学习方式同 RateLearner：Σ权重×加权花费 ÷ Σ权重×增量，权重按半衰期从最近一个区间往前算，加 $2 的先验。"""
+    reqs = load_requests()
+    snaps = [s for s in load_snapshots() if s[3] == "desktop"]
+    for col, name in ((1, "5 小时"), (2, "每周")):
+        prior = STARTING["fh" if col == 1 else "sd"]
+        done, errs, stale, down = [], [], [], 0
+        for a, b in zip(snaps, snaps[1:]):
+            if b[0] - a[0] > 20 * 60 or b[col] < a[col]:  # 桌面端没开 / 窗口重置了
+                continue
+            tok, _ = bucket(reqs, a[0], b[0])
+            if sum(cost(f, t) for f, t in tok.items()) < 0.02:  # 本机没在用
+                continue
+            usd = sum(quota_cost(f, t, args.cache_weight) for f, t in tok.items())
+            spent, gained = 2.0, 2.0 / prior
+            for end, u, d in done:
+                w = 0.5 ** ((done[-1][0] - end) / (args.half_life * 3600))
+                spent, gained = spent + w * u, gained + w * d
+            est, actual = usd / (spent / gained), b[col] - a[col]
+            errs.append(abs(est - actual))
+            stale.append(actual)
+            down += actual - est < -1
+            done.append((b[0], usd, actual))
+        if not done:
+            print(f"{name}：没有可用的区间")
+            continue
+        n = len(errs)
+        print(f"{name}：{n} 个区间，缓存读 ×{args.cache_weight:g}，半衰期 {args.half_life:g} 小时")
+        print(f"  区间结束时只看上次官方读数：平均差 {sum(stale) / n:.2f} 个百分点")
+        print(f"  实时估算：平均差 {sum(errs) / n:.2f}，最大 {max(errs):.1f}；官方读数比估算低 1 点以上（数字往回跳）{down} 次")
+        print(f"  全部区间合起来：每 1% ≈ ${sum(u for _, u, _ in done) / max(1, sum(d for _, _, d in done)):.3f}（重新定起始值时用）")
 
 
 def main():
@@ -260,6 +304,8 @@ def main():
     s.add_argument("--known", nargs="*", default=[], metavar="模型=$每1%%",
                    help="已知速率的模型，例如 opus=0.266，其消耗会先从额度变化里扣掉")
     s.set_defaults(fn=cmd_calibrate)
+    s = sub.add_parser("backtest"); s.add_argument("--cache-weight", type=float, default=CACHE_READ_WEIGHT)
+    s.add_argument("--half-life", type=float, default=3, help="小时"); s.set_defaults(fn=cmd_backtest)
     args = ap.parse_args()
     args.fn(args)
 

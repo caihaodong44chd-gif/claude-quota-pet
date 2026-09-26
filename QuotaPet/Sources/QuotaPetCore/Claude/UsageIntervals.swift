@@ -13,6 +13,8 @@ public struct UsageInterval: Codable, Equatable, Sendable {
     /// 本机 Claude Code 在这段时间里的请求数和 API 等价花费
     public var requests: Int
     public var usd: Double
+    /// usd 里缓存读的部分；旧版本记下的区间没有这一项
+    public var cacheReadUSD: Double?
     /// 按「模型/思考程度」分的花费，比如 "opus/max"
     public var usdByGroup: [String: Double]
     public var outputTokens: Int
@@ -20,6 +22,8 @@ public struct UsageInterval: Codable, Equatable, Sendable {
 
     /// 这段时间里官方读数涨了多少；中间重置过就是 nil
     public var sessionDelta: Double? { Self.delta(sessionFrom, sessionTo) }
+    /// 额度加权花费（缓存读打折，见 ClaudePricing.cacheReadQuotaWeight）；旧记录算不出来，是 nil
+    public var quotaUSD: Double? { cacheReadUSD.map { usd - (1 - ClaudePricing.cacheReadQuotaWeight) * $0 } }
     public var weeklyDelta: Double? { Self.delta(weeklyFrom, weeklyTo) }
 
     static func delta(_ from: Double?, _ to: Double?) -> Double? {
@@ -37,7 +41,7 @@ public struct UsageInterval: Codable, Equatable, Sendable {
             guard span > 0, span <= 20 * 60, b.time <= now.addingTimeInterval(-120) else { continue }
             while first < requests.count, requests[first].time <= a.time { first += 1 }
             var interval = UsageInterval(start: a.time, end: b.time, sessionFrom: a.session, sessionTo: b.session,
-                                         weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0,
+                                         weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0, cacheReadUSD: 0,
                                          usdByGroup: [:], outputTokens: 0, thinkingTokens: 0)
             var i = first
             while i < requests.count, requests[i].time <= b.time {
@@ -45,6 +49,7 @@ public struct UsageInterval: Codable, Equatable, Sendable {
                 let usd = r.usd
                 interval.requests += 1
                 interval.usd += usd
+                interval.cacheReadUSD? += r.cacheReadUSD
                 interval.usdByGroup[r.group, default: 0] += usd
                 interval.outputTokens += r.tokens.output
                 interval.thinkingTokens += r.thinkingTokens
@@ -77,13 +82,13 @@ public final class IntervalArchive {
         return byEnd.values.sorted { $0.end < $1.end }
     }
 
-    /// 合并新切出来的区间，没记过的追加到文件末尾；返回新增了几条
+    /// 合并新切出来的区间，没记过的（或者能补全旧记录的）追加到文件末尾；返回写了几条
     @discardableResult
     public func merge(_ newIntervals: [UsageInterval]) -> Int {
         load()
         var lines = Data()
         var added = 0
-        for interval in newIntervals where byEnd[Self.key(interval)] == nil {
+        for interval in newIntervals where byEnd[Self.key(interval)].map({ Self.canUpgrade($0, to: interval) }) ?? true {
             byEnd[Self.key(interval)] = interval
             guard let line = try? Self.encoder.encode(interval) else { continue }
             lines.append(line)
@@ -113,6 +118,12 @@ public final class IntervalArchive {
         defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: lines)
+    }
+
+    /// 旧版本记下的区间没有缓存读花费。本机日志还在（花费对得上）时，用新切出来的再记一行；
+    /// 读回来时同一段以后面那行为准，所以文件还是只追加
+    static func canUpgrade(_ old: UsageInterval, to new: UsageInterval) -> Bool {
+        old.cacheReadUSD == nil && new.cacheReadUSD != nil && abs(old.usd - new.usd) < 0.01
     }
 
     static func key(_ interval: UsageInterval) -> Int64 {

@@ -22,6 +22,8 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// 最近一次官方读数（整数）和读数时间；读数属于已经重置掉的旧窗口时为 nil
     public var official: Double?
     public var officialAt: Date?
+    /// official 是 Claude Code 限流消息报告的「用完了」，不是桌面端的读数
+    public var limitReported: Bool
     /// 当前窗口的开始 / 重置时间（推算值）；窗口还没开始时为 nil
     public var startedAt: Date?
     public var resetsAt: Date?
@@ -31,7 +33,7 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     public var burnLookback: TimeInterval
 
     public init(id: String, title: String, shortTitle: String, duration: TimeInterval, percent: Double,
-                official: Double? = nil, officialAt: Date? = nil, startedAt: Date? = nil,
+                official: Double? = nil, officialAt: Date? = nil, limitReported: Bool = false, startedAt: Date? = nil,
                 resetsAt: Date? = nil, burnPerHour: Double? = nil, burnLookback: TimeInterval = 1800) {
         self.id = id
         self.title = title
@@ -40,6 +42,7 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
         self.percent = percent
         self.official = official
         self.officialAt = officialAt
+        self.limitReported = limitReported
         self.startedAt = startedAt
         self.resetsAt = resetsAt
         self.burnPerHour = burnPerHour

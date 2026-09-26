@@ -70,10 +70,10 @@ make install    # 编译，装到 ~/Applications，并打开开机自启
 |---|---|
 | 官方 5 小时 / 每周 % | Claude 桌面端每 15 分钟写一次的 `~/Library/Application Support/Claude/plan-usage-history.json` |
 | 两次读数之间的变化 | Claude Code 的本机日志 `~/.claude/projects/**/*.jsonl`：按 API 价格折成美元，再用自动学到的换算率换成百分比 |
-| 重置时间 | 推算：窗口从上一个窗口结束后的第一次使用开始计时 |
+| 重置时间 | 推算：窗口从上一个窗口结束后的第一次使用开始计时；Claude Code 被限流时，用日志里服务器给的精确恢复时间 |
 
 - 网页端和手机端的用量不在本机日志里，要等下一次官方读数（最多 15 分钟）才会体现。
-- 估算值最多显示到 99%，只有官方读数能宣布「用完了」，免得宠物误睡、误发提醒。
+- 估算值最多显示到 99%，只有官方读数或 Claude Code 的限流消息能宣布「用完了」，免得宠物误睡、误发提醒。
 
 ## 额度实验室
 
@@ -84,9 +84,10 @@ python3 usage_lab.py summary --hours 24             # 最近 24 小时各模型�
 python3 usage_lab.py snap 40 12 --note 实验开始      # 手动记一个额度快照（5 小时 %、每周 %）
 python3 usage_lab.py ratio                          # 每周 % 和 5 小时 % 的换算比
 python3 usage_lab.py calibrate --since 2026-09-25T10:00   # 回归
+python3 usage_lab.py backtest                       # 按 App 的学习方式逐区间回测实时估算
 ```
 
-目前的结论：所有模型用同一个系数最准（约 $0.31 的 API 用量 ≈ 1% 的 5 小时额度），思考程度（effort）不用单独算。实验过程见[产品规划](docs/PRODUCT_PLAN.md)第 7 节。
+目前的结论：所有模型用同一个系数最准，思考程度（effort）不用单独算，但缓存读在额度里只算一半左右（按这个口径，约 $0.27 ≈ 1% 的 5 小时额度）。实验过程见[产品规划](docs/PRODUCT_PLAN.md)第 7 节。
 
 ## 目录
 

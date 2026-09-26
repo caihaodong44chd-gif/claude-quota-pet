@@ -22,12 +22,39 @@ public struct ClaudeRequest: Equatable, Sendable {
 
     /// API 等价花费（美元）
     public var usd: Double { ClaudePricing.cost(family, tokens) }
+    /// 其中缓存读的部分
+    public var cacheReadUSD: Double { ClaudePricing.cacheReadCost(family, tokens) }
+    /// 额度加权花费（缓存读打折），换算成百分比用它
+    public var quotaUSD: Double { ClaudePricing.quotaCost(family, tokens) }
 
     /// 「模型/思考程度」，比如 "opus/max"
     public var group: String { "\(family.rawValue)/\(effort ?? "-")" }
 }
 
-/// 增量读取 ~/.claude/projects/**/*.jsonl 里每个 API 响应的 token 用量。
+/// Claude Code 被限流时写进日志的一条消息（synthetic 占位消息上的 quotaLimits 字段）：
+/// 哪个额度用完了、什么时候恢复。这是服务器的原话，和官方读数一样可以宣布「用完了」。
+public struct ClaudeLimitEvent: Equatable, Sendable {
+    public var time: Date
+    /// 和 UsageWindow.id 一样：five_hour、seven_day。别的类型（比如按模型的每周额度）目前不对应任何窗口
+    public var window: String
+    public var resetsAt: Date
+
+    public init(time: Date, window: String, resetsAt: Date) {
+        self.time = time
+        self.window = window
+        self.resetsAt = resetsAt
+    }
+
+    /// {"status":"rejected","rateLimitType":"five_hour","resetsAt":秒级时间戳,…}；不是「被拒绝」就返回 nil
+    init?(quotaLimits: Any?, time: Date) {
+        guard let q = quotaLimits as? [String: Any], q["status"] as? String == "rejected",
+              let window = q["rateLimitType"] as? String,
+              let resetsAt = (q["resetsAt"] as? NSNumber)?.doubleValue else { return nil }
+        self.init(time: time, window: window, resetsAt: Date(timeIntervalSince1970: resetsAt))
+    }
+}
+
+/// 增量读取 ~/.claude/projects/**/*.jsonl 里每个 API 响应的 token 用量，以及限流消息。
 /// 规则和 usage_lab.py 的 load_requests 一样：一个响应会按内容块拆成多行，
 /// 按 message.id 去重，同一响应的各字段取最大值。
 /// 每个文件只读新追加的部分，Claude Code 边写我们边算。
@@ -47,7 +74,11 @@ public final class ClaudeTranscriptScanner {
 
     private var cursors: [String: Cursor] = [:]
     private var records: [String: ClaudeRequest] = [:]
+    /// 同一次限流会连着重试好几次，按「窗口 + 恢复时间」去重，留最早的那条
+    private var limits: [String: ClaudeLimitEvent] = [:]
     public private(set) var trackedFiles = 0
+    /// 保留期内的限流消息（按时间排序），refresh 之后更新
+    public private(set) var limitEvents: [ClaudeLimitEvent] = []
 
     public init(root: URL = ClaudeTranscriptScanner.defaultRoot, retention: TimeInterval = 8 * 86400) {
         self.root = root
@@ -76,6 +107,8 @@ public final class ClaudeTranscriptScanner {
         cursors = cursors.filter { seen.contains($0.key) }
         trackedFiles = cursors.count
         records = records.filter { $0.value.time >= cutoff }
+        limits = limits.filter { $0.value.time >= cutoff }
+        limitEvents = limits.values.sorted { $0.time < $1.time }
         return records.values.sorted { $0.time < $1.time }
     }
 
@@ -96,14 +129,20 @@ public final class ClaudeTranscriptScanner {
     }
 
     private static let usageMarker = Data("\"usage\"".utf8)
+    private static let quotaMarker = Data("\"quotaLimits\"".utf8)
 
-    /// 解析一行 jsonl；不是带 usage 的 API 响应就忽略
+    /// 解析一行 jsonl；不是带 usage 的 API 响应、也不是限流消息就忽略
     func ingest(line: Data, path: String) {
-        guard line.range(of: Self.usageMarker) != nil,
+        let quota = line.range(of: Self.quotaMarker) != nil
+        guard quota || line.range(of: Self.usageMarker) != nil,
               let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-              let message = obj["message"] as? [String: Any],
+              let stamp = obj["timestamp"] as? String, let time = Self.parseDate(stamp) else { return }
+        if quota, let limit = ClaudeLimitEvent(quotaLimits: obj["quotaLimits"], time: time) {
+            let key = "\(limit.window)@\(limit.resetsAt.timeIntervalSince1970)"
+            if limits[key].map({ $0.time > limit.time }) ?? true { limits[key] = limit }
+        }
+        guard let message = obj["message"] as? [String: Any],
               let usage = message["usage"] as? [String: Any], !usage.isEmpty,
-              let stamp = obj["timestamp"] as? String, let time = Self.parseDate(stamp),
               let family = ModelFamily.of(model: message["model"] as? String)  // 例如 <synthetic> 占位消息会被跳过
         else { return }
 

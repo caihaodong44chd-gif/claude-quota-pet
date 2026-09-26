@@ -63,7 +63,7 @@ struct SettingsView: View {
             }
 
             SettingsGroup("实时估算") {
-                SwitchRow("用本机日志实时估算", subtitle: "两次官方读数之间，按 Claude Code 的用量推算", isOn: $settings.liveEstimate)
+                SwitchRow("用本机日志实时估算", subtitle: "两次官方读数之间，按 Claude Code 的用量推算（缓存读按半价算）", isOn: $settings.liveEstimate)
                 SwitchRow("自动学习换算率", subtitle: "每来一次官方读数就学一次，记录一直存在本机",
                           isOn: $settings.autoLearn)
                     .disabled(!settings.liveEstimate)

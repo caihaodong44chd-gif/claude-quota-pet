@@ -32,6 +32,7 @@ public struct WindowInferenceResult: Equatable, Sendable {
 /// 2. 读数明显下跌说明发生了重置（锚点）。如果推出来的窗口比锚点结束得晚，
 ///    说明窗口其实开始得更早（比如先在网页端用的），以锚点为准。
 /// 3. 桌面端最早的读数是 0 时，当作「在这之前的窗口都结束了」。
+/// 4. 限流消息给出的恢复时间是精确的重置时间（knownResets），优先于上面推出来的。
 public enum WindowInference {
     /// 桌面端大约每 15 分钟记一次
     public static let sampleSpacing: TimeInterval = 15 * 60
@@ -40,6 +41,7 @@ public enum WindowInference {
         let after: Date      // 重置发生在 (after, by] 之间
         let by: Date
         let newUsage: Bool   // 重置后的第一个读数已经 > 0：新窗口也在这段时间里开始了
+        var exact: Date?     // 限流消息给出的精确重置时间
     }
 
     /// 读数从 a 变成 b 算不算一次重置。小幅回落（比如 3 → 1）是噪声，不算。
@@ -48,7 +50,8 @@ public enum WindowInference {
         return drop > 0 && (b == 0 || drop >= max(3, a / 2))
     }
 
-    public static func infer(samples: [UsageSample], activity: [Date], duration: TimeInterval, now: Date) -> WindowInferenceResult {
+    public static func infer(samples: [UsageSample], activity: [Date], duration: TimeInterval, now: Date,
+                             knownResets: [Date] = []) -> WindowInferenceResult {
         let exact = activity.filter { $0 <= now }.sorted()
         var events = exact
         var anchors: [Anchor] = []
@@ -70,6 +73,14 @@ public enum WindowInference {
                 }
             }
         }
+        for reset in knownResets where reset <= now {
+            if let i = anchors.firstIndex(where: { reset > $0.after && reset <= $0.by }) {
+                anchors[i].exact = reset
+            } else {
+                anchors.append(Anchor(after: reset, by: reset, newUsage: false, exact: reset))
+            }
+        }
+        anchors.sort { $0.by < $1.by }
         events.sort()
 
         var start: Date?
@@ -83,9 +94,9 @@ public enum WindowInference {
                 nextAnchor += 1
                 guard let s = start, s <= anchor.after else { continue }
                 let natural = s.addingTimeInterval(duration)
-                let reset = (natural > anchor.after && natural <= anchor.by)
+                let reset = anchor.exact ?? ((natural > anchor.after && natural <= anchor.by)
                     ? natural
-                    : anchor.after.addingTimeInterval(anchor.by.timeIntervalSince(anchor.after) / 2)
+                    : anchor.after.addingTimeInterval(anchor.by.timeIntervalSince(anchor.after) / 2))
                 lastReset = reset
                 start = nil
                 if anchor.newUsage {
