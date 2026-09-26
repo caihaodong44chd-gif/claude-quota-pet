@@ -15,7 +15,6 @@ public enum ProviderID: String, Codable, CaseIterable, Sendable {
 public struct UsageWindow: Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
-    public var shortTitle: String
     public var duration: TimeInterval
     /// 当前百分比 = 最近一次官方读数 + 之后本机用量的实时估算（可能超过 100）
     public var percent: Double
@@ -36,13 +35,12 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// 消耗速度按多长时间算：5 小时窗口看最近 30 分钟，每周窗口看最近 24 小时
     public var burnLookback: TimeInterval
 
-    public init(id: String, title: String, shortTitle: String, duration: TimeInterval, percent: Double,
+    public init(id: String, title: String, duration: TimeInterval, percent: Double,
                 official: Double? = nil, officialAt: Date? = nil, limitReported: Bool = false, startedAt: Date? = nil,
                 resetsAt: Date? = nil, otherPercent: Double = 0, burnPerHour: Double? = nil, otherBurnPerHour: Double? = nil,
                 burnLookback: TimeInterval = 1800) {
         self.id = id
         self.title = title
-        self.shortTitle = shortTitle
         self.duration = duration
         self.percent = percent
         self.official = official

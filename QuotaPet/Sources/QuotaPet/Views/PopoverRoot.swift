@@ -5,6 +5,8 @@ import QuotaPetCore
 final class PopoverState: ObservableObject {
     enum Page { case overview, settings }
     @Published var page: Page = .overview
+    /// 面板最高多高：菜单栏所在的屏幕放得下多少。小屏幕上设置页放不下，超出的部分滚动
+    @Published var maxHeight: CGFloat = .infinity
 }
 
 struct PopoverRoot: View {
@@ -16,6 +18,14 @@ struct PopoverRoot: View {
     var onQuit: () -> Void
 
     var body: some View {
+        ScrollView {  // 内容放得下时 ScrollView 和内容一样高，不会出现滚动条
+            pages
+        }
+        .frame(width: 340)
+        .frame(maxHeight: state.maxHeight)
+    }
+
+    private var pages: some View {
         Group {
             switch state.page {
             case .overview:
@@ -34,7 +44,7 @@ struct PopoverRoot: View {
                              onBack: { state.page = .overview })
             }
         }
-        .frame(width: 340)
+        .id(settings.language)  // 换语言时整个面板重建：输入没变的子视图 SwiftUI 不会重画，文字会停在旧语言
     }
 }
 

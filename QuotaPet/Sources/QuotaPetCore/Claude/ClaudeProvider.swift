@@ -20,6 +20,14 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// （给本机看不到的网页 / 手机用量和估算误差留 25 个点）；别的账号撞线时很难刚好这么高
     static let limitEvidenceFloor = 75.0
 
+    /// 两个窗口的名字，跟着界面语言走（演示模式、预览图也用）
+    public static var sessionTitle: String { tr("5 小时会话", "5-hour session") }
+    public static var weeklyTitle: String { tr("本周额度", "Weekly quota") }
+    public static var missingHistoryNote: String {
+        tr("没找到 Claude 桌面端的额度记录。装好并登录 Claude 桌面端后，它每 15 分钟会记一次官方额度。",
+           "No usage history from the Claude desktop app yet. Once it's installed and signed in, it records your official usage every 15 minutes.")
+    }
+
     public let id = ProviderID.claude
     public let pollInterval: TimeInterval = 60
     public let historyURL: URL
@@ -69,13 +77,16 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         switch loadHistory() {
         case .ok(let s):
             samples = s
-            if s.isEmpty { notes.append("Claude 桌面端还没记录到额度，暂时只能用本机日志估算。") }
+            if s.isEmpty {
+                notes.append(tr("Claude 桌面端还没记录到额度，暂时只能用本机日志估算。",
+                                "The Claude desktop app hasn't recorded any usage yet, so for now everything is estimated from local logs."))
+            }
         case .missing:
             samples = []
-            notes.append("没找到 Claude 桌面端的额度记录。装好并登录 Claude 桌面端后，它每 15 分钟会记一次官方额度。")
+            notes.append(Self.missingHistoryNote)
         case .unreadable(let reason):
             samples = []
-            notes.append("Claude 桌面端的额度记录读不了：\(reason)")
+            notes.append(tr("Claude 桌面端的额度记录读不了：\(reason)", "Can't read the Claude desktop app's usage history: \(reason)"))
         }
         lastRequests = requests
         lastSamples = samples
@@ -99,19 +110,22 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let sessionSeries = samples.compactMap { s in s.session.map { UsageSample(time: s.time, value: $0) } }
         let weeklySeries = samples.compactMap { s in s.weekly.map { UsageSample(time: s.time, value: $0) } }
         let session = buildWindow(
-            id: "five_hour", title: "5 小时会话", shortTitle: "5h", duration: Self.sessionDuration,
+            id: "five_hour", title: Self.sessionTitle, duration: Self.sessionDuration,
             series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
             resetAnchor: nil, limits: limits, live: cfg.liveEstimate, now: now)
         let weekly = buildWindow(
-            id: "seven_day", title: "本周额度", shortTitle: "周", duration: Self.weekDuration,
+            id: "seven_day", title: Self.weeklyTitle, duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
             resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, live: cfg.liveEstimate, now: now)
 
         let officialAt = samples.last?.time
         if let t = officialAt, now.timeIntervalSince(t) > 45 * 60 {
+            let ago = Fmt.ago(t, now: now)
             let rest = [session, weekly].contains { $0.limitReported }
-                ? "「用完了」是 Claude Code 报告的，其余变化是本机估算。" : "之后的变化是本机估算。"
-            notes.append("官方读数停在\(Fmt.ago(t, now: now))（Claude 桌面端没开？），\(rest)")
+                ? tr("「用完了」是 Claude Code 报告的，其余变化是本机估算。", "“Used up” was reported by Claude Code; everything else is a local estimate.")
+                : tr("之后的变化是本机估算。", "Changes since then are local estimates.")
+            notes.append(tr("官方读数停在\(ago)（Claude 桌面端没开？），\(rest)",
+                            "The last official reading was \(ago) (is the Claude desktop app closed?). \(rest)"))
         }
 
         return UsageSnapshot(
@@ -122,7 +136,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
     /// 官方读数 + 读数之后的本机用量 = 当前百分比。本机用量 = Σ percentOf(请求) × scale
     /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准
-    func buildWindow(id: String, title: String, shortTitle: String, duration: TimeInterval,
+    func buildWindow(id: String, title: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
                      percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, fixedCadence: Bool = false,
                      limits: [ClaudeLimitEvent] = [], live: Bool, now: Date) -> UsageWindow {
@@ -221,7 +235,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             burn = added(after: from) * 3600 / max(now.timeIntervalSince(from), lookback / 3) + otherPerHour
         }
 
-        return UsageWindow(id: id, title: title, shortTitle: shortTitle, duration: duration, percent: percent,
+        return UsageWindow(id: id, title: title, duration: duration, percent: percent,
                            official: official, officialAt: officialAt, limitReported: limitReported, startedAt: current?.start,
                            resetsAt: current?.end, otherPercent: other.reduce(0) { $0 + $1.percent },
                            burnPerHour: burn, otherBurnPerHour: otherBurn, burnLookback: lookback)

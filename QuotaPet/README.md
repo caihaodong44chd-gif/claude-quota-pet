@@ -14,7 +14,7 @@ make demo       # 演示模式：假数据，75 秒看完宠物的所有状态
 make install    # 装到 ~/Applications 并开机自启：以后一打开 Claude，宠物就出现
 make dump       # 在终端打印当前额度推算，和 usage_lab.py 对账
 make check      # 跑自检
-make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/previews
+make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/previews（面板、设置页中英各一套）
 ```
 
 第一次启动时，macOS 会问要不要允许「额度宠物」发通知，选允许才能收到用量提醒。
@@ -28,6 +28,7 @@ make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/pre
 - 菜单栏显示 5 小时额度（可以在设置里改成「5h + 周」或「最紧张的窗口」）；75% 以上数字变橙，90% 以上变红。
 - 宠物心情跟着最紧张的那个窗口走：< 50% 元气满满 → 50% 状态不错 → 75% 有点累 → 90% 快撑不住 → 100% 睡着。
 - 被限流时菜单栏改显示恢复倒计时，比如 `1h23m`；额度恢复时会提醒。
+- 界面有简体中文和英文，默认跟随系统语言（系统语言不是这两种时用英文），可以在设置 → 通用 → 语言里改。
 
 设置页（右键 → 设置…）里能改：
 
@@ -36,7 +37,7 @@ make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/pre
 | 菜单栏 | 什么时候出现（Claude 打开时 / 一直显示）、宠物旁边显示什么、宠物动画、单色宠物 |
 | 提醒 | 用量提醒和阈值（50 / 75 / 90 / 100%，默认 75 / 90 / 100）、额度恢复时提醒 |
 | 实时估算 | 用本机日志实时估算、自动学习换算率（能看到当前学到的值）、手动指定每周重置时间 |
-| 通用 | 开机自动启动 |
+| 通用 | 语言（跟随系统 / 简体中文 / English）、开机自动启动 |
 
 ## 菜单栏里看不到宠物？
 
@@ -70,7 +71,8 @@ QuotaPet 第一次启动时会把自己放到最右边、紧挨着时钟，所�
 Sources/
   QuotaPetCore/                 纯逻辑，不依赖 AppKit
     Models.swift                UsageProvider 协议、UsageWindow、UsageSnapshot
-    Formatting.swift            中文时间格式、菜单栏文字
+    Localization.swift          界面语言，tr("中文", "English")
+    Formatting.swift            时间格式（跟着界面语言）、菜单栏文字
     Claude/
       ClaudeDesktopHistory      解析桌面端的官方读数
       ClaudeTranscripts         增量读取 Claude Code 日志（规则同 usage_lab.py）

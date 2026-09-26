@@ -11,6 +11,7 @@ rm -rf "$APP" build/AppIcon.iconset
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/QuotaPet"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp -R Resources/*.lproj "$APP/Contents/Resources/"  # 各语言的 App 名字（访达、通知里显示的）
 
 # 用宠物的像素画生成 App 图标
 "$BIN" --render-icon build/AppIcon.iconset

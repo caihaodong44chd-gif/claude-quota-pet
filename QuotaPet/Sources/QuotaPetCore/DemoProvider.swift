@@ -17,10 +17,10 @@ public final class DemoProvider: UsageProvider, Sendable {
         let weekly = 20 + session * 0.15
         let sessionReset = now.addingTimeInterval(session >= 100 ? 75 - t : 2 * 3600 + 23 * 60)
         let windows = [
-            UsageWindow(id: "five_hour", title: "5 小时会话", shortTitle: "5h", duration: 5 * 3600, percent: session,
+            UsageWindow(id: "five_hour", title: ClaudeProvider.sessionTitle, duration: 5 * 3600, percent: session,
                         official: (session / 5).rounded(.down) * 5, officialAt: now.addingTimeInterval(-240),
                         startedAt: sessionReset.addingTimeInterval(-5 * 3600), resetsAt: sessionReset, burnPerHour: 38),
-            UsageWindow(id: "seven_day", title: "本周额度", shortTitle: "周", duration: 7 * 86400, percent: weekly,
+            UsageWindow(id: "seven_day", title: ClaudeProvider.weeklyTitle, duration: 7 * 86400, percent: weekly,
                         official: weekly.rounded(.down), officialAt: now.addingTimeInterval(-240),
                         startedAt: now.addingTimeInterval(-3 * 86400), resetsAt: now.addingTimeInterval(4 * 86400 + 5 * 3600),
                         burnPerHour: 4),
@@ -30,6 +30,7 @@ public final class DemoProvider: UsageProvider, Sendable {
             byFamily: [FamilyUsage(family: "Opus", requests: 90, usd: 15.1), FamilyUsage(family: "Sonnet", requests: 38, usd: 3.32)],
             lastRequestAt: now)
         return UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-240),
-                             today: today, notes: ["演示模式：数据是假的，75 秒看完宠物的所有状态。"])
+                             today: today, notes: [tr("演示模式：数据是假的，75 秒看完宠物的所有状态。",
+                                                      "Demo mode: the data is fake. Watch every pet mood in 75 seconds.")])
     }
 }

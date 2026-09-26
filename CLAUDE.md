@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make check      # = swift run QuotaPetChecks，唯一的测试
 swift build     # 只编译
-make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews；改界面后用它验证，不用启动 App
+make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套）；改界面后用它验证，不用启动 App
 make dump       # 在终端打印当前额度推算（读真实数据）
 make run / make demo / make install
 ```
@@ -39,6 +39,11 @@ make run / make demo / make install
 - `QuotaPetCore/Pet/PetArt.swift` 是 `design/export_swift.py` 生成的，**不要手改**。改宠物的流程：改 `design/pet_pixel.py` → 运行它出预览图 → 运行 `export_swift.py` 导出（要装 Pillow 和 NumPy）。
   - 可选的形象（经典、猫耳、青春、魔女）在 `design/chibi4.py` 的 `STYLES` 里：可以换发型、饰品、配色、眼睛（`pet_pixel.EYE_SETS`）、嘴和腮红，`SsPW` 的颜色不能改（单色模式靠它们挖空脸）。标了 `draft` 的是设计稿，不导出。加一款要同时在 `PetSprites.swift` 的 `PetStyle` 里加 case。`python3 design/pet_pixel.py styles` 会把各款并排出一张对比图。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
+- 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：
+  - 每句界面文字都写成 `tr("中文", "English")`，两种语言写在一起；新加或改界面文字时两种都要写。英文里的数量用 `plural(n, "day")` 分单复数。
+  - 当前语言在 `L10n.language`，由 `AppSettings.language` 在 willSet 里同步（订阅者要读到新语言）。快照里的窗口名、说明文字是后台按当前语言算的，换语言时 `UsageStore` 会重算，面板用 `.id(settings.language)` 整个重建。
+  - 自检开头固定成中文；「多语言」一节查英文，并检查英文里没混进中文。App 本体的文字自检覆盖不到，改了要看 `make previews` 的 `-en` 图。
+  - `--dump` 是对账工具，固定输出中文。App 在访达、通知里显示的名字在 `Resources/*.lproj/InfoPlist.strings`。
 
 ## 隐私（仓库是公开的）
 

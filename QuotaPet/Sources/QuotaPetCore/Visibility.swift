@@ -10,8 +10,8 @@ public enum MenuBarVisibility: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .withClaude: return "Claude 打开时"
-        case .always: return "一直显示"
+        case .withClaude: return tr("Claude 打开时", "When Claude is open")
+        case .always: return tr("一直显示", "Always")
         }
     }
 

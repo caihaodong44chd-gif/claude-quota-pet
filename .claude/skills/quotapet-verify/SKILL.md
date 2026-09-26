@@ -43,6 +43,7 @@ make previews   # 输出到 build/previews/
 | `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色、各种百分比、限流倒计时 |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
 | `settings.png` | 设置页 |
+| `popover-*-en.png` / `settings-en.png` / `pet-sheet-en.png` | 英文界面（面板、设置页各有 `-dark` 版）：改了界面文字要看，英文比中文长，容易折行、截断 |
 | `popover-live*.png` | **本机真实数据**：只能自己看，不能复制到 `docs/images/`，也不能提交 |
 
 看的时候检查：文字有没有被截断、对齐和间距对不对、深浅色下是不是都看得清、宠物表情和心情对不对得上。

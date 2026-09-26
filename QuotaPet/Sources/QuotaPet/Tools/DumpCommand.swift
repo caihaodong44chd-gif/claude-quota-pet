@@ -5,6 +5,7 @@ import QuotaPetCore
 /// QuotaPet --dump：在终端打印当前的额度推算，方便调试、和 usage_lab.py 对账
 enum DumpCommand {
     static func run() {
+        L10n.language = .zhHans  // 对账工具，和 usage_lab.py 一样只输出中文
         let provider = ClaudeProvider()
         let now = Date()
         let started = Date()
@@ -45,7 +46,7 @@ enum DumpCommand {
             }
             print(line)
             if let start = w.startedAt, let end = w.resetsAt {
-                print("  窗口 \(Fmt.clock(start, now: now)) → \(Fmt.clock(end, now: now))，约 \(Fmt.duration(end.timeIntervalSince(now)))后重置")
+                print("  窗口 \(Fmt.clock(start, now: now)) → \(Fmt.clock(end, now: now))，\(Fmt.fromNow(end.timeIntervalSince(now)))重置")
             } else {
                 print("  窗口还没开始（下次使用时开始计时）")
             }

@@ -13,38 +13,40 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Button(action: onBack) {
-                    Label("返回", systemImage: "chevron.left").font(.system(size: 12))
+                    Label(tr("返回", "Back"), systemImage: "chevron.left").font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 Spacer()
-                Text("设置").font(.system(size: 14, weight: .semibold))
+                Text(tr("设置", "Settings")).font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Color.clear.frame(width: 44, height: 1)  // 让标题居中
             }
 
-            SettingsGroup("菜单栏") {
+            SettingsGroup(tr("菜单栏", "Menu Bar")) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("什么时候出现").font(.system(size: 12))
-                    Picker("什么时候出现", selection: $settings.visibility) {
+                    Text(tr("什么时候出现", "When to show")).font(.system(size: 12))
+                    Picker(tr("什么时候出现", "When to show"), selection: $settings.visibility) {
                         ForEach(MenuBarVisibility.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    Text(settings.visibility == .withClaude ? "Claude 关掉后就藏起来，额度恢复提醒照常发" : "一直待在菜单栏里")
+                    Text(settings.visibility == .withClaude
+                         ? tr("Claude 关掉后就藏起来，额度恢复提醒照常发", "Hides when Claude quits; reset notifications still arrive")
+                         : tr("一直待在菜单栏里", "Always stays in the menu bar"))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("宠物旁边显示").font(.system(size: 12))
-                    Picker("宠物旁边显示", selection: $settings.menuBarText) {
+                    Text(tr("宠物旁边显示", "Next to the pet")).font(.system(size: 12))
+                    Picker(tr("宠物旁边显示", "Next to the pet"), selection: $settings.menuBarText) {
                         ForEach(MenuBarTextMode.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("宠物形象").font(.system(size: 12))
+                    Text(tr("宠物形象", "Pet style")).font(.system(size: 12))
                     // 一行放不下就换行
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8, alignment: .leading)], alignment: .leading,
                               spacing: 8) {
@@ -53,14 +55,15 @@ struct SettingsView: View {
                         }
                     }
                 }
-                SwitchRow("宠物动画", isOn: $settings.animatePet)
-                SwitchRow("单色宠物", subtitle: "跟随菜单栏的黑白配色", isOn: $settings.monochromePet)
+                SwitchRow(tr("宠物动画", "Animate pet"), isOn: $settings.animatePet)
+                SwitchRow(tr("单色宠物", "Monochrome pet"), subtitle: tr("跟随菜单栏的黑白配色", "Matches the black-and-white menu bar"),
+                          isOn: $settings.monochromePet)
             }
 
-            SettingsGroup("提醒") {
-                SwitchRow("用量提醒", isOn: $settings.notificationsEnabled)
+            SettingsGroup(tr("提醒", "Notifications")) {
+                SwitchRow(tr("用量提醒", "Usage alerts"), isOn: $settings.notificationsEnabled)
                 HStack(spacing: 6) {
-                    Text("提醒阈值").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(tr("提醒阈值", "Alert at")).font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
                     ForEach([50, 75, 90, 100], id: \.self) { threshold in
                         Toggle("\(threshold)%", isOn: thresholdBinding(threshold))
@@ -69,29 +72,48 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(!settings.notificationsEnabled)
-                SwitchRow("额度恢复时提醒", isOn: $settings.notifyOnReset)
+                SwitchRow(tr("额度恢复时提醒", "Notify when quota resets"), isOn: $settings.notifyOnReset)
             }
 
-            SettingsGroup("实时估算") {
-                SwitchRow("用本机日志实时估算", subtitle: "两次官方读数之间，按 Claude Code 的用量推算（缓存读按半价算）", isOn: $settings.liveEstimate)
-                SwitchRow("自动学习换算率", subtitle: "每来一次官方读数就学一次，记录一直存在本机",
+            SettingsGroup(tr("实时估算", "Live Estimate")) {
+                SwitchRow(tr("用本机日志实时估算", "Estimate from local logs"),
+                          subtitle: tr("两次官方读数之间，按 Claude Code 的用量推算（缓存读按半价算）",
+                                       "Between official readings, estimate from Claude Code usage (cache reads count at half price)"),
+                          isOn: $settings.liveEstimate)
+                SwitchRow(tr("自动学习换算率", "Learn the rate automatically"),
+                          subtitle: tr("每来一次官方读数就学一次，记录一直存在本机", "Learns from every official reading; records stay on this Mac"),
                           isOn: $settings.autoLearn)
                     .disabled(!settings.liveEstimate)
                 if settings.liveEstimate { ratesView }
-                SwitchRow("手动指定每周重置时间", subtitle: "推算不准时用，准确时间可以在 Claude 的设置页看到",
+                SwitchRow(tr("手动指定每周重置时间", "Set weekly reset time manually"),
+                          subtitle: tr("推算不准时用，准确时间可以在 Claude 的设置页看到",
+                                       "Use this if the estimate is off; Claude's settings page shows the exact time"),
                           isOn: weeklyOverrideBinding)
                 if let anchor = settings.weeklyResetAnchor {
-                    DatePicker("下次重置", selection: Binding(get: { anchor }, set: { settings.weeklyResetAnchor = $0 }),
+                    DatePicker(tr("下次重置", "Next reset"), selection: Binding(get: { anchor }, set: { settings.weeklyResetAnchor = $0 }),
                                displayedComponents: [.date, .hourAndMinute])
                         .font(.system(size: 12))
                 }
             }
 
-            SettingsGroup("通用") {
-                SwitchRow("开机自动启动", subtitle: "开着才能在 Claude 打开时自动出现",
+            SettingsGroup(tr("通用", "General")) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(tr("语言", "Language")).font(.system(size: 12))
+                    Picker(tr("语言", "Language"), selection: $settings.language) {
+                        Text(tr("跟随系统", "System")).tag(Language?.none)
+                        ForEach(Language.allCases) { Text($0.nativeName).tag(Language?.some($0)) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                SwitchRow(tr("开机自动启动", "Launch at login"),
+                          subtitle: tr("开着才能在 Claude 打开时自动出现", "Lets the pet appear when Claude opens"),
                           isOn: Binding(get: { settings.launchAtLogin }, set: { settings.launchAtLogin = $0 }))
                 if let error = settings.launchAtLoginError {
-                    Text(error).font(.system(size: 11)).foregroundStyle(.red)
+                    Text(tr("设置失败：\(error)（把 App 放进「应用程序」文件夹后再试）",
+                            "Couldn't change this: \(error) (move the app into the Applications folder and try again)"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -105,8 +127,8 @@ struct SettingsView: View {
         let weekly = estimation?.weeklyUSDPerPercent ?? starting.usdPerWeeklyPercent
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 14) {
-                Text("5 小时：每 1% ≈ \(Fmt.usd(session))")
-                Text("每周：每 1% ≈ \(Fmt.usd(weekly))")
+                Text(tr("5 小时：每 1% ≈ \(Fmt.usd(session))", "5-hour: 1% ≈ \(Fmt.usd(session))"))
+                Text(tr("每周：每 1% ≈ \(Fmt.usd(weekly))", "Weekly: 1% ≈ \(Fmt.usd(weekly))"))
             }
             .font(.system(size: 12, weight: .medium))
             .monospacedDigit()
@@ -114,7 +136,7 @@ struct SettingsView: View {
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("在访达中查看记录") {
+            Button(tr("在访达中查看记录", "Show records in Finder")) {
                 NSWorkspace.shared.activateFileViewerSelecting([IntervalArchive.defaultURL])
             }
             .buttonStyle(.link)
@@ -125,13 +147,19 @@ struct SettingsView: View {
     }
 
     private var learningText: String {
-        guard let estimation else { return "还没有数据" }
-        let recorded = "已记录 \(estimation.recordedIntervals) 段（每段约 15 分钟）"
-        guard settings.autoLearn else { return "自动学习已关闭，一直用起始值。" + recorded }
-        guard estimation.learnedIntervals > 0, let until = estimation.learnedUntil else {
-            return "记录还不够，先用起始值（实测回归的结果）。" + recorded
+        guard let estimation else { return tr("还没有数据", "No data yet") }
+        let recorded = tr("已记录 \(estimation.recordedIntervals) 段（每段约 15 分钟）",
+                          "\(plural(estimation.recordedIntervals, "interval")) recorded (about 15 min each).")
+        guard settings.autoLearn else {
+            return tr("自动学习已关闭，一直用起始值。", "Auto-learning is off, so the starting rate is used. ") + recorded
         }
-        return "从 \(estimation.learnedIntervals) 段有 Claude Code 用量的记录里学到，数据截至 \(Fmt.clock(until, now: Date()))。" + recorded
+        guard estimation.learnedIntervals > 0, let until = estimation.learnedUntil else {
+            return tr("记录还不够，先用起始值（实测回归的结果）。",
+                      "Not enough records yet, so the starting rate (from a measured regression) is used. ") + recorded
+        }
+        let learned = estimation.learnedIntervals, clock = Fmt.clock(until, now: Date())
+        return tr("从 \(learned) 段有 Claude Code 用量的记录里学到，数据截至 \(clock)。",
+                  "Learned from \(plural(learned, "interval")) with Claude Code usage, up to \(clock). ") + recorded
     }
 
     private func thresholdBinding(_ threshold: Int) -> Binding<Bool> {

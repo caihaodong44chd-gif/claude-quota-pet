@@ -3,12 +3,14 @@ import SwiftUI
 import QuotaPetCore
 
 /// QuotaPet --render-previews <dir>：把宠物动画、菜单栏效果和面板渲染成 PNG，
-/// 不用真的启动 App 就能检查设计。
+/// 不用真的启动 App 就能检查设计。面板和设置页中英各一套，英文的文件名带 -en。
 @MainActor
 enum PreviewRenderer {
     static func renderAll(to dir: URL) {
         _ = NSApplication.shared
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let settings = AppSettings()  // 它会按设置切换界面语言，所以要在下面固定语言之前建
+        L10n.language = .zhHans  // 动画表上的心情名、真实数据那两张用中文
         for style in PetStyle.allCases {
             let suffix = style == .classic ? "" : "-\(style.rawValue)"
             write(spriteSheet(template: false, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix).png"))
@@ -17,15 +19,7 @@ enum PreviewRenderer {
         }
 
         let now = Date()
-        for (name, snapshot) in sampleSnapshots(now: now) {
-            let mood = PetMood.from(snapshot: snapshot)
-            for dark in [false, true] {
-                let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
-                                        pet: PetImage(grid: PetSprites.frames(for: mood)[0].portrait), fixedNow: now)
-                write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(dark ? "-dark" : "").png"))
-            }
-        }
-        // 再用本机真实数据渲染一张，和点开菜单栏看到的一样（宠物停在第一帧）
+        // 用本机真实数据渲染一张，和点开菜单栏看到的一样（宠物停在第一帧）
         if let live = try? ClaudeProvider().snapshot(now: now) {
             let mood = PetMood.from(snapshot: live)
             for dark in [false, true] {
@@ -34,13 +28,29 @@ enum PreviewRenderer {
                 write(render(view, dark: dark), to: dir.appendingPathComponent("popover-live\(dark ? "-dark" : "").png"))
             }
         }
-        let settings = SettingsView(settings: AppSettings(), suggestedWeeklyReset: nil,
+
+        for language in Language.allCases {
+            L10n.language = language
+            let lang = language == .zhHans ? "" : "-\(language.rawValue)"
+            if language != .zhHans {  // 看看各种心情的名字
+                write(spriteSheet(template: false, style: .classic), to: dir.appendingPathComponent("pet-sheet\(lang).png"))
+            }
+            for (name, snapshot) in sampleSnapshots(now: now) {
+                let mood = PetMood.from(snapshot: snapshot)
+                for dark in [false, true] {
+                    let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
+                                            pet: PetImage(grid: PetSprites.frames(for: mood)[0].portrait), fixedNow: now)
+                    write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
+                }
+            }
+            let page = SettingsView(settings: settings, suggestedWeeklyReset: nil,
                                     estimation: EstimationInfo(sessionUSDPerPercent: 0.33, weeklyUSDPerPercent: 2.41,
                                                                learnedIntervals: 86, recordedIntervals: 214,
                                                                learnedUntil: now.addingTimeInterval(-300)),
                                     onBack: {})
-        write(renderInWindow(settings, dark: false), to: dir.appendingPathComponent("settings.png"))
-        write(renderInWindow(settings, dark: true), to: dir.appendingPathComponent("settings-dark.png"))
+            write(renderInWindow(page, dark: false), to: dir.appendingPathComponent("settings\(lang).png"))
+            write(renderInWindow(page, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
+        }
         print("预览图已写入 \(dir.path)")
     }
 
@@ -143,7 +153,7 @@ enum PreviewRenderer {
     static func sampleSnapshots(now: Date) -> [(String, UsageSnapshot)] {
         func window(_ id: String, _ title: String, _ duration: TimeInterval, _ percent: Double, official: Double,
                     resetIn: TimeInterval, burn: Double, other: Double = 0, otherBurn: Double? = nil) -> UsageWindow {
-            UsageWindow(id: id, title: title, shortTitle: "", duration: duration, percent: percent, official: official,
+            UsageWindow(id: id, title: title, duration: duration, percent: percent, official: official,
                         officialAt: now.addingTimeInterval(-9 * 60), startedAt: now.addingTimeInterval(resetIn - duration),
                         resetsAt: now.addingTimeInterval(resetIn), otherPercent: other, burnPerHour: burn, otherBurnPerHour: otherBurn,
                         burnLookback: duration > 86400 ? 86400 : 1800)
@@ -158,16 +168,16 @@ enum PreviewRenderer {
             UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-9 * 60),
                           today: today, notes: notes)
         }
+        let session = ClaudeProvider.sessionTitle, weekly = ClaudeProvider.weeklyTitle
         return [
-            ("calm", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
-                               window("seven_day", "本周额度", week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.7)])),
-            ("busy", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42,
+            ("calm", snapshot([window("five_hour", session, 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
+                               window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.7)])),
+            ("busy", snapshot([window("five_hour", session, 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42,
                                      other: 14, otherBurn: 8),
-                               window("seven_day", "本周额度", week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 5)])),
-            ("limited", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 100, official: 100, resetIn: 83 * 60, burn: 0),
-                                  window("seven_day", "本周额度", week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
-            ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now,
-                                    notes: ["没找到 Claude 桌面端的额度记录。装好并登录 Claude 桌面端后，它每 15 分钟会记一次官方额度。"],
+                               window("seven_day", weekly, week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 5)])),
+            ("limited", snapshot([window("five_hour", session, 5 * 3600, 100, official: 100, resetIn: 83 * 60, burn: 0),
+                                  window("seven_day", weekly, week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
+            ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now, notes: [ClaudeProvider.missingHistoryNote],
                                     hasData: false)),
         ]
     }

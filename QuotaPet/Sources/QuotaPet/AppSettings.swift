@@ -46,6 +46,13 @@ final class AppSettings: ObservableObject {
     @Published var weeklyResetAnchor: Date? {
         didSet { defaults.set(weeklyResetAnchor, forKey: Keys.weeklyResetAnchor) }
     }
+    /// 界面语言；nil = 跟随系统
+    @Published var language: Language? {
+        // 在 willSet 里切换：@Published 赋值时就会通知订阅者（早于 didSet），它们要读到新语言
+        willSet { L10n.language = newValue ?? .preferred() }
+        didSet { defaults.set(language?.rawValue, forKey: Keys.language) }
+    }
+    /// 开机自启设置失败时系统给的原因（界面上再套一句提示，跟着界面语言走）
     @Published private(set) var launchAtLoginError: String?
 
     init() {
@@ -69,6 +76,8 @@ final class AppSettings: ObservableObject {
         liveEstimate = defaults.bool(forKey: Keys.liveEstimate)
         autoLearn = defaults.bool(forKey: Keys.autoLearn)
         weeklyResetAnchor = defaults.object(forKey: Keys.weeklyResetAnchor) as? Date
+        language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "")
+        L10n.language = language ?? .preferred()  // init 里不会触发 willSet
     }
 
     var providerConfig: ClaudeProvider.Config {
@@ -96,7 +105,7 @@ final class AppSettings: ObservableObject {
                 }
                 launchAtLoginError = nil
             } catch {
-                launchAtLoginError = "设置失败：\(error.localizedDescription)（把 App 放进「应用程序」文件夹后再试）"
+                launchAtLoginError = error.localizedDescription
             }
         }
     }
@@ -113,5 +122,6 @@ final class AppSettings: ObservableObject {
         static let liveEstimate = "liveEstimate"
         static let autoLearn = "autoLearn"
         static let weeklyResetAnchor = "weeklyResetAnchor"
+        static let language = "language"
     }
 }

@@ -56,6 +56,12 @@ final class UsageStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // 换了界面语言：快照里的窗口名、说明文字要用新语言重算
+        settings.$language
+            .dropFirst()
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &cancellables)
+
         refresh()
     }
 

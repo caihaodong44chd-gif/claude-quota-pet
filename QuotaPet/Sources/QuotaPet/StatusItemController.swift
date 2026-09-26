@@ -52,8 +52,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         Publishers.CombineLatest(animator.$frame, settings.$monochromePet)
             .sink { [weak self] frame, monochrome in self?.showPet(frame.icon, template: monochrome) }
             .store(in: &cancellables)
-        Publishers.CombineLatest(store.$snapshot, settings.$menuBarText)
-            .sink { [weak self] snapshot, mode in self?.showText(snapshot, mode: mode) }
+        Publishers.CombineLatest3(store.$snapshot, settings.$menuBarText, settings.$language)
+            .sink { [weak self] snapshot, mode, _ in self?.showText(snapshot, mode: mode) }
             .store(in: &cancellables)
         Publishers.CombineLatest(store.$snapshot, store.$errorMessage)
             .sink { [weak animator] snapshot, error in
@@ -141,18 +141,28 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             button.font = font
             button.title = title
         }
-        button.toolTip = tooltip(for: snapshot, now: now)
-        button.setAccessibilityLabel("QuotaPet " + (button.toolTip ?? ""))
+        if let usage = tooltip(for: snapshot, now: now) {
+            button.toolTip = usage
+            button.setAccessibilityLabel("QuotaPet " + usage)
+        } else {
+            button.toolTip = tr("QuotaPet：还没有额度数据", "QuotaPet: no usage data yet")
+            button.setAccessibilityLabel(button.toolTip)
+        }
     }
 
-    private func tooltip(for snapshot: UsageSnapshot?, now: Date) -> String {
-        guard let snapshot, snapshot.hasData else { return "QuotaPet：还没有额度数据" }
+    /// 各窗口的用量和重置时间；还没有数据时为 nil
+    private func tooltip(for snapshot: UsageSnapshot?, now: Date) -> String? {
+        guard let snapshot, snapshot.hasData else { return nil }
         let lines = snapshot.windows.map { w -> String in
             var line = "\(w.title) \(Fmt.percent(w.clampedPercent))"
-            if let reset = w.resetsAt { line += "，约 \(Fmt.duration(reset.timeIntervalSince(now)))后重置" }
+            if let reset = w.resetsAt {
+                let when = Fmt.fromNow(reset.timeIntervalSince(now))
+                line += tr("，\(when)重置", ", resets \(when)")
+            }
             return line
         }
-        return (["\(snapshot.provider.displayName) 额度"] + lines).joined(separator: "\n")
+        let name = snapshot.provider.displayName
+        return ([tr("\(name) 额度", "\(name) usage")] + lines).joined(separator: "\n")
     }
 
     // MARK: - 点击
@@ -183,6 +193,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         guard let button = statusItem.button else { return }
         popoverState.page = page
+        if let screen = button.window?.screen ?? NSScreen.main {
+            popoverState.maxHeight = screen.visibleFrame.height - 30  // 留出面板的小箭头和一点边距
+        }
         store.refresh()
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -197,10 +210,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func showMenu() {
         let menu = NSMenu()
-        menu.addItem(menuItem("立即刷新", #selector(refreshNow), "r"))
-        menu.addItem(menuItem("设置…", #selector(openSettings), ","))
+        menu.addItem(menuItem(tr("立即刷新", "Refresh Now"), #selector(refreshNow), "r"))
+        menu.addItem(menuItem(tr("设置…", "Settings…"), #selector(openSettings), ","))
         menu.addItem(.separator())
-        menu.addItem(menuItem("退出 QuotaPet", #selector(quit), "q"))
+        menu.addItem(menuItem(tr("退出 QuotaPet", "Quit QuotaPet"), #selector(quit), "q"))
         statusItem.menu = menu
         statusItem.button?.performClick(nil)  // 弹出菜单，关掉后才返回
         statusItem.menu = nil

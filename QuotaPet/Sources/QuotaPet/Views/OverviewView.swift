@@ -35,11 +35,11 @@ struct OverviewView<Pet: View>: View {
                 }
                 NotesView(notes: snapshot.notes)
             } else if let snapshot {
-                NotesView(notes: snapshot.notes.isEmpty ? ["还没有任何额度数据。"] : snapshot.notes)
+                NotesView(notes: snapshot.notes.isEmpty ? [tr("还没有任何额度数据。", "No usage data yet.")] : snapshot.notes)
             } else if let errorMessage {
-                NotesView(notes: ["读取出错：\(errorMessage)"])
+                NotesView(notes: [tr("读取出错：\(errorMessage)", "Couldn't read the data: \(errorMessage)")])
             } else {
-                Text("正在读取…").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(tr("正在读取…", "Loading…")).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Divider()
             footer(now: now)
@@ -59,6 +59,7 @@ struct OverviewView<Pet: View>: View {
                         .font(.system(size: 15, weight: .semibold))
                     Text(mood.title)
                         .font(.system(size: 10, weight: .semibold))
+                        .fixedSize()  // 标签不折行、不截断
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Level.mood(mood).opacity(0.16)))
@@ -67,18 +68,20 @@ struct OverviewView<Pet: View>: View {
                 Text(mood.line)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)  // 英文比较长，折行而不是截断
             }
             .padding(.leading, 4)
             Spacer(minLength: 0)
             HStack(spacing: 0) {
                 IconButton(systemName: "arrow.clockwise",
-                           help: "重新读取本机数据（官方读数要等 Claude 桌面端下一次记录）",
+                           help: tr("重新读取本机数据（官方读数要等 Claude 桌面端下一次记录）",
+                                    "Reload local data (official readings wait for the Claude desktop app's next record)"),
                            rotation: refreshSpin) {
                     onRefresh()
                     withAnimation(.easeInOut(duration: 0.6)) { refreshSpin += 360 }
                     refreshedAt = Date()
                 }
-                IconButton(systemName: "gearshape", help: "设置", action: onSettings)
+                IconButton(systemName: "gearshape", help: tr("设置", "Settings"), action: onSettings)
             }
             .task(id: refreshedAt) {
                 guard refreshedAt != nil else { return }
@@ -91,7 +94,9 @@ struct OverviewView<Pet: View>: View {
     private func footer(now: Date) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if refreshedAt != nil {
-                Label("已刷新：本机部分是最新的，\(nextOfficialText(now: now))", systemImage: "checkmark.circle.fill")
+                Label(tr("已刷新：本机部分是最新的，\(nextOfficialText(now: now))",
+                         "Refreshed: local data is up to date; \(nextOfficialText(now: now))"),
+                      systemImage: "checkmark.circle.fill")
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color(nsColor: .systemGreen))
                     .fixedSize(horizontal: false, vertical: true)
@@ -102,7 +107,7 @@ struct OverviewView<Pet: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Button("退出", action: onQuit)
+            Button(tr("退出", "Quit"), action: onQuit)
                 .buttonStyle(.plain)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -110,21 +115,26 @@ struct OverviewView<Pet: View>: View {
     }
 
     private func sourceLine(now: Date) -> String {
-        guard let snapshot, snapshot.hasData else { return "只读本机文件，不联网、不读登录凭据" }
+        guard let snapshot, snapshot.hasData else {
+            return tr("只读本机文件，不联网、不读登录凭据", "Reads local files only: no network, no login credentials")
+        }
         guard snapshot.officialAt != nil else {
             return snapshot.windows.contains(where: \.limitReported)
-                ? "暂无桌面端的官方读数：「用完了」是 Claude Code 报告的，其余是本机估算" : "暂无官方读数，数值全部是本机估算"
+                ? tr("暂无桌面端的官方读数：「用完了」是 Claude Code 报告的，其余是本机估算",
+                     "No official reading from the desktop app: “used up” came from Claude Code, the rest is a local estimate")
+                : tr("暂无官方读数，数值全部是本机估算", "No official reading yet, so all numbers are local estimates")
         }
-        return "Claude 桌面端每 15 分钟记一次官方读数，\(nextOfficialText(now: now))"
+        return tr("Claude 桌面端每 15 分钟记一次官方读数，\(nextOfficialText(now: now))",
+                  "The Claude desktop app records an official reading every 15 min; \(nextOfficialText(now: now))")
     }
 
     /// 桌面端很准时地每 15 分钟记一次，下一次 = 上一次 + 15 分钟
     private func nextOfficialText(now: Date) -> String {
-        guard let last = snapshot?.officialAt else { return "官方读数暂时没有" }
+        guard let last = snapshot?.officialAt else { return tr("官方读数暂时没有", "no official reading yet") }
         let next = last.addingTimeInterval(15 * 60)
-        if next > now { return "下次约 \(Fmt.clock(next, now: now))" }
-        if now.timeIntervalSince(last) < 45 * 60 { return "下一次随时会到" }
-        return "官方读数暂停了（Claude 桌面端没开？）"
+        if next > now { return tr("下次约 \(Fmt.clock(next, now: now))", "next around \(Fmt.clock(next, now: now))") }
+        if now.timeIntervalSince(last) < 45 * 60 { return tr("下一次随时会到", "the next one is due any moment") }
+        return tr("官方读数暂停了（Claude 桌面端没开？）", "official readings have paused (is the Claude desktop app closed?)")
     }
 }
 
@@ -153,7 +163,8 @@ struct WindowCard: View {
                 .padding(.bottom, 1)
             legend
             if window.otherPercent >= 1 {
-                Text("其中约 \(Int(window.otherPercent.rounded()))% 是网页、手机等其他端用的")
+                Text(tr("其中约 \(Int(window.otherPercent.rounded()))% 是网页、手机等其他端用的",
+                        "About \(Int(window.otherPercent.rounded()))% came from the web, mobile or other apps"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
@@ -161,13 +172,16 @@ struct WindowCard: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
             if let exhaustion = window.projectedExhaustion(now: now), let burn = window.burnPerHour {
-                Label("照这个速度（每小时 \(Int(burn.rounded()))%\(otherBurnText)），\(Fmt.clock(exhaustion, now: now)) 左右用完",
+                let rate = Int(burn.rounded()), clock = Fmt.clock(exhaustion, now: now)
+                Label(tr("照这个速度（每小时 \(rate)%\(otherBurnText)），\(clock) 左右用完",
+                         "At this rate (\(rate)%/hr\(otherBurnText)), it runs out around \(clock)"),
                       systemImage: "flame.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color(nsColor: .systemOrange))
                     .fixedSize(horizontal: false, vertical: true)
             } else if let burn = window.burnPerHour, burn >= 1, window.percent < 100 {
-                Text("\(lookbackText)：每小时约 \(Int(burn.rounded()))%\(otherBurnText)")
+                Text(tr("\(lookbackText)：每小时约 \(Int(burn.rounded()))%\(otherBurnText)",
+                        "\(lookbackText): about \(Int(burn.rounded()))%/hr\(otherBurnText)"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -179,40 +193,52 @@ struct WindowCard: View {
     /// 消耗速度里有其他端的部分时，补一句「，其中其他端约 6%」
     private var otherBurnText: String {
         guard let other = window.otherBurnPerHour, other >= 1 else { return "" }
-        return "，其中其他端约 \(Int(other.rounded()))%"
+        return tr("，其中其他端约 \(Int(other.rounded()))%", ", ~\(Int(other.rounded()))% from other apps")
     }
 
     private var lookbackText: String {
-        window.burnLookback >= 86400 ? "最近 24 小时" : "最近 \(Int(window.burnLookback / 60)) 分钟"
+        window.burnLookback >= 86400
+            ? tr("最近 24 小时", "Last 24 hours")
+            : tr("最近 \(Int(window.burnLookback / 60)) 分钟", "Last \(Int(window.burnLookback / 60)) min")
     }
 
-    /// 进度条的图例：实色 = 官方读数，浅色 = 之后的本机估算
+    /// 进度条的图例：实色 = 官方读数，浅色 = 之后的本机估算。一行放不下（英文比较长）就上下排
     @ViewBuilder private var legend: some View {
-        let tint = Level.bar(window.percent)
-        let extra = window.estimatedExtra
-        if window.official != nil || extra >= 0.5 {
-            HStack(spacing: 12) {
-                if let official = window.official, let at = window.officialAt {
-                    LegendItem(color: tint, text: window.limitReported
-                               ? "Claude Code 报告用完了（\(Fmt.ago(at, now: now))）"
-                               : "官方 \(Int(official))%（\(Fmt.ago(at, now: now))）")
-                }
-                if extra >= 0.5 {
-                    LegendItem(color: tint.opacity(0.4),
-                               text: "本机估算 \(window.official == nil ? "" : "+")\(Int(extra.rounded()))%")
-                }
+        if window.official != nil || window.estimatedExtra >= 0.5 {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { legendItems }
+                VStack(alignment: .leading, spacing: 3) { legendItems }
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.secondary)
         }
     }
 
+    @ViewBuilder private var legendItems: some View {
+        let tint = Level.bar(window.percent)
+        let extra = window.estimatedExtra
+        if let official = window.official, let at = window.officialAt {
+            let ago = Fmt.ago(at, now: now)
+            LegendItem(color: tint, text: window.limitReported
+                       ? tr("Claude Code 报告用完了（\(ago)）", "Claude Code: used up (\(ago))")
+                       : tr("官方 \(Int(official))%（\(ago)）", "Official \(Int(official))% (\(ago))"))
+        }
+        if extra >= 0.5 {
+            let amount = "\(window.official == nil ? "" : "+")\(Int(extra.rounded()))%"
+            LegendItem(color: tint.opacity(0.4), text: tr("本机估算 \(amount)", "Local estimate \(amount)"))
+        }
+    }
+
     private var resetText: String {
         if let reset = window.resetsAt {
-            let verb = window.percent >= 100 ? "恢复" : "重置"
-            return "约 \(Fmt.duration(reset.timeIntervalSince(now)))后\(verb) · \(Fmt.clock(reset, now: now))"
+            let when = Fmt.fromNow(reset.timeIntervalSince(now)), clock = Fmt.clock(reset, now: now)
+            return window.percent >= 100
+                ? tr("\(when)恢复 · \(clock)", "Back \(when) · \(clock)")
+                : tr("\(when)重置 · \(clock)", "Resets \(when) · \(clock)")
         }
-        return window.percent < 0.5 ? "还没开始计时（下次使用时开始）" : "重置时间未知"
+        return window.percent < 0.5
+            ? tr("还没开始计时（下次使用时开始）", "Not started yet (starts the next time you use it)")
+            : tr("重置时间未知", "Reset time unknown")
     }
 }
 
@@ -261,7 +287,7 @@ struct TodayCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text("今天 · 本机 Claude Code")
+                Text(tr("今天 · 本机 Claude Code", "Today · Claude Code on this Mac"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -269,7 +295,8 @@ struct TodayCard: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
             }
-            Text("\(today.requests) 次请求 · \(Fmt.tokens(today.tokens)) tokens · 按 API 价格折算")
+            Text(tr("\(today.requests) 次请求 · \(Fmt.tokens(today.tokens)) tokens · 按 API 价格折算",
+                    "\(plural(today.requests, "request")) · \(Fmt.tokens(today.tokens)) tokens · at API prices"))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             if !today.byFamily.isEmpty {

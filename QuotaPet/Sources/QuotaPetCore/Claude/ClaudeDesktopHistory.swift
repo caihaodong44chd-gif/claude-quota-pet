@@ -28,7 +28,9 @@ public enum ClaudeDesktopHistory {
     public enum ParseError: LocalizedError {
         case unexpectedFormat
 
-        public var errorDescription: String? { "文件格式和预期不一样（桌面端可能更新了）" }
+        public var errorDescription: String? {
+            tr("文件格式和预期不一样（桌面端可能更新了）", "unexpected file format (the desktop app may have been updated)")
+        }
     }
 
     /// 返回有读数的样本（按时间排序），只保留最近一次出现的组织，切换账号时不会混在一起

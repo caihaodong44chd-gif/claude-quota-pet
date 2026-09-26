@@ -24,10 +24,10 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .classic: return "经典"
-        case .neko: return "猫耳"
-        case .youth: return "青春"
-        case .witch: return "魔女"
+        case .classic: return tr("经典", "Classic")
+        case .neko: return tr("猫耳", "Cat ears")
+        case .youth: return tr("青春", "Youthful")
+        case .witch: return tr("魔女", "Witch")
         }
     }
 

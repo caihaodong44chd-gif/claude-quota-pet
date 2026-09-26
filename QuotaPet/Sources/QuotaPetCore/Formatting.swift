@@ -1,18 +1,27 @@
 import Foundation
 
-/// 界面上的中文时间 / 数字格式
+/// 界面上的时间 / 数字格式，跟着界面语言走（见 Localization.swift）
 public enum Fmt {
     /// 2 小时 14 分 / 3 天 4 小时 / 8 分钟 / 不到 1 分钟
+    /// 2 hr 14 min / 3 days 4 hr / 8 min / under a minute
     public static func duration(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded()))
         let days = s / 86400, hours = s % 86400 / 3600, minutes = s % 3600 / 60
-        if days > 0 { return hours > 0 ? "\(days) 天 \(hours) 小时" : "\(days) 天" }
-        if hours > 0 { return minutes > 0 ? "\(hours) 小时 \(minutes) 分" : "\(hours) 小时" }
-        if minutes > 0 { return "\(minutes) 分钟" }
-        return "不到 1 分钟"
+        if days > 0 {
+            return hours > 0 ? tr("\(days) 天 \(hours) 小时", "\(plural(days, "day")) \(hours) hr") : tr("\(days) 天", plural(days, "day"))
+        }
+        if hours > 0 { return minutes > 0 ? tr("\(hours) 小时 \(minutes) 分", "\(hours) hr \(minutes) min") : tr("\(hours) 小时", "\(hours) hr") }
+        if minutes > 0 { return tr("\(minutes) 分钟", "\(minutes) min") }
+        return tr("不到 1 分钟", "under a minute")
     }
 
-    /// 菜单栏用的紧凑写法：3d4h / 2h05m / 8m
+    /// 多久以后：约 2 小时 14 分后 / 不到 1 分钟后；in about 2 hr 14 min / in under a minute
+    public static func fromNow(_ seconds: TimeInterval) -> String {
+        let d = duration(seconds)
+        return seconds.rounded() < 60 ? tr("\(d)后", "in \(d)") : tr("约 \(d)后", "in about \(d)")
+    }
+
+    /// 菜单栏用的紧凑写法（中英一样）：3d4h / 2h05m / 8m
     public static func compactDuration(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded()))
         let days = s / 86400, hours = s % 86400 / 3600, minutes = s % 3600 / 60
@@ -22,26 +31,41 @@ public enum Fmt {
     }
 
     /// 15:05 / 明天 09:00 / 周三 17:45 / 昨天 22:10 / 10月2日 17:45
+    /// 15:05 / tomorrow 09:00 / Wed 17:45 / yesterday 22:10 / Oct 2 17:45
     public static func clock(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
-        let c = calendar.dateComponents([.month, .day, .hour, .minute, .weekday], from: date)
+        let c = calendar.dateComponents([.hour, .minute], from: date)
         let time = String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
         if calendar.isDate(date, inSameDayAs: now) { return time }
-        if let d = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: d) { return "明天 \(time)" }
-        if let d = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: d) { return "昨天 \(time)" }
-        if date > now, date.timeIntervalSince(now) < 6 * 86400 {
-            let names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-            return "\(names[((c.weekday ?? 1) - 1) % 7]) \(time)"
+        if let d = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: d) {
+            return tr("明天 \(time)", "tomorrow \(time)")
         }
-        return "\(c.month ?? 0)月\(c.day ?? 0)日 \(time)"
+        if let d = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: d) {
+            return tr("昨天 \(time)", "yesterday \(time)")
+        }
+        if date > now, date.timeIntervalSince(now) < 6 * 86400 {
+            return "\(dateText(date, template: "EEE", calendar: calendar)) \(time)"
+        }
+        return "\(dateText(date, template: "MMMd", calendar: calendar)) \(time)"
     }
 
-    /// 刚刚 / 3 分钟前 / 2 小时前 / 3 天前
+    /// 周三 / Wed、10月2日 / Oct 2：按界面语言用系统的写法，农历、希伯来历等非公历也对
+    private static func dateText(_ date: Date, template: String, calendar: Calendar) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: L10n.language.rawValue)
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter.string(from: date)
+    }
+
+    /// 刚刚 / 3 分钟前 / 2 小时前 / 3 天前；just now / 3 min ago / 2 hr ago / 3 days ago
     public static func ago(_ date: Date, now: Date) -> String {
         let s = now.timeIntervalSince(date)
-        if s < 60 { return "刚刚" }
-        if s < 3600 { return "\(Int(s / 60)) 分钟前" }
-        if s < 86400 { return "\(Int(s / 3600)) 小时前" }
-        return "\(Int(s / 86400)) 天前"
+        if s < 60 { return tr("刚刚", "just now") }
+        if s < 3600 { return tr("\(Int(s / 60)) 分钟前", "\(Int(s / 60)) min ago") }
+        if s < 86400 { return tr("\(Int(s / 3600)) 小时前", "\(Int(s / 3600)) hr ago") }
+        let days = Int(s / 86400)
+        return tr("\(days) 天前", "\(plural(days, "day")) ago")
     }
 
     public static func percent(_ v: Double) -> String { "\(Int(v.rounded()))%" }
@@ -63,10 +87,10 @@ public enum MenuBarTextMode: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .petOnly: return "仅宠物"
-        case .session: return "5 小时"
-        case .sessionAndWeekly: return "5h + 周"
-        case .tightest: return "最紧张"
+        case .petOnly: return tr("仅宠物", "Pet only")
+        case .session: return tr("5 小时", "5-hour")
+        case .sessionAndWeekly: return tr("5h + 周", "5h + week")
+        case .tightest: return tr("最紧张", "Highest")
         }
     }
 }

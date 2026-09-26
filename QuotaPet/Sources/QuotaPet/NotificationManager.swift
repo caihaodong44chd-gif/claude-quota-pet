@@ -33,8 +33,9 @@ final class NotificationManager {
 
             if percent < 5 {
                 if state.last >= 60, settings.notifyOnReset {
-                    post(title: "\(new.provider.displayName) \(window.title)已恢复",
-                         body: "满血复活！可以继续干活了 🎉")
+                    let name = new.provider.displayName
+                    post(title: tr("\(name) \(window.title)已恢复", "\(name) · \(window.title) has reset"),
+                         body: tr("满血复活！可以继续干活了 🎉", "Fully recharged, back to work! 🎉"))
                 }
                 state.notified = []
             }
@@ -54,18 +55,23 @@ final class NotificationManager {
     }
 
     private func title(for window: UsageWindow, threshold: Int, provider: ProviderID) -> String {
-        threshold >= 100
-            ? "\(provider.displayName) \(window.title)用完了"
-            : "\(provider.displayName) \(window.title)已用 \(threshold)%"
+        let name = provider.displayName
+        return threshold >= 100
+            ? tr("\(name) \(window.title)用完了", "\(name) · \(window.title) used up")
+            : tr("\(name) \(window.title)已用 \(threshold)%", "\(name) · \(window.title) \(threshold)% used")
     }
 
     private func body(for window: UsageWindow, threshold: Int, now: Date) -> String {
         var parts: [String] = []
         if let reset = window.resetsAt {
-            let verb = threshold >= 100 ? "恢复" : "重置"
-            parts.append("约 \(Fmt.duration(reset.timeIntervalSince(now)))后\(verb)（\(Fmt.clock(reset, now: now))）。")
+            let when = Fmt.fromNow(reset.timeIntervalSince(now)), clock = Fmt.clock(reset, now: now)
+            parts.append(threshold >= 100
+                ? tr("\(when)恢复（\(clock)）。", "Back \(when) (\(clock)). ")
+                : tr("\(when)重置（\(clock)）。", "Resets \(when) (\(clock)). "))
         }
-        parts.append(threshold >= 100 ? "小家伙睡着了，先去喝杯水吧 ☕️" : PetMood.from(percent: Double(threshold)).line)
+        parts.append(threshold >= 100
+            ? tr("小家伙睡着了，先去喝杯水吧 ☕️", "Your pet fell asleep. Go grab a drink ☕️")
+            : PetMood.from(percent: Double(threshold)).line)
         return parts.joined()
     }
 

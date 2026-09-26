@@ -30,6 +30,9 @@ let fiveHours = 5 * hour
 let week = 7 * 86400.0
 typealias S = UsageSample
 
+// 下面按中文文案比对，不受这台机器系统语言的影响；英文在「多语言」一节单独查
+L10n.language = .zhHans
+
 // MARK: - 格式化
 
 check(Fmt.duration(2 * hour + 14 * 60) == "2 小时 14 分", "duration")
@@ -41,6 +44,8 @@ check(Fmt.clock(at(25, 15, 5), now: at(25, 12)) == "15:05", "clock 当天")
 check(Fmt.clock(at(26, 9), now: at(25, 12)) == "明天 09:00", "clock 明天")
 check(Fmt.clock(at(30, 17, 45), now: at(25, 12)) == "周三 17:45", "clock 一周内")
 check(Fmt.ago(at(25, 11, 45), now: at(25, 12)) == "15 分钟前", "ago")
+check(Fmt.fromNow(2 * hour + 14 * 60) == "约 2 小时 14 分后", "fromNow")
+check(Fmt.fromNow(30) == "不到 1 分钟后", "fromNow 不到 1 分钟时不说「约」")
 
 // MARK: - 宠物
 
@@ -254,16 +259,16 @@ do {
     let series = [S(time: at(25, 22, 54), value: 0), S(time: at(25, 23, 25), value: 20)]
     let reqs = [opus(at(25, 23, 0), usd: 0.117 * 5), opus(at(25, 23, 30), usd: 0.117 * 3)]
     let percentOf: (ClaudeRequest) -> Double = { $0.usd / testRate }
-    let live = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+    let live = provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series,
                                     requests: reqs, scale: 1, percentOf: percentOf, resetAnchor: nil, live: true, now: at(25, 23, 40))
     check(near(live.official, 20) && near(live.percent, 23, 1e-3), "官方 20% + 之后本机 3%：\(live.percent)")
     check(live.startedAt == at(25, 23, 0) && live.resetsAt == at(26, 4, 0), "窗口从 23:00 的请求开始")
-    let off = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+    let off = provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series,
                                    requests: reqs, scale: 1, percentOf: percentOf, resetAnchor: nil, live: false, now: at(25, 23, 40))
     check(near(off.percent, 20), "关掉实时估算时只显示官方读数")
 
     let heavy = [opus(at(25, 23, 30), usd: 0.117 * 90)]  // 20% + 90% 会冲过 100%
-    let capped = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+    let capped = provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series,
                                       requests: heavy, scale: 1, percentOf: percentOf, resetAnchor: nil, live: true, now: at(25, 23, 40))
     check(near(capped.percent, 99), "估算不能宣布用完：官方没到 100% 时最多 99%：\(capped.percent)")
 
@@ -272,7 +277,7 @@ do {
     let work = [opus(at(20, 14, 35), usd: 0.117 * 5)]
     let hit = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 18))
     func limited(_ series: [S], _ reqs: [ClaudeRequest], _ limits: [ClaudeLimitEvent], now: Date) -> UsageWindow {
-        provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series, requests: reqs,
+        provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series, requests: reqs,
                              scale: 1, percentOf: percentOf, resetAnchor: nil, limits: limits, live: true, now: now)
     }
     let asleep = limited(before, work, [hit], now: at(20, 14, 50))
@@ -295,13 +300,13 @@ do {
     let bogus = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 20))
     check(near(limited(before, work, [bogus], now: at(20, 14, 50)).percent, 90, 1e-3), "恢复时间比限流晚 5 小时以上的不可信，不用")
 
-    let manual = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: [], requests: [],
+    let manual = provider.buildWindow(id: "seven_day", title: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
     check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
 
     // 固定周期：上周看到过 06:10 前后的重置，这周到点之后还没有新的官方读数，就只按本机用量从头算
     let weekly = [S(time: at(14, 5, 50), value: 70), S(time: at(14, 6, 10), value: 0), S(time: at(20, 12), value: 40)]
-    let cadence = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: weekly,
+    let cadence = provider.buildWindow(id: "seven_day", title: "", duration: week, series: weekly,
                                        requests: [opus(at(21, 7), usd: 0.117 * 2)], scale: 1, percentOf: percentOf,
                                        resetAnchor: nil, fixedCadence: true, live: true, now: at(21, 8))
     check(cadence.startedAt == at(21, 6, 10) && cadence.official == nil && near(cadence.percent, 2, 1e-3),
@@ -363,7 +368,7 @@ do {
     let provider = ClaudeProvider(historyURL: URL(fileURLWithPath: "/nonexistent/h.json"),
                                   projectsURL: URL(fileURLWithPath: "/nonexistent/projects"), archiveURL: nil)
     func window(_ series: [S], live: Bool = true) -> UsageWindow {
-        provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+        provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series,
                              requests: [reqs[0]], scale: 1, percentOf: percentOf, resetAnchor: nil, live: live, now: at(20, 10, 30))
     }
     let zero = [S(time: at(20, 9, 30), value: 0)]  // 窗口开始前读数确实是 0
@@ -469,8 +474,8 @@ do {
 // MARK: - 菜单栏文字 & 预测
 
 do {
-    let session = UsageWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, percent: 27.4)
-    let weekly = UsageWindow(id: "seven_day", title: "", shortTitle: "", duration: week, percent: 81)
+    let session = UsageWindow(id: "five_hour", title: "", duration: fiveHours, percent: 27.4)
+    let weekly = UsageWindow(id: "seven_day", title: "", duration: week, percent: 81)
     let snap = UsageSnapshot(provider: .claude, windows: [session, weekly], generatedAt: at(25, 12))
     check(MenuBarText.make(snap, mode: .session, now: at(25, 12)).text == "27%", "只显示 5 小时")
     check(MenuBarText.make(snap, mode: .sessionAndWeekly, now: at(25, 12)).text == "27% · 81%", "5 小时 + 每周")
@@ -482,10 +487,103 @@ do {
     check(MenuBarText.make(limited, mode: .session, now: at(25, 12)).text == "1h23m", "限流时显示恢复倒计时")
     check(PetMood.from(snapshot: limited) == .sleeping, "限流时宠物睡觉")
 
-    let fast = UsageWindow(id: "x", title: "", shortTitle: "", duration: fiveHours, percent: 60, resetsAt: at(25, 16), burnPerHour: 20)
+    let fast = UsageWindow(id: "x", title: "", duration: fiveHours, percent: 60, resetsAt: at(25, 16), burnPerHour: 20)
     check(fast.projectedExhaustion(now: at(25, 12)) == at(25, 14), "60% + 20%/小时 → 2 小时后用完")
-    let slow = UsageWindow(id: "x", title: "", shortTitle: "", duration: fiveHours, percent: 60, resetsAt: at(25, 13), burnPerHour: 20)
+    let slow = UsageWindow(id: "x", title: "", duration: fiveHours, percent: 60, resetsAt: at(25, 13), burnPerHour: 20)
     check(slow.projectedExhaustion(now: at(25, 12)) == nil, "重置前用不完就不预警")
+}
+
+// MARK: - 多语言
+
+check(Language.preferred(["zh-Hans-CN", "en-US"]) == .zhHans, "系统首选简体中文")
+check(Language.preferred(["zh-CN"]) == .zhHans, "zh-CN 算简体中文")
+check(Language.preferred(["en-AU", "zh-Hans-CN"]) == .en, "系统首选英文")
+check(Language.preferred(["ja-JP", "zh-Hans-CN"]) == .zhHans, "不支持的语言跳过，看下一个")
+check(Language.preferred(["zh-Hant-TW"]) == .en && Language.preferred(["fr-FR"]) == .en, "都不支持时用英文")
+
+do {
+    L10n.language = .en
+    defer { L10n.language = .zhHans }
+    check(Fmt.duration(2 * hour + 14 * 60) == "2 hr 14 min", "英文 duration")
+    check(Fmt.duration(86400 + 60) == "1 day" && Fmt.duration(3 * 86400 + 4 * hour) == "3 days 4 hr", "英文 duration 分单复数")
+    check(Fmt.fromNow(2 * hour) == "in about 2 hr" && Fmt.fromNow(30) == "in under a minute", "英文 fromNow")
+    check(Fmt.clock(at(26, 9), now: at(25, 12)) == "tomorrow 09:00", "英文 clock 明天")
+    check(Fmt.clock(at(30, 17, 45), now: at(25, 12)) == "Wed 17:45", "英文 clock 一周内")
+    check(Fmt.clock(at(10, 8), now: at(25, 12)) == "Sep 10 08:00", "英文 clock 日期")
+    check(Fmt.ago(at(25, 11, 45), now: at(25, 12)) == "15 min ago" && Fmt.ago(at(24, 11), now: at(25, 12)) == "1 day ago", "英文 ago")
+
+    // 快照里的窗口名、说明文字在后台算，也要跟着语言走
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-l10n-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let history = #"{"version":2,"samples":[{"t":\#(Int(at(20, 12).timeIntervalSince1970 * 1000)),"org":"A","u":{"fh":30,"sd":40}}]}"#
+    try! history.write(to: dir.appendingPathComponent("history.json"), atomically: true, encoding: .utf8)
+    func snapshot(history: String) -> UsageSnapshot {
+        try! ClaudeProvider(historyURL: dir.appendingPathComponent(history), projectsURL: dir.appendingPathComponent("projects"),
+                            archiveURL: nil).snapshot(now: at(20, 15))
+    }
+    let stale = snapshot(history: "history.json"), missing = snapshot(history: "none.json")
+    check(stale.window("five_hour")?.title == "5-hour session", "英文窗口名")
+    check(stale.notes.contains { $0.contains("3 hr ago") }, "官方读数停了的提示是英文：\(stale.notes)")
+    check(missing.notes == [ClaudeProvider.missingHistoryNote], "没有桌面端记录的提示是英文")
+
+    // 英文界面里不能混进中文：漏翻了，或者 tr 的两个参数写反了
+    func hasChinese(_ s: String) -> Bool {
+        s.unicodeScalars.contains { (0x3000...0x9FFF).contains($0.value) || (0xFF00...0xFFEF).contains($0.value) }
+    }
+    let demo = try! DemoProvider().snapshot(now: Date())
+    var english: [String] = PetMood.allCases.flatMap { [$0.title, $0.line] }
+    english += PetStyle.allCases.map(\.label) + MenuBarTextMode.allCases.map(\.label) + MenuBarVisibility.allCases.map(\.label)
+    english += (stale.windows + demo.windows).map(\.title) + stale.notes + missing.notes + demo.notes
+    english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,
+                Fmt.clock(at(24, 9), now: at(25, 12)), Fmt.duration(30)]
+    check(!english.contains(where: hasChinese), "英文界面里有中文：\(english.filter(hasChinese))")
+
+    // App 本体（面板、设置页、通知、菜单）的文字上面调不到：直接扫源码，每个 tr("中文", "English") 的英文参数里都不能有中文
+    /// 从 i（开头的引号）读一个字符串字面量，返回结束位置和去掉插值后的文字
+    func literal(_ s: [Unicode.Scalar], _ i: Int) -> (end: Int, text: String)? {
+        guard i < s.count, s[i] == "\"" else { return nil }
+        var j = i + 1, text = ""
+        while j < s.count {
+            if s[j] == "\\", j + 1 < s.count, s[j + 1] == "(" {  // 插值：跳过配对的括号，里面可能还有字符串
+                var depth = 0
+                j += 1
+                repeat {
+                    if s[j] == "\"", let inner = literal(s, j) { j = inner.end; continue }
+                    if s[j] == "(" { depth += 1 } else if s[j] == ")" { depth -= 1 }
+                    j += 1
+                } while depth > 0 && j < s.count
+            } else if s[j] == "\\" {
+                j += 2
+            } else if s[j] == "\"" {
+                return (j + 1, text)
+            } else {
+                text.unicodeScalars.append(s[j])
+                j += 1
+            }
+        }
+        return nil
+    }
+    let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    var pairs = 0
+    var untranslated: [String] = []
+    for case let file as URL in FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)!
+    where file.pathExtension == "swift" {
+        let s = Array(try! String(contentsOf: file, encoding: .utf8).unicodeScalars)
+        for i in s.indices where i + 2 < s.count && s[i] == "t" && s[i + 1] == "r" && s[i + 2] == "(" {
+            if i > 0, s[i - 1].properties.isAlphabetic || s[i - 1] == "_" || s[i - 1] == "." { continue }
+            var j = i + 3
+            while j < s.count, s[j].properties.isWhitespace { j += 1 }
+            guard let zh = literal(s, j) else { continue }
+            j = zh.end
+            while j < s.count, s[j].properties.isWhitespace || s[j] == "," { j += 1 }
+            guard let en = literal(s, j) else { continue }  // 英文参数不是字面量（比如 plural(...)）就不查
+            pairs += 1
+            if hasChinese(en.text) { untranslated.append("\(file.lastPathComponent)：\(en.text)") }
+        }
+    }
+    check(pairs >= 100, "源码里只扫到 \(pairs) 个 tr()，扫描可能坏了")
+    check(untranslated.isEmpty, "tr() 的英文参数里有中文：\(untranslated)")
 }
 
 print(failed == 0 ? "✓ 全部 \(passed) 项自检通过" : "✗ \(failed) 项失败，\(passed) 项通过")
