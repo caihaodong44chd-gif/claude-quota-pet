@@ -55,6 +55,43 @@ ICON_EYES = {  # 4×4（上一版，太小）
     "closed":  (["....", "K..K", ".KK.", "...."], ["....", "K..K", ".KK.", "...."]),
     "happy":   (["....", ".KK.", "K..K", "...."], ["....", ".KK.", "K..K", "...."]),
 }
+def _mirror(rows):
+    return [r[::-1] for r in rows]
+
+
+def _pair(left):
+    """右眼 = 左眼镜像"""
+    return left, _mirror(left)
+
+
+# 按形象换的眼睛（没写的表情用默认的折中大小）：{名字: (半身像, 头像)}
+EYE_SETS = {
+    # 御姐：大一号的垂眼，眼皮平平压住虹膜顶，外眼角的睫毛往下垂，看着慵懒
+    "sultry": ({
+        "open":    _pair([".KKKKKK", "KKAWWEA", "K.AWEEA", "..BEEBB", "..BCCWB", "...CC.."]),
+        "sparkle": _pair([".KKKKKK", "KKAWWWA", "K.WWEEA", "..BWEBB", "..BCCWB", "...CC.."]),
+        "tired":   _pair([".......", ".KKKKKK", "KKBWEEB", "..BCCWB", "...CC.."]),
+    }, {
+        "open":    _pair([".KKKK", "KKWEA", "K.AEB", "..CC."]),
+        "sparkle": _pair([".KKKK", "KKWWA", "K.WEB", "..CC."]),
+        "tired":   _pair([".....", ".KKKK", "KKCWB", "..CC."]),
+    }),
+    # 学妹：又大又圆的眼睛，高光多
+    "big": ({
+        "open":    PORTRAIT_EYES_L["open"],
+        "sparkle": _pair([".KKKKK.", "KKWAAAK", "AWWWEEA", "AWWEEEA", "BBWEEBB", "BBCCCWB", ".CCCCC.", "..CCC.."]),
+    }, {
+        "open":    ICON_EYES_L["open"],
+        "sparkle": _pair([".KKK.", "KWWAK", "WWWEA", "BWEEB", "BCCWB", ".CC.."]),
+    }),
+}
+
+
+def eyes_for(style, portrait):
+    custom = EYE_SETS.get(c4.STYLES[style].get("eyes"), ({}, {}))[0 if portrait else 1]
+    return {**(PORTRAIT_EYES_M if portrait else ICON_EYES_M), **custom}
+
+
 MOODS = [  # (名字, 眼睛, 嘴, 小道具)
     ("元气满满", "sparkle", "open", ("star",)),
     ("状态不错", "open", "small", ()),
@@ -79,7 +116,7 @@ def portrait(eyes="open", mouth="small", extras=(), eye_set=None, style="classic
     x0, y0, sc = -4.0, -1.0, 64 / 40
     left_center, ey = (16 - HALF_GAP - x0) * sc, (EYE_Y - y0) * sc
     lx, rx = round(left_center), 64 - round(left_center)
-    place(g, (eye_set or PORTRAIT_EYES_M)[eyes], left_center, ey)
+    place(g, (eye_set or eyes_for(style, True))[eyes], left_center, ey)
     ey = round(ey)
     for e in extras:
         if e == "star": c4.stamp(g, ["..Y..", ".YYY.", "YYYYY", ".YYY.", "..Y.."], 3, 5)
@@ -91,7 +128,7 @@ def portrait(eyes="open", mouth="small", extras=(), eye_set=None, style="classic
 
 def icon(eyes="open", mouth="small", extras=(), eye_set=None, style="classic"):
     g = c4.icon(eyes="none", mouth=mouth, style=style)
-    place(g, (eye_set or ICON_EYES_M)[eyes], 16 - HALF_GAP, EYE_Y)
+    place(g, (eye_set or eyes_for(style, False))[eyes], 16 - HALF_GAP, EYE_Y)
     lx, rx, ey = round(16 - HALF_GAP) - 1, round(16 + HALF_GAP), round(EYE_Y)
     for e in extras:
         if e == "star": c4.stamp(g, [".Y.", "YYY", ".Y."], 1, 2)

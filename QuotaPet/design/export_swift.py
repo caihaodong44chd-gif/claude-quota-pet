@@ -38,8 +38,10 @@ EXTRAS = {
         "question": [([".ZZ.", "Z..Z", "...Z", "..Z.", ".Z..", "....", ".Z.."], 3, 3)],
     },
 }
-# 改了颜色的字符换成这里的字符（要是合法的 Swift 字符串内容，不能是 '.'）
-SPARE = "0123456789acgijlmoprtuvxyzDIJLRUV"
+# 改了颜色的字符换成这里的字符：可打印 ASCII，不能是 '.'，也不能是 Swift 字符串里要转义的 '"' 和 '\\'
+SPARE = "0123456789acgijlmoprtuvxyzDIJLRUV#$%&*+-/:;<=>?@^_`|~!'(),[]{}"
+# 设计稿（draft）不导出
+STYLES = {k: v for k, v in c4.STYLES.items() if not v.get("draft")}
 # 单色模式靠这几个颜色挖空脸，各款都不能改
 FIXED = set("SsPW")
 EYES = ["open", "sparkle", "tired", "cry", "closed", "happy"]
@@ -62,7 +64,7 @@ def recolor_maps():
     by_color = {rgb: ch for ch, rgb in palette.items() if ch not in FIXED}
     spare = [ch for ch in SPARE if ch not in palette]
     maps = {}
-    for style, st in c4.STYLES.items():
+    for style, st in STYLES.items():
         assert not FIXED & st["colors"].keys(), f"{style} 不能改 {''.join(sorted(FIXED))} 的颜色"
         m = {}
         for ch, rgb in sorted(st["colors"].items()):
@@ -116,7 +118,7 @@ def swift_layers(layer):
 
 def main():
     maps, full_palette = recolor_maps()
-    parts = {style: {size: layers(size, style, maps[style]) for size in ("icon", "portrait")} for style in c4.STYLES}
+    parts = {style: {size: layers(size, style, maps[style]) for size in ("icon", "portrait")} for style in STYLES}
     used = sorted({ch for sizes in parts.values() for base, eyes, mouths, extras in sizes.values()
                    for ch in "".join(base) + "".join("".join(p[2]) for d in (eyes, mouths, extras) for p in d.values())} - {"."})
     palette = "".join(f'        "{ch}": 0x{r:02X}{g:02X}{b:02X},\n' for ch in used for (r, g, b) in [full_palette[ch]])

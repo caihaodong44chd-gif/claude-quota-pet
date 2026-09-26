@@ -40,6 +40,34 @@ enum PetRenderer {
         return image
     }
 
+    /// 画成固定分辨率的位图，每格 scale×scale 个像素。要缩放显示时用它：
+    /// image(...) 是显示时按目标分辨率现画的，缩到一格不是整数个物理像素时，格子之间会露出细缝
+    static func bitmap(_ grid: PixelGrid, scale: Int) -> NSImage {
+        let image = NSImage(size: NSSize(width: grid.width * scale, height: grid.height * scale))
+        let rep = rasterize(width: grid.width * scale, height: grid.height * scale) {
+            NSGraphicsContext.current?.shouldAntialias = false
+            draw(grid, pixel: CGFloat(scale), origin: .zero, template: false, templateColor: .black)
+        }
+        if let rep { image.addRepresentation(rep) }
+        return image
+    }
+
+    /// 在一张 sRGB 位图上画（y 轴朝下，和 draw 的约定一致）；scale：每个点画几个像素
+    static func rasterize(width: Int, height: Int, scale: CGFloat = 1, _ body: () -> Void) -> NSBitmapImageRep? {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0)?.retagging(with: .sRGB),
+              let base = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        let cg = base.cgContext
+        cg.translateBy(x: 0, y: CGFloat(height))
+        cg.scaleBy(x: scale, y: -scale)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+        body()
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
     /// 直接画到当前（y 轴朝下的）上下文里
     static func draw(_ grid: PixelGrid, pixel: CGFloat, origin: CGPoint, template: Bool, templateColor: NSColor) {
         for y in 0..<grid.height {

@@ -15,6 +15,10 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
     case classic
     /// 银紫色长发，猫耳
     case neko
+    /// 栗色高马尾、大眼睛、水手服，马尾上系红蝴蝶结
+    case youth
+    /// 紫色长发、金色眼睛，魔女帽和高立领披肩
+    case witch
 
     public var id: String { rawValue }
 
@@ -22,6 +26,8 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .classic: return "经典"
         case .neko: return "猫耳"
+        case .youth: return "青春"
+        case .witch: return "魔女"
         }
     }
 
@@ -29,6 +35,8 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .classic: return PetArt.classic
         case .neko: return PetArt.neko
+        case .youth: return PetArt.youth
+        case .witch: return PetArt.witch
         }
     }
 }

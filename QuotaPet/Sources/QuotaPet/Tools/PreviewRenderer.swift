@@ -176,18 +176,7 @@ enum PreviewRenderer {
 
     /// 在 y 轴朝下的位图上下文里画图，返回 PNG
     static func bitmap(width: Int, height: Int, scale: CGFloat = 1, draw: () -> Void) -> Data? {
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0),
-              let base = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        let cg = base.cgContext
-        cg.translateBy(x: 0, y: CGFloat(height))
-        cg.scaleBy(x: scale, y: -scale)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
-        draw()
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.representation(using: .png, properties: [:])
+        PetRenderer.rasterize(width: width, height: height, scale: scale, draw)?.representation(using: .png, properties: [:])
     }
 
     static func write(_ data: Data?, to url: URL) {

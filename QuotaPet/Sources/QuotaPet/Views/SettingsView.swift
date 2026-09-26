@@ -45,7 +45,9 @@ struct SettingsView: View {
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("宠物形象").font(.system(size: 12))
-                    HStack(spacing: 8) {
+                    // 一行放不下就换行
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8, alignment: .leading)], alignment: .leading,
+                              spacing: 8) {
                         ForEach(PetStyle.allCases) { style in
                             StyleOption(style: style, isSelected: settings.petStyle == style) { settings.petStyle = style }
                         }
@@ -177,15 +179,19 @@ struct StyleOption: View {
     let isSelected: Bool
     let action: () -> Void
 
-    /// 缩略图只在第一次用到时拼一次
+    /// 缩略图只在第一次用到时画一次：先画成位图，再平滑缩到 48pt（0.75pt 一格画不出整像素）
     private static let thumbnails = Dictionary(uniqueKeysWithValues: PetStyle.allCases.map {
-        ($0, PetSprites.frames(for: .normal, style: $0)[0].portrait)
+        ($0, PetRenderer.bitmap(PetSprites.frames(for: .normal, style: $0)[0].portrait, scale: 2))
     })
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 3) {
-                PetImage(grid: Self.thumbnails[style] ?? PixelGrid(width: 64, height: 64), pixel: 0.75)
+                Image(nsImage: Self.thumbnails[style] ?? NSImage())
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 48, height: 48)
+                    .accessibilityHidden(true)
                 Text(style.label).font(.system(size: 11))
             }
             .padding(.horizontal, 10)
