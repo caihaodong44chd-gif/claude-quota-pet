@@ -1,12 +1,14 @@
 import Foundation
 
-/// 额度来源。以后接 ChatGPT/Codex、Cursor、Gemini…就在这里加 case，再实现一个 UsageProvider。
+/// 额度来源。以后接 Cursor、Gemini…就在这里加 case，再实现一个 UsageProvider。
 public enum ProviderID: String, Codable, CaseIterable, Sendable {
     case claude
+    case codex
 
     public var displayName: String {
         switch self {
         case .claude: return "Claude"
+        case .codex: return "Codex"
         }
     }
 }
@@ -56,6 +58,21 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
 
     /// 显示用，限制在 0...100
     public var clampedPercent: Double { min(max(percent, 0), 100) }
+
+    /// 常见窗口的名字，跟着界面语言走（Claude、Codex、演示模式、预览图共用）
+    public static var sessionTitle: String { tr("5 小时会话", "5-hour session") }
+    public static var weeklyTitle: String { tr("本周额度", "Weekly quota") }
+
+    /// 按窗口长度起名：5 小时会话 / 本周额度 / 30 天额度 / 2 小时额度…
+    public static func title(minutes: Int) -> String {
+        switch minutes {
+        case 300: return sessionTitle
+        case 10080: return weeklyTitle
+        case let m where m % 1440 == 0: return tr("\(m / 1440) 天额度", "\(m / 1440)-day quota")
+        case let m where m % 60 == 0: return tr("\(m / 60) 小时额度", "\(m / 60)-hour quota")
+        default: return tr("\(minutes) 分钟额度", "\(minutes)-minute quota")
+        }
+    }
 
     /// 实时估算比官方读数多出来的部分（没有官方读数时，整个百分比都是估算）
     public var estimatedExtra: Double { official.map { max(0, percent - $0) } ?? percent }
@@ -149,6 +166,22 @@ public struct UsageSnapshot: Equatable, Sendable {
 
     /// 最紧张的窗口，宠物的心情跟它走
     public var tightest: UsageWindow? { windows.max { $0.percent < $1.percent } }
+
+    /// 面板和菜单栏上显示哪几家：Claude 一直显示（没数据时由它说明怎么回事），别的有数据才出现
+    public static func visible(_ snapshots: [UsageSnapshot]) -> [UsageSnapshot] {
+        snapshots.filter { $0.provider == .claude || $0.hasData }
+    }
+
+    /// 同时有几家的数据时，宠物和菜单栏跟着谁：有数据的里面最紧张的那家，一样紧张时排在前面的优先；
+    /// 都没有数据时是第一家（由它说明为什么没数据）
+    public static func focus(of snapshots: [UsageSnapshot]) -> UsageSnapshot? {
+        var best: UsageSnapshot?
+        for snapshot in snapshots where snapshot.hasData {
+            let percent = snapshot.tightest?.percent ?? 0
+            if best.map({ percent > ($0.tightest?.percent ?? 0) }) ?? true { best = snapshot }
+        }
+        return best ?? snapshots.first
+    }
 }
 
 /// 一个 AI 的额度数据源。

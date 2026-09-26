@@ -7,6 +7,8 @@ struct SettingsView: View {
     var suggestedWeeklyReset: Date?
     /// 当前的换算率和学习记录
     var estimation: EstimationInfo?
+    /// 在用 Codex（面板上有它的额度）：「什么时候出现」也看 Codex 桌面端，形象选项说明 Codex 固定是龙娘
+    var usesCodex = false
     var onBack: () -> Void
 
     var body: some View {
@@ -27,13 +29,15 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(tr("什么时候出现", "When to show")).font(.system(size: 12))
                     Picker(tr("什么时候出现", "When to show"), selection: $settings.visibility) {
-                        ForEach(MenuBarVisibility.allCases) { Text($0.label).tag($0) }
+                        ForEach(MenuBarVisibility.allCases) { Text($0.label(codex: usesCodex)).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    Text(settings.visibility == .withClaude
-                         ? tr("Claude 关掉后就藏起来，额度恢复提醒照常发", "Hides when Claude quits; reset notifications still arrive")
-                         : tr("一直待在菜单栏里", "Always stays in the menu bar"))
+                    Text(settings.visibility == .always
+                         ? tr("一直待在菜单栏里", "Always stays in the menu bar")
+                         : usesCodex
+                         ? tr("Claude 和 Codex 都关掉后就藏起来，额度恢复提醒照常发", "Hides when both Claude and Codex quit; reset notifications still arrive")
+                         : tr("Claude 关掉后就藏起来，额度恢复提醒照常发", "Hides when Claude quits; reset notifications still arrive"))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                 }
@@ -46,13 +50,19 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(tr("宠物形象", "Pet style")).font(.system(size: 12))
+                    Text(usesCodex ? tr("Claude 的宠物形象", "Claude's pet") : tr("宠物形象", "Pet style")).font(.system(size: 12))
                     // 一行放不下就换行
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8, alignment: .leading)], alignment: .leading,
                               spacing: 8) {
-                        ForEach(PetStyle.allCases) { style in
+                        ForEach(PetStyle.claudeChoices) { style in
                             StyleOption(style: style, isSelected: settings.petStyle == style) { settings.petStyle = style }
                         }
+                    }
+                    if usesCodex {
+                        Text(tr("Codex 的宠物固定是龙娘，两家一眼就能分开", "Codex always gets the dragon girl, so you can tell them apart at a glance"))
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 SwitchRow(tr("宠物动画", "Animate pet"), isOn: $settings.animatePet)

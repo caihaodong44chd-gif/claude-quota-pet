@@ -4,6 +4,7 @@ import QuotaPetCore
 
 /// QuotaPet --render-previews <dir>：把宠物动画、菜单栏效果和面板渲染成 PNG，
 /// 不用真的启动 App 就能检查设计。面板和设置页中英各一套，英文的文件名带 -en。
+/// 同时有 Claude 和 Codex 时的样子在 popover-codex*、menubar-codex、settings-codex*。
 @MainActor
 enum PreviewRenderer {
     static func renderAll(to dir: URL) {
@@ -17,14 +18,18 @@ enum PreviewRenderer {
             write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
             write(menuBarStrip(style: style), to: dir.appendingPathComponent("menubar\(suffix).png"))
         }
+        write(menuBarGlyphStrip(), to: dir.appendingPathComponent("menubar-codex.png"))
 
         let now = Date()
-        // 用本机真实数据渲染一张，和点开菜单栏看到的一样（宠物停在第一帧）
-        if let live = try? ClaudeProvider().snapshot(now: now) {
-            let mood = PetMood.from(snapshot: live)
+        // 用本机真实数据渲染一张，和点开菜单栏看到的一样：先看宠物跟着的那家（宠物停在第一帧）
+        let live = UsageSnapshot.visible([try? ClaudeProvider().snapshot(now: now), try? CodexProvider().snapshot(now: now)].compactMap { $0 })
+        if let focus = UsageSnapshot.focus(of: live) {
+            let mood = PetMood.from(snapshot: focus)
+            let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle)
             for dark in [false, true] {
-                let view = OverviewView(snapshot: live, errorMessage: nil, mood: mood,
-                                        pet: PetImage(grid: PetSprites.frames(for: mood)[0].portrait), fixedNow: now)
+                let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood,
+                                        pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                        tabs: live.count > 1 ? live : [], focus: focus.provider, fixedNow: now)
                 write(render(view, dark: dark), to: dir.appendingPathComponent("popover-live\(dark ? "-dark" : "").png"))
             }
         }
@@ -43,13 +48,25 @@ enum PreviewRenderer {
                     write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
                 }
             }
-            let page = SettingsView(settings: settings, suggestedWeeklyReset: nil,
-                                    estimation: EstimationInfo(sessionUSDPerPercent: 0.33, weeklyUSDPerPercent: 2.41,
-                                                               learnedIntervals: 86, recordedIntervals: 214,
-                                                               learnedUntil: now.addingTimeInterval(-300)),
-                                    onBack: {})
+            // 同时有 Codex：看 Claude（宠物跟着 Claude），和看 Codex（宠物跟着 Codex，换成龙娘）
+            for (name, tabs, selected) in codexSamples(now: now) {
+                let snapshot = tabs.first { $0.provider == selected }
+                let mood = PetMood.from(snapshot: snapshot)
+                let style = PetStyle.of(selected, claudeStyle: .classic)
+                for dark in [false, true] {
+                    let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
+                                            pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                            tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, fixedNow: now)
+                    write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
+                }
+            }
+            let estimation = EstimationInfo(sessionUSDPerPercent: 0.33, weeklyUSDPerPercent: 2.41, learnedIntervals: 86,
+                                            recordedIntervals: 214, learnedUntil: now.addingTimeInterval(-300))
+            let page = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, onBack: {})
             write(renderInWindow(page, dark: false), to: dir.appendingPathComponent("settings\(lang).png"))
             write(renderInWindow(page, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
+            let withCodex = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, usesCodex: true, onBack: {})
+            write(renderInWindow(withCodex, dark: false), to: dir.appendingPathComponent("settings-codex\(lang).png"))
         }
         print("预览图已写入 \(dir.path)")
     }
@@ -114,6 +131,47 @@ enum PreviewRenderer {
         }
     }
 
+    /// 同时显示两家时的菜单栏：宠物后面跟着那家的小图标。用的是 App 里画菜单栏的同一段代码（MenuBarIcon）
+    static func menuBarGlyphStrip() -> Data? {
+        let items: [(PetStyle, PetMood, ProviderID, String, NSColor?)] = [
+            (.classic, .tired, .claude, "86%", .systemOrange), (.dragon, .exhausted, .codex, "93%", .systemRed),
+            (.dragon, .normal, .codex, "55%", nil), (.classic, .energetic, .claude, "27%", nil),
+        ]
+        let rows: [(dark: Bool, mono: Bool)] = [(false, false), (false, true), (true, false), (true, true)]
+        let barHeight: CGFloat = 24, itemWidth: CGFloat = 92, scale: CGFloat = 2
+        let width = CGFloat(items.count) * itemWidth + 16
+        return bitmap(width: Int(width * scale), height: Int(barHeight * CGFloat(rows.count) * scale), scale: scale) {
+            for (r, row) in rows.enumerated() {
+                let y = CGFloat(r) * barHeight
+                (row.dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.95, alpha: 1)).setFill()
+                NSRect(x: 0, y: y, width: width, height: barHeight).fill()
+                let ink: NSColor = row.dark ? .white : .black
+                NSAppearance(named: row.dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+                    for (i, item) in items.enumerated() {
+                        let x = 10 + CGFloat(i) * itemWidth
+                        var image = MenuBarIcon.image(PetSprites.frames(for: item.1, style: item.0)[0].icon, template: row.mono,
+                                                      glyph: MenuBarIcon.glyph(for: item.2))
+                        if row.mono {  // 模板图画出来是黑的，这里替系统按菜单栏配色着色
+                            let template = image
+                            image = NSImage(size: template.size, flipped: false) { rect in
+                                template.draw(in: rect)
+                                ink.set()
+                                rect.fill(using: .sourceAtop)
+                                return true
+                            }
+                        }
+                        let rect = NSRect(x: x, y: y + (barHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+                        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                        (" " + item.3 as NSString).draw(
+                            at: CGPoint(x: rect.maxX, y: y + 4.5),
+                            withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+                                             .foregroundColor: item.4 ?? ink])
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - 面板
 
     static func render<V: View>(_ view: V, dark: Bool) -> Data? {
@@ -168,7 +226,7 @@ enum PreviewRenderer {
             UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-9 * 60),
                           today: today, notes: notes)
         }
-        let session = ClaudeProvider.sessionTitle, weekly = ClaudeProvider.weeklyTitle
+        let session = UsageWindow.sessionTitle, weekly = UsageWindow.weeklyTitle
         return [
             ("calm", snapshot([window("five_hour", session, 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
                                window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.7)])),
@@ -179,6 +237,23 @@ enum PreviewRenderer {
                                   window("seven_day", weekly, week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
             ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now, notes: [ClaudeProvider.missingHistoryNote],
                                     hasData: false)),
+        ]
+    }
+
+    /// Claude + Codex：(文件名, 两家的快照, 正在看哪家)
+    static func codexSamples(now: Date) -> [(String, [UsageSnapshot], ProviderID)] {
+        let claude = Dictionary(uniqueKeysWithValues: sampleSnapshots(now: now))
+        let week = 7 * 86400.0
+        func codex(_ percent: Double, agoMinutes: Double, resetIn: TimeInterval, burn: Double) -> UsageSnapshot {
+            let window = UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: week, percent: percent,
+                                     official: percent, officialAt: now.addingTimeInterval(-agoMinutes * 60),
+                                     startedAt: now.addingTimeInterval(resetIn - week), resetsAt: now.addingTimeInterval(resetIn),
+                                     burnPerHour: burn, burnLookback: 86400)
+            return UsageSnapshot(provider: .codex, windows: [window], generatedAt: now, officialAt: window.officialAt)
+        }
+        return [
+            ("codex", [claude["busy"]!, codex(55, agoMinutes: 12, resetIn: 2 * 86400 + 5 * 3600, burn: 0.6)], .claude),
+            ("codex-tab", [claude["calm"]!, codex(93, agoMinutes: 4, resetIn: 86400 + 3 * 3600, burn: 3.8)], .codex),
         ]
     }
 

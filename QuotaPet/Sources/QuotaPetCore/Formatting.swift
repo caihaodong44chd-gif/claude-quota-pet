@@ -109,13 +109,15 @@ public enum MenuBarText {
             }
             return ("100%", 100)
         }
-        let shown: [UsageWindow]
+        var shown: [UsageWindow]
         switch mode {
         case .petOnly: return ("", 0)
         case .session: shown = [snap.window("five_hour")].compactMap { $0 }
         case .sessionAndWeekly: shown = [snap.window("five_hour"), snap.window("seven_day")].compactMap { $0 }
         case .tightest: shown = [snap.tightest].compactMap { $0 }
         }
+        // 这家没有这种窗口（比如 Codex 有的套餐只有每周额度）：显示最紧张的那个
+        if shown.isEmpty { shown = [snap.tightest].compactMap { $0 } }
         let text = shown.map { Fmt.percent($0.clampedPercent) }.joined(separator: " · ")
         return (text, shown.map(\.percent).max() ?? 0)
     }

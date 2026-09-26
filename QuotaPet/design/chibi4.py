@@ -56,6 +56,12 @@ STYLES = {
         "A": (130, 78, 8), "B": (222, 160, 28), "C": (255, 226, 110), "E": (58, 28, 0),
         "Q": (62, 44, 92), "q": (40, 26, 62), "O": (242, 164, 60), "N": (30, 22, 46), "n": (78, 58, 110),
         "b": (104, 44, 150), "k": (62, 22, 96)}),
+    # Codex 专用（不在 Claude 的形象选项里）：白发龙娘，龙角、尖耳、背后一对小龙翼，发饰和领口是中国结
+    "dragon": dict(label="龙娘", hair="wavy", accessory="horns", collar="knot", wings=True, elf=True, colors={
+        "H": (230, 228, 244), "h": (255, 255, 255), "d": (188, 184, 220), "e": (148, 142, 190), "K": (66, 60, 100),
+        "A": (78, 72, 124), "B": (136, 130, 188), "C": (196, 194, 238), "E": (40, 36, 70),
+        "Q": (252, 252, 255), "q": (212, 210, 234), "O": (164, 156, 210), "N": (56, 50, 92), "n": (120, 114, 170),
+        "F": (206, 200, 240), "f": (150, 142, 204), "G": (250, 248, 255), "b": (104, 94, 164), "k": (70, 62, 124)}),
 }
 
 
@@ -150,7 +156,11 @@ def mirror(pts):
 # ---------------------------------------------------------------- 角色（世界坐标：头像画布 32×32）
 
 def draw_character(c, portrait=False, style="classic"):
-    accessory, hair = STYLES[style]["accessory"], STYLES[style].get("hair", "long")
+    st = STYLES[style]
+    accessory, hair = st["accessory"], st.get("hair", "long")
+    if portrait and st.get("wings"):
+        wing(c)
+        wing(c, mirror)
     if hair == "ponytail":
         # 高马尾：从头顶右后方甩出来，往右下垂
         tail = (bez((19.0, 1.6), (26.0, -1.0), (31.6, 4.0), (31.2, 12.0)) + bez((31.2, 12.0), (31.0, 18.0), (29.4, 22.0), (27.6, 25.0))
@@ -167,8 +177,16 @@ def draw_character(c, portrait=False, style="classic"):
         inner = [(6.9, 6.6), (6.6, 2.0), (10.6, 3.6)]
         c.poly(inner, "P")
         c.poly(mirror(inner), "P")
+    if accessory == "horns":  # 根部藏在刘海底下，后画的刘海会盖住
+        horn(c, portrait)
+        horn(c, portrait, mirror)
     if hair == "long":  # 两侧一直垂到画面外
         curtain = [(4.6, 10), (3.4, 17), (2.6, 25), (2.0, 33), (1.6, 42), (2.4, 52), (8.0, 52), (8.4, 42), (8.2, 32), (7.6, 22), (6.8, 13)]
+    elif hair == "wavy":  # 长卷发：外缘一路起伏，越往下波浪越大
+        ys = [10 + i * 0.5 for i in range(85)]
+        base = np.interp(ys, [10, 17, 25, 33, 42, 52], [4.6, 3.4, 2.6, 2.0, 1.6, 2.4])
+        curtain = [(x - (0.2 + 0.7 * (y - 10) / 42) * math.sin((y - 12) / 7.5 * 2 * math.pi), y) for x, y in zip(base, ys)]
+        curtain += [(8.0, 52), (8.4, 42), (8.2, 32), (7.6, 22), (6.8, 13)]
     else:  # 扎起来了，两边只剩鬓角
         curtain = None
     if curtain:
@@ -182,12 +200,18 @@ def draw_character(c, portrait=False, style="classic"):
     c.poly([(4.8, 31.2), (9.4, 28.2), (16, 32.2), (22.6, 28.2), (27.2, 31.2), (26.8, 34.5), (16, 37.0), (5.2, 34.5)], "q")
     c.poly([(5.6, 31.6), (9.8, 28.8), (16, 32.0), (22.2, 28.8), (26.4, 31.6), (26.0, 34.0), (16, 36.2), (6.0, 34.0)], "Q")
     c.poly([(13.9, 24.5), (18.1, 24.5), (18.3, 28.6), (13.7, 28.6)], "s")
-    for x in (12.8, 14.6, 16.4, 18.2):
-        c.ellipse(x + 0.5, 28.2, 1.15, 1.0, "Q")
-    c.line([(5.6, 31.6), (6.0, 34.0), (16, 36.2), (26.0, 34.0), (26.4, 31.6)], 0.35, "O")
-    c.poly([(16, 29.8), (12.4, 28.6), (12.8, 31.6)], "N")
-    c.poly([(16, 29.8), (19.6, 28.6), (19.2, 31.6)], "N")
-    flower(c, 16, 29.7, 1.45)
+    if st.get("collar") == "knot":
+        # 白色立领，下沿一道滚边，领口挂一个带流苏的中国结
+        c.poly([(13.3, 25.9), (18.7, 25.9), (19.4, 29.0), (12.6, 29.0)], "Q")
+        c.line([(12.6, 29.0), (19.4, 29.0)], 0.4, "O")
+        c.line([(5.6, 31.6), (6.0, 34.0), (16, 36.2), (26.0, 34.0), (26.4, 31.6)], 0.35, "O")
+    else:
+        for x in (12.8, 14.6, 16.4, 18.2):
+            c.ellipse(x + 0.5, 28.2, 1.15, 1.0, "Q")
+        c.line([(5.6, 31.6), (6.0, 34.0), (16, 36.2), (26.0, 34.0), (26.4, 31.6)], 0.35, "O")
+        c.poly([(16, 29.8), (12.4, 28.6), (12.8, 31.6)], "N")
+        c.poly([(16, 29.8), (19.6, 28.6), (19.2, 31.6)], "N")
+        flower(c, 16, 29.7, 1.45)
     if accessory == "hat":
         # 魔女的高立领：从肩膀两边竖起来，尖角贴着下巴
         for m in (lambda p: p, mirror):
@@ -209,6 +233,9 @@ def draw_character(c, portrait=False, style="classic"):
             + bez((21.0, 24.4), (24.2, 21.5), (25.5, 17.0), (25.1, 10.5))
             + bez((25.1, 10.5), (25.0, 6.2), (20.5, 4.6), (16.0, 4.6))
             + bez((16.0, 4.6), (11.5, 4.6), (7.0, 6.2), (6.9, 10.5)))
+    if st.get("elf"):
+        elf_ear(c)
+        elf_ear(c, mirror)
     c.poly(face, "S")
     jaw = (bez((7.0, 15.0), (7.4, 19.5), (8.6, 22.0), (11.0, 24.4)) + bez((11.0, 24.4), (12.9, 25.9), (14.7, 26.4), (16.0, 26.4))
            + bez((16.0, 26.4), (17.3, 26.4), (19.1, 25.9), (21.0, 24.4)) + bez((21.0, 24.4), (23.4, 22.0), (24.6, 19.5), (25.0, 15.0)))
@@ -257,6 +284,82 @@ def draw_character(c, portrait=False, style="classic"):
             c.poly([(sx, sy - r), (sx + 0.3 * r, sy - 0.3 * r), (sx + r, sy), (sx + 0.3 * r, sy + 0.3 * r),
                     (sx, sy + r), (sx - 0.3 * r, sy + 0.3 * r), (sx - r, sy), (sx - 0.3 * r, sy - 0.3 * r)], "Y")
         c.line([(12.0, 1.0), (15.0, -0.8)], 0.5, "n")
+
+
+def expand(pts, d):
+    """把多边形从中心往外放大 d（近似的外扩描边）"""
+    cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    out = []
+    for x, y in pts:
+        r = math.hypot(x - cx, y - cy) or 1
+        out.append((x + (x - cx) / r * d, y + (y - cy) / r * d))
+    return out
+
+
+def tapered(spine, w0):
+    """沿着一条中线画一根从根部 w0 粗、到尖端变细的长条（龙角）；返回（轮廓，下侧那一半）"""
+    n = len(spine) - 1
+    upper, lower = [], []
+    for i, (x, y) in enumerate(spine):
+        (ax, ay), (bx, by) = spine[max(i - 1, 0)], spine[min(i + 1, n)]
+        length = math.hypot(bx - ax, by - ay) or 1
+        nx, ny = (ay - by) / length, (bx - ax) / length
+        w = w0 / 2 * (1 - i / n) ** 0.8
+        upper.append((x - nx * w, y - ny * w))
+        lower.append((x + nx * w, y + ny * w))
+    return upper + lower[::-1], spine + lower[::-1], upper, lower
+
+
+def horn(c, portrait, m=lambda p: p):
+    """左边的龙角（m=mirror 画右边）：根部藏在刘海底下，先往外、再往上弯，下侧一半暗一点，几道横棱"""
+    if portrait:
+        spine = bez((9.4, 6.0), (6.0, 4.6), (2.6, 3.8), (2.0, -0.9), steps=16)
+        outline, shade, upper, lower = tapered(spine, 3.6)
+    else:
+        spine = bez((9.4, 6.0), (6.6, 4.8), (3.6, 3.8), (3.0, 0.2), steps=16)
+        outline, shade, upper, lower = tapered(spine, 3.0)
+    c.poly(m(outline), "Q")
+    c.poly(m(shade), "q")
+    for i in (5, 9, 12):
+        c.line(m([upper[i], lower[i]]), 0.45, "q")
+
+
+def wing(c, m=lambda p: p):
+    """左边的小龙翼（m=mirror 画右边）：从肩膀后面伸出来，翼尖朝外上方，下缘两段弧形的翼膜，只在半身像上画"""
+    wrist, tip = (-0.4, 22.6), (-2.6, 19.6)
+    edge = (bez((3.8, 28.4), (2.4, 26.0), (1.0, 24.2), wrist) + [tip]
+            + bez(tip, (-1.6, 22.0), (-1.8, 23.8), (-3.2, 25.8))
+            + bez((-3.2, 25.8), (-1.8, 26.8), (-1.2, 28.2), (-1.8, 30.2))
+            + bez((-1.8, 30.2), (-0.4, 30.4), (1.2, 31.2), (2.8, 32.6)) + [(4.2, 32.0)])
+    c.poly(m(edge), "q")
+    c.line(m([(3.8, 28.4), (1.6, 25.2), wrist, tip]), 0.6, "e")
+    c.line(m([wrist, (-3.2, 25.8)]), 0.42, "e")
+    c.line(m([wrist, (-1.8, 30.2)]), 0.42, "e")
+
+
+def elf_ear(c, m=lambda p: p):
+    """尖耳朵：从脸侧伸到头发外面；白发和皮肤颜色太近，先垫一圈描边"""
+    ear = [(7.6, 14.2), (1.6, 11.0), (7.4, 18.8)]
+    c.poly(m(expand(ear, 0.5)), "K")
+    c.poly(m(ear), "S")
+    c.poly(m([(7.0, 15.2), (3.8, 12.6), (7.0, 17.6)]), "s")
+
+
+# 中国结太小，用形状画出来是一团黑：手画像素，缩成像素之后再盖上去。(图案, 左上角 x, y)
+KNOTS = {
+    "icon": [([".N.", "NFN", ".N.", ".n."], 21, 5),                                   # 右边龙角根上
+             ([".NN.", "NFFN", ".NN.", ".nn."], 14, 28)],                              # 立领
+    "portrait": [(["..N..", ".NFN.", "NFNFN", ".NFN.", "..N..", "..N..", "..n..", ".nnn.", ".nnn."], 40, 10),
+                 (["..NN..", ".NFFN.", "NFNNFN", ".NFFN.", "..NN..", "..NN..", "..nn..", ".nnnn.", ".nnnn."], 29, 47)],
+}
+
+
+def decorate(g, style, portrait):
+    """缩成像素、描完边之后再加的手画部件"""
+    if STYLES[style]["accessory"] == "horns":
+        for rows, x, y in KNOTS["portrait" if portrait else "icon"]:
+            stamp(g, rows, x, y)
+    return g
 
 
 def flower(c, cx, cy, r):
@@ -399,7 +502,7 @@ def icon(eyes="open", mouth="small", extras=(), eye_rows=None, k=1.08, half_gap=
     c = Canvas(32)
     draw_character(c, style=style)
     draw_face(c, eyes, mouth, k=k, half_gap=half_gap, style=style)
-    g = finish(c.grid())
+    g = decorate(finish(c.grid()), style, False)
     for e in extras:
         if e == "sweat": stamp(g, [".X", "XX", "XX"], 3, 11)
         if e == "tear": stamp(g, ["X", "X"], 10, 21); stamp(g, ["X", "X"], 21, 21)
@@ -421,7 +524,7 @@ def portrait(eyes="open", mouth="small", extras=(), k=1.14, half_gap=None, style
     c = Canvas(64, -4.0, -1.0, 64 / 40)
     draw_character(c, portrait=True, style=style)
     draw_face(c, eyes, mouth, k=k, half_gap=half_gap, style=style)
-    g = finish(c.grid())
+    g = decorate(finish(c.grid()), style, True)
     if "star" in extras:
         stamp(g, ["..Y..", ".YYY.", "YYYYY", ".YYY.", "..Y.."], 3, 5)
     if "tear" in extras:

@@ -79,6 +79,9 @@ for style in PetStyle.allCases {
 }
 check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
 check(PetSprites.frames(for: .normal, style: .neko)[0] != PetSprites.frames(for: .normal)[0], "不同形象画出来不一样")
+check(!PetStyle.claudeChoices.contains(.dragon) && PetStyle.claudeChoices.count == PetStyle.allCases.count - 1, "龙娘不在 Claude 的形象选项里")
+check(PetStyle.of(.codex, claudeStyle: .neko) == .dragon && PetStyle.of(.claude, claudeStyle: .neko) == .neko, "Codex 固定是龙娘，Claude 用选的形象")
+check(PetSprites.frames(for: .normal, style: .dragon)[0] != PetSprites.frames(for: .normal, style: .neko)[0], "龙娘和猫耳画出来不一样")
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")
@@ -380,12 +383,145 @@ do {
     check(window(zero + Array(readings.prefix(2)), live: false).otherPercent == 0, "关掉实时估算时也不算其他端")
 }
 
+// MARK: - Codex 日志
+
+/// Codex 日志里的一行 token_count 事件（数字都是编的）
+func codexLine(_ time: Date, limit: String? = "codex", _ windows: [(minutes: Int, used: Double, resets: Date)],
+               type: String = "token_count") -> String {
+    var limits: [String: Any] = ["limit_id": limit ?? NSNull(), "secondary": NSNull(), "plan_type": "plus"]
+    for (key, w) in zip(["primary", "secondary"], windows) {
+        limits[key] = ["used_percent": w.used, "window_minutes": w.minutes, "resets_at": Int(w.resets.timeIntervalSince1970)]
+    }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let obj: [String: Any] = ["timestamp": formatter.string(from: time), "type": "event_msg",
+                              "payload": ["type": type, "info": ["total_token_usage": ["total_tokens": 1234]], "rate_limits": limits]]
+    return String(data: try! JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]), encoding: .utf8)!
+}
+
+do {
+    let line = codexLine(at(20, 10), [(300, 20, at(20, 14)), (10080, 40, at(24, 9))])
+    let reading = CodexRateReading.parse(line: Data(line.utf8))
+    check(reading?.time == at(20, 10) && reading?.isMain == true, "解析时间和额度桶")
+    check(reading?.windows == [.init(minutes: 300, usedPercent: 20, resetsAt: at(20, 14)), .init(minutes: 10080, usedPercent: 40, resetsAt: at(24, 9))],
+          "解析 5 小时和每周两个窗口")
+    let legacy = #"{"timestamp":"2026-09-20T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12.5,"window_minutes":300,"resets_in_seconds":3600}}}}"#
+    let old = CodexRateReading.parse(line: Data(legacy.utf8))
+    check(old?.limitID == nil && old?.isMain == true && old?.windows.first?.resetsAt == old.map { $0.time.addingTimeInterval(3600) },
+          "老版本：没有 limit_id、给的是 resets_in_seconds")
+    check(CodexRateReading.parse(line: Data(codexLine(at(20, 10), [(300, 20, at(20, 14))], type: "agent_message").utf8)) == nil,
+          "不是 token_count 事件不算")
+    check(CodexRateReading.parse(line: Data(codexLine(at(20, 10), limit: "premium", []).utf8)) == nil, "没有窗口的额度桶跳过")
+    check(CodexRateReading.parse(line: Data(codexLine(at(20, 10), limit: "codex_other", [(300, 20, at(20, 14))]).utf8))?.isMain == false,
+          "别的额度桶不是总额度")
+    check(CodexRateReading.parse(line: Data(#"{"timestamp":"2026-09-20T02:00:00Z","type":"session_meta","payload":{"id":"x"}}"#.utf8)) == nil,
+          "别的行不看")
+    // 重置时间要在这条记录之后一个窗口以内：换成毫秒之类的格式变化不能让窗口永远不重置
+    let millis = #"{"timestamp":"2026-09-20T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"window_minutes":300,"resets_at":1790000000000},"secondary":{"used_percent":30,"window_minutes":10080,"resets_at":1790000000}}}}"#
+    check(CodexRateReading.parse(line: Data(millis.utf8))?.windows.map(\.minutes) == [10080], "重置时间离谱的窗口不要（只剩每周）")
+    let twice = codexLine(at(20, 10), [(300, 20, at(20, 14)), (300, 25, at(20, 14))])
+    check(CodexRateReading.parse(line: Data(twice.utf8))?.windows.count == 1, "同样长的两个窗口只留一个")
+    let huge = #"{"timestamp":"2026-09-20T02:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":1e300,"window_minutes":300,"resets_at":1789880400},"secondary":{"used_percent":5,"window_minutes":200000000000000000,"resets_at":1790000000}}}}"#
+    check(CodexRateReading.parse(line: Data(huge.utf8))?.windows == [.init(minutes: 300, usedPercent: 100, resetsAt: Date(timeIntervalSince1970: 1789880400))],
+          "离谱的数字不能让 App 崩：百分比限制到 100，超长的窗口不要")
+
+    // 增量读取：新文件先读；比最新读数早一天以上的旧文件第一次不读，只跟后面追加的
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-codex-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let day20 = home.appendingPathComponent("sessions/2026/09/20"), day18 = home.appendingPathComponent("sessions/2026/09/18")
+    let archived = home.appendingPathComponent("archived_sessions")
+    for dir in [day20, day18, archived] { try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+    func write(_ url: URL, _ lines: [String], modified: Date, newline: Bool = true) {
+        try! (lines.joined(separator: "\n") + (newline ? "\n" : "")).write(to: url, atomically: true, encoding: .utf8)
+        try! FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: url.path)
+    }
+    func append(_ url: URL, _ text: String, modified: Date) {
+        let handle = try! FileHandle(forWritingTo: url)
+        handle.seekToEndOfFile()
+        handle.write(Data(text.utf8))
+        try! handle.close()
+        try! FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: url.path)
+    }
+    let recent = day20.appendingPathComponent("rollout-a.jsonl"), stale = day18.appendingPathComponent("rollout-b.jsonl")
+    write(recent, [#"{"timestamp":"2026-09-20T01:00:00Z","type":"session_meta","payload":{"id":"x"}}"#,
+                   codexLine(at(19, 12), [(300, 60, at(19, 15)), (10080, 30, at(24, 9))]),
+                   codexLine(at(20, 10), [(300, 20, at(20, 14)), (10080, 40, at(24, 9))]),
+                   codexLine(at(20, 12, 30), [(300, 35, at(20, 14)), (10080, 44, at(24, 9))]),
+                   codexLine(at(20, 12, 45), limit: "codex_other", [(300, 90, at(20, 16))])], modified: at(20, 12, 45))
+    write(stale, [codexLine(at(18, 9), [(300, 5, at(18, 13)), (10080, 10, at(24, 9))])], modified: at(18, 9))
+    try! #"{"rate_limits": "登录凭据不在 sessions 里，不会被读到"}"#.write(to: home.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+    let scanner = CodexLogScanner(home: home)
+    var readings = scanner.refresh(now: at(20, 13))
+    check(readings.map(\.time) == [at(19, 12), at(20, 10), at(20, 12, 30), at(20, 12, 45)], "读到新文件里的 4 次读数，旧文件先不读：\(readings.map(\.time))")
+    check(scanner.trackedFiles == 2, "两个文件都在跟：\(scanner.trackedFiles)")
+    append(stale, codexLine(at(20, 12, 50), [(300, 36, at(20, 14)), (10080, 45, at(24, 9))]) + "\n", modified: at(20, 12, 50))
+    readings = scanner.refresh(now: at(20, 13))
+    check(readings.last?.time == at(20, 12, 50) && !readings.contains { $0.time == at(18, 9) }, "旧文件只读后面追加的")
+    let half = codexLine(at(20, 12, 55), [(300, 37, at(20, 14)), (10080, 46, at(24, 9))])
+    append(recent, String(half.prefix(40)), modified: at(20, 12, 55))
+    check(scanner.refresh(now: at(20, 13)).count == 5, "写到一半的行先不算")
+    append(recent, String(half.dropFirst(40)) + "\n", modified: at(20, 12, 56))
+    check(scanner.refresh(now: at(20, 13)).last?.time == at(20, 12, 55), "写完了再算")
+    try! FileManager.default.copyItem(at: recent, to: archived.appendingPathComponent("rollout-a.jsonl"))
+    check(scanner.refresh(now: at(20, 13)).count == 6, "归档挪过去的同一个对话不重复算")
+
+    // 快照：只看总额度，读数就是官方百分比
+    let provider = CodexProvider(home: home)
+    let snap = try! provider.snapshot(now: at(20, 13))
+    let session = snap.window("five_hour"), weekly = snap.window("seven_day")
+    check(snap.provider == .codex && snap.hasData && snap.windows.map(\.id) == ["five_hour", "seven_day"], "5 小时 + 每周两个窗口")
+    check(session?.title == "5 小时会话" && weekly?.title == "本周额度", "窗口名和 Claude 的一样")
+    check(near(session?.percent, 37) && session?.official == 37 && session?.officialAt == at(20, 12, 55) && session?.estimatedExtra == 0,
+          "百分比 = 最新一次总额度读数（别的额度桶的 90% 不算）：\(String(describing: session?.percent))")
+    check(session?.startedAt == at(20, 9) && session?.resetsAt == at(20, 14), "窗口开始 = 重置时间往前 5 小时")
+    // 每周：24 小时前（19 号 13 点）之前最后一次是 30%，现在 46% → 16 个点 / 24 小时
+    check(near(weekly?.burnPerHour, 16.0 / 24), "每周的消耗速度看最近 24 小时：\(String(describing: weekly?.burnPerHour))")
+    // 5 小时：30 分钟前（12:30）是 35%，现在 37% → 30 分钟涨了 2 个点
+    check(near(session?.burnPerHour, 2.0 * 2), "5 小时的消耗速度看最近 30 分钟：\(String(describing: session?.burnPerHour))")
+    check(snap.notes.isEmpty, "读数是新的，没有提示")
+
+    let later = try! provider.snapshot(now: at(20, 15))
+    check(later.window("five_hour")?.percent == 0 && later.window("five_hour")?.resetsAt == nil && later.window("five_hour")?.official == nil,
+          "读数之后已经重置的窗口算 0，等下次使用再开始")
+    check(near(later.window("seven_day")?.percent, 46), "每周还没重置")
+    let staleSnap = try! provider.snapshot(now: at(21, 3))
+    check(staleSnap.notes.contains { $0.contains("Codex 的读数停在") }, "读数太久没更新时提醒：\(staleSnap.notes)")
+
+    let empty = try! CodexProvider(home: home.appendingPathComponent("none")).snapshot(now: at(20, 13))
+    check(!empty.hasData && empty.notes == [CodexProvider.missingNote], "没用过 Codex：没有数据")
+    check(CodexProvider.windowID(minutes: 43200) == "codex_43200m" && UsageWindow.title(minutes: 43200) == "30 天额度", "免费版的 30 天窗口")
+    check(CodexProvider.burn([], windowStart: at(20, 9), lookback: 1800, now: at(20, 13)) == nil, "没有读数就没有速度")
+    check(near(CodexProvider.burn([S(time: at(20, 12, 50), value: 10)], windowStart: at(20, 12, 40), lookback: 1800, now: at(20, 13)), 10.0 * 3),
+          "窗口是最近 30 分钟里才开始的：从 0 算起（按 20 分钟算）")
+}
+
+// MARK: - 几家一起显示
+
+do {
+    func snap(_ provider: ProviderID, _ percent: Double?, windowID: String = "five_hour") -> UsageSnapshot {
+        let windows = percent.map { [UsageWindow(id: windowID, title: "", duration: fiveHours, percent: $0)] } ?? []
+        return UsageSnapshot(provider: provider, windows: windows, generatedAt: at(20, 12), hasData: percent != nil)
+    }
+    check(UsageSnapshot.focus(of: [snap(.claude, 86), snap(.codex, 55)])?.provider == .claude, "Claude 更紧张就跟着 Claude")
+    check(UsageSnapshot.focus(of: [snap(.claude, 27), snap(.codex, 93)])?.provider == .codex, "Codex 更紧张就跟着 Codex")
+    check(UsageSnapshot.focus(of: [snap(.claude, 50), snap(.codex, 50)])?.provider == .claude, "一样紧张时排前面的优先")
+    check(UsageSnapshot.focus(of: [snap(.claude, nil), snap(.codex, 40)])?.provider == .codex, "Claude 没数据时跟着 Codex")
+    check(UsageSnapshot.focus(of: [snap(.claude, nil), snap(.codex, nil)])?.provider == .claude, "都没数据时是 Claude（由它说明）")
+    check(UsageSnapshot.focus(of: []) == nil, "还没有快照")
+    check(UsageSnapshot.visible([snap(.claude, nil), snap(.codex, nil)]).map(\.provider) == [.claude], "Codex 没数据就不显示")
+    check(UsageSnapshot.visible([snap(.claude, 10), snap(.codex, 20)]).map(\.provider) == [.claude, .codex], "两家都显示")
+    check(MenuBarText.make(snap(.codex, 55, windowID: "seven_day"), mode: .session, now: at(20, 12)).text == "55%",
+          "只有每周额度时，「5 小时」显示方式退回最紧张的窗口")
+}
+
 // MARK: - 什么时候显示
 
-check(MenuBarVisibility.withClaude.shouldShow(claudeRunning: true, pinned: false), "Claude 开着就显示")
-check(!MenuBarVisibility.withClaude.shouldShow(claudeRunning: false, pinned: false), "Claude 关了就藏起来")
-check(MenuBarVisibility.withClaude.shouldShow(claudeRunning: false, pinned: true), "用户临时叫出来时显示")
-check(MenuBarVisibility.always.shouldShow(claudeRunning: false, pinned: false), "一直显示")
+check(MenuBarVisibility.withClaude.shouldShow(appRunning: true, pinned: false), "Claude 开着就显示")
+check(!MenuBarVisibility.withClaude.shouldShow(appRunning: false, pinned: false), "Claude 关了就藏起来")
+check(MenuBarVisibility.withClaude.shouldShow(appRunning: false, pinned: true), "用户临时叫出来时显示")
+check(MenuBarVisibility.always.shouldShow(appRunning: false, pinned: false), "一直显示")
+check(MenuBarVisibility.withClaude.label == "Claude 打开时" && MenuBarVisibility.withClaude.label(codex: true) == "Claude/Codex 打开时",
+      "在用 Codex 时选项里写上 Codex")
 
 // MARK: - 区间记录 & 学习换算率
 
@@ -523,6 +659,12 @@ do {
                             archiveURL: nil).snapshot(now: at(20, 15))
     }
     let stale = snapshot(history: "history.json"), missing = snapshot(history: "none.json")
+    let codexHome = dir.appendingPathComponent("codex/sessions")
+    try! FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+    try! (codexLine(at(19, 12), [(300, 20, at(19, 14)), (10080, 40, at(24, 9))]) + "\n").write(
+        to: codexHome.appendingPathComponent("rollout.jsonl"), atomically: true, encoding: .utf8)
+    let codex = try! CodexProvider(home: dir.appendingPathComponent("codex")).snapshot(now: at(20, 15))
+    check(codex.window("seven_day")?.title == "Weekly quota" && codex.notes.contains { $0.contains("1 day ago") }, "Codex 的英文：\(codex.notes)")
     check(stale.window("five_hour")?.title == "5-hour session", "英文窗口名")
     check(stale.notes.contains { $0.contains("3 hr ago") }, "官方读数停了的提示是英文：\(stale.notes)")
     check(missing.notes == [ClaudeProvider.missingHistoryNote], "没有桌面端记录的提示是英文")
@@ -534,7 +676,9 @@ do {
     let demo = try! DemoProvider().snapshot(now: Date())
     var english: [String] = PetMood.allCases.flatMap { [$0.title, $0.line] }
     english += PetStyle.allCases.map(\.label) + MenuBarTextMode.allCases.map(\.label) + MenuBarVisibility.allCases.map(\.label)
-    english += (stale.windows + demo.windows).map(\.title) + stale.notes + missing.notes + demo.notes
+    english += MenuBarVisibility.allCases.map { $0.label(codex: true) }
+    english += (stale.windows + demo.windows + codex.windows).map(\.title) + stale.notes + missing.notes + demo.notes + codex.notes
+    english += [CodexProvider.missingNote, UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
     english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,
                 Fmt.clock(at(24, 9), now: at(25, 12)), Fmt.duration(30)]
     check(!english.contains(where: hasChinese), "英文界面里有中文：\(english.filter(hasChinese))")

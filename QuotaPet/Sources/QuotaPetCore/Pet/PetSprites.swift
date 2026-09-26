@@ -19,6 +19,8 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
     case youth
     /// 紫色长发、金色眼睛，魔女帽和高立领披肩
     case witch
+    /// Codex 专用：白色长卷发的龙娘，龙角、尖耳、背后一对小龙翼，发饰和立领上是中国结
+    case dragon
 
     public var id: String { rawValue }
 
@@ -28,6 +30,7 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         case .neko: return tr("猫耳", "Cat ears")
         case .youth: return tr("青春", "Youthful")
         case .witch: return tr("魔女", "Witch")
+        case .dragon: return tr("龙娘", "Dragon girl")
         }
     }
 
@@ -37,11 +40,20 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         case .neko: return PetArt.neko
         case .youth: return PetArt.youth
         case .witch: return PetArt.witch
+        case .dragon: return PetArt.dragon
         }
+    }
+
+    /// 设置里能给 Claude 选的形象。龙娘留给 Codex，两家的宠物一眼就能分开
+    public static var claudeChoices: [PetStyle] { allCases.filter { $0 != .dragon } }
+
+    /// 这家 AI 的宠物：Claude 用设置里选的形象，Codex 固定是龙娘
+    public static func of(_ provider: ProviderID, claudeStyle: PetStyle) -> PetStyle {
+        provider == .codex ? .dragon : claudeStyle
     }
 }
 
-/// 宠物：原创像素角色（参考「Claude 娘」风格），有几款形象可选（PetStyle）。
+/// 宠物：原创像素角色（参考「Claude 娘」风格），Claude 有几款形象可选，Codex 是龙娘（PetStyle）。
 /// 像素数据在 PetArt.swift（由 design/export_swift.py 生成），这里只负责按心情把五官和小道具叠到底图上。
 public enum PetSprites {
     public static let iconSize = 32

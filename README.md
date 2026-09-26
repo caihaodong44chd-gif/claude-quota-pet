@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.en.md)
 
-**住在 macOS 菜单栏里的像素小人，实时显示你的 Claude 订阅额度。**<br>
+**住在 macOS 菜单栏里的像素小人，实时显示你的 Claude 订阅额度，也能一起看 Codex 的。**<br>
 额度越紧张她越累，用完了就睡着，还会告诉你多久后恢复。
 
 <img src="docs/images/menubar.png" width="484" alt="菜单栏效果：浅色和深色菜单栏、彩色和单色宠物，从 27% 一直到被限流后的恢复倒计时 1h23m">
@@ -33,7 +33,8 @@
 - **点开看细节**：5 小时和本周额度、多久后重置、最近的消耗速度，以及「照这个速度几点用完」
 - **两次官方读数之间也是实时的**：官方读数 15 分钟才有一次，中间用 Claude Code 的本机日志估算，换算率从你自己的数据里自动学
 - **只在该提醒的时候提醒**：跨过 75% / 90% / 100% 各提醒一次，额度恢复时说一声
-- **跟着 Claude 走**：打开 Claude 桌面端宠物就出现，关掉就藏起来（也可以设成一直显示）
+- **也看 Codex**：本机用过 Codex 的话自动接进来，面板上切换着看，宠物跟着两家里更紧张的那个（[详见下面](#同时看-codex)）
+- **跟着 Claude 走**：打开 Claude 桌面端宠物就出现，关掉就藏起来（在用 Codex 时 Codex 桌面端也算；也可以设成一直显示）
 - **中英双语**：界面跟随系统语言，也可以在设置里切换（English UI available）
 
 ## 宠物心情
@@ -50,6 +51,23 @@
 | 读不到数据 | 有点懵 | 头顶冒问号 |
 
 <img src="docs/images/pet-sheet.png" width="392" alt="宠物的全部动画帧，每行一种心情">
+
+## 同时看 Codex
+
+在这台 Mac 上用过 Codex（命令行或桌面端）的话，QuotaPet 会自动把它的额度也接进来，不用设置：
+
+- 面板顶部多一个 Claude / Codex 切换条，上面带着两家的百分比；每次点开先看更紧张的那家
+- 宠物和菜单栏上的数字跟着两家里更紧张的那个，数字前面的小图标告诉你是哪家：星号是 Claude，终端是 Codex
+- Codex 有自己的宠物：白发龙娘，长着龙角和小翅膀，和 Claude 的形象一眼就能分开
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-codex-tab-dark.png">
+    <img src="docs/images/popover-codex-tab.png" width="320" alt="面板：切到 Codex，本周额度 93%，龙娘快撑不住了">
+  </picture>
+  <br>
+  <img src="docs/images/menubar-codex.png" width="384" alt="菜单栏：数字前面的小图标，星号是 Claude，终端是 Codex；Codex 的宠物是龙娘">
+</p>
 
 ## 安装
 
@@ -74,9 +92,11 @@ make install    # 编译，装到 ~/Applications，并打开开机自启
 | 官方 5 小时 / 每周 % | Claude 桌面端每 15 分钟写一次的 `~/Library/Application Support/Claude/plan-usage-history.json` |
 | 两次读数之间的变化 | Claude Code 的本机日志 `~/.claude/projects/**/*.jsonl`：按 API 价格折成美元，再用自动学到的换算率换成百分比 |
 | 重置时间 | 推算：窗口从上一个窗口结束后的第一次使用开始计时；Claude Code 被限流时，用日志里服务器给的精确恢复时间 |
+| Codex 的 % 和重置时间 | Codex 每轮对话结束时写进 `~/.codex/sessions/**/*.jsonl` 的额度字段（`rate_limits`），是服务器给的官方数字，不用估算 |
 
 - 网页端和手机端的用量不在本机日志里，要等下一次官方读数（最多 15 分钟）才会体现。读数到了以后，官方增量里本机日志解释不了的部分算作「其他端」用量：面板会标出每个窗口里其他端用了多少，消耗速度和「几点用完」也会算上它。
 - 估算值最多显示到 99%，只有官方读数或 Claude Code 的限流消息能宣布「用完了」，免得宠物误睡、误发提醒。
+- Codex 的读数只在本机用 Codex 时更新，网页或云端任务的用量要等下次在本机用时才看得到。QuotaPet 只读对话日志里的额度字段，不读 `~/.codex/auth.json` 等登录凭据。
 
 ## 额度实验室
 
@@ -104,8 +124,8 @@ docs/PRODUCT_PLAN.md  产品规划和实测记录
 
 ## 说明
 
-- 这是个人项目，不是 Anthropic 的官方工具，和 Anthropic 也没有关系。
-- 官方读数来自 Claude 桌面端的内部文件，格式随时可能变。读不了的时候宠物会显示「有点懵」，面板里会说明原因。
+- 这是个人项目，不是 Anthropic 或 OpenAI 的官方工具，和它们也没有关系。
+- 官方读数来自 Claude 桌面端的内部文件和 Codex 的对话日志，格式随时可能变。读不了的时候宠物会显示「有点懵」，面板里会说明原因。
 - 除了官方读数，其他数字都是估算，可能差几个百分点。
 
 ## 许可证

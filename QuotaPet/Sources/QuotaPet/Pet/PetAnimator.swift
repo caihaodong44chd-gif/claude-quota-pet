@@ -2,39 +2,31 @@ import AppKit
 import Combine
 import QuotaPetCore
 
-/// 播放宠物动画。菜单栏（头像）和面板（半身像）用同一帧，表情同步。
+/// 播放宠物动画。菜单栏（头像）和面板（半身像）用同一个时，表情同步；
+/// 面板切到另一家时，面板上的宠物由另一个 PetAnimator 播。
 @MainActor
 final class PetAnimator: ObservableObject {
     @Published private(set) var frame: PetFrame
     private(set) var mood: PetMood = .loading
-    private var style: PetStyle
+    private(set) var style: PetStyle
 
     private var frames: [PetFrame]
     private var index = 0
     private var timer: Timer?
     private var animates: Bool
     private var screenAsleep = false
-    /// 菜单栏上的宠物藏起来时不用播动画
+    /// 宠物藏起来（菜单栏上藏起来、面板关着）时不用播动画
     var isVisible = true {
         didSet { if isVisible != oldValue { restart() } }
     }
     private var cancellables: Set<AnyCancellable> = []
 
-    init(settings: AppSettings) {
-        style = settings.petStyle
+    init(settings: AppSettings, style: PetStyle, isVisible: Bool = true) {
+        self.style = style
+        self.isVisible = isVisible
         frames = PetSprites.frames(for: .loading, style: style)
         frame = frames[0]
         animates = settings.animatePet
-
-        settings.$petStyle
-            .dropFirst()
-            .sink { [weak self] style in
-                guard let self else { return }
-                self.style = style
-                frames = PetSprites.frames(for: mood, style: style)
-                restart()
-            }
-            .store(in: &cancellables)
 
         settings.$animatePet
             .dropFirst()
@@ -62,9 +54,11 @@ final class PetAnimator: ObservableObject {
         restart()
     }
 
-    func setMood(_ mood: PetMood) {
-        guard mood != self.mood else { return }
+    /// 换心情或形象（跟着的那家变了、改了设置）；都没变就接着播
+    func show(mood: PetMood, style: PetStyle) {
+        guard mood != self.mood || style != self.style else { return }
         self.mood = mood
+        self.style = style
         frames = PetSprites.frames(for: mood, style: style)
         index = 0
         restart()

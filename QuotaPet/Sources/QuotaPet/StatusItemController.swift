@@ -4,7 +4,8 @@ import SwiftUI
 import QuotaPetCore
 
 /// 菜单栏上的宠物 + 文字。左键弹出面板，右键 / Control-点按弹出菜单。
-/// 默认只在 Claude 桌面端打开时出现（设置里可以改成一直显示）。
+/// 同时有 Claude 和 Codex 的数据时，宠物和数字跟着更紧张的那家，数字前面加一个小图标区分。
+/// 默认只在 Claude（在用 Codex 时还有 Codex）桌面端打开时出现，设置里可以改成一直显示。
 @MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate {
     private static let autosaveName = "QuotaPet"
@@ -17,28 +18,34 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let store: UsageStore
     private let settings: AppSettings
+    /// 菜单栏上的宠物（跟着最紧张的那家）；面板上看的是同一家时也用它，表情同步
     private let animator: PetAnimator
-    private let claudeWatcher: ClaudeAppWatcher
+    /// 面板切到另一家时，面板上的宠物
+    private let headerAnimator: PetAnimator
+    private let appWatcher: AppWatcher
     private let popoverState = PopoverState()
     private var imageCache: [ImageKey: NSImage] = [:]
     private var cancellables: Set<AnyCancellable> = []
 
     // 决定显不显示的几个条件
     private var visibility: MenuBarVisibility = .withClaude
-    private var claudeRunning = false
+    private var appRunning = false
     private let keepVisible: Bool   // 演示模式一直显示
     private var pinned: Bool        // 用户临时叫出来了（再次打开 QuotaPet）
 
     private struct ImageKey: Hashable {
         let grid: PixelGrid
         let template: Bool
+        let glyph: String?
     }
 
-    init(store: UsageStore, settings: AppSettings, animator: PetAnimator, claudeWatcher: ClaudeAppWatcher, keepVisible: Bool) {
+    init(store: UsageStore, settings: AppSettings, animator: PetAnimator, headerAnimator: PetAnimator, appWatcher: AppWatcher,
+         keepVisible: Bool) {
         self.store = store
         self.settings = settings
         self.animator = animator
-        self.claudeWatcher = claudeWatcher
+        self.headerAnimator = headerAnimator
+        self.appWatcher = appWatcher
         self.keepVisible = keepVisible
         self.pinned = keepVisible
 
@@ -49,29 +56,43 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         configureButton()
         configurePopover()
 
-        Publishers.CombineLatest(animator.$frame, settings.$monochromePet)
-            .sink { [weak self] frame, monochrome in self?.showPet(frame.icon, template: monochrome) }
+        // @Published 在赋值之前就通知，所以下面都用传进来的新值，不去读 store 的属性
+        let glyph = Publishers.CombineLatest(store.$snapshots, settings.$menuBarText)
+            .map { snapshots, mode in Self.glyph(UsageSnapshot.visible(snapshots), mode: mode) }
+            .removeDuplicates()
+        Publishers.CombineLatest3(animator.$frame, settings.$monochromePet, glyph)
+            .sink { [weak self] frame, monochrome, glyph in self?.showPet(frame.icon, template: monochrome, glyph: glyph) }
             .store(in: &cancellables)
-        Publishers.CombineLatest3(store.$snapshot, settings.$menuBarText, settings.$language)
-            .sink { [weak self] snapshot, mode, _ in self?.showText(snapshot, mode: mode) }
+        Publishers.CombineLatest3(store.$snapshots, settings.$menuBarText, settings.$language)
+            .sink { [weak self] snapshots, mode, _ in self?.showText(UsageSnapshot.visible(snapshots), mode: mode) }
             .store(in: &cancellables)
-        Publishers.CombineLatest(store.$snapshot, store.$errorMessage)
-            .sink { [weak animator] snapshot, error in
-                animator?.setMood(snapshot == nil && error != nil ? .confused : PetMood.from(snapshot: snapshot))
+        Publishers.CombineLatest3(store.$snapshots, store.$errors, settings.$petStyle)
+            .sink { [weak animator] snapshots, errors, style in
+                // 一家都显示不了（比如 Claude 第一次就读出错、又没有 Codex 的数据）又有出错的：疑惑
+                let focus = UsageSnapshot.focus(of: UsageSnapshot.visible(snapshots))
+                animator?.show(mood: PetMood.of(focus, failed: !errors.isEmpty),
+                               style: PetStyle.of(focus?.provider ?? .claude, claudeStyle: style))
             }
             .store(in: &cancellables)
-        Publishers.CombineLatest(settings.$visibility, claudeWatcher.$isRunning)
-            .sink { [weak self] visibility, running in
+        // 面板开着、看的又不是菜单栏上那家时，面板上的宠物才要单独播
+        Publishers.CombineLatest3(popoverState.$isShown, popoverState.$selected, store.$snapshots)
+            .sink { [weak headerAnimator] shown, selected, snapshots in
+                headerAnimator?.isVisible = shown && selected != UsageSnapshot.focus(of: UsageSnapshot.visible(snapshots))?.provider
+            }
+            .store(in: &cancellables)
+        Publishers.CombineLatest4(settings.$visibility, appWatcher.$claudeRunning, appWatcher.$codexRunning, store.$snapshots)
+            .sink { [weak self] visibility, claude, codex, snapshots in
+                let usesCodex = UsageSnapshot.visible(snapshots).contains { $0.provider == .codex }
                 self?.visibility = visibility
-                self?.claudeRunning = running
+                self?.appRunning = claude || (codex && usesCodex)
                 self?.updateVisibility()
             }
             .store(in: &cancellables)
     }
 
-    /// Claude 开着（或设置成一直显示）才出现；藏起来时动画也停掉，只在后台等着发提醒
+    /// Claude（在用 Codex 时还有 Codex）开着，或设置成一直显示，才出现；藏起来时动画也停掉，只在后台等着发提醒
     private func updateVisibility() {
-        let show = visibility.shouldShow(claudeRunning: claudeRunning, pinned: pinned || popover.isShown)
+        let show = visibility.shouldShow(appRunning: appRunning, pinned: pinned || popover.isShown)
         if statusItem.isVisible != show {
             if show { Self.restorePosition() } else { Self.rememberPosition() }
             statusItem.isVisible = show
@@ -119,16 +140,26 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         button.imageHugsTitle = true
     }
 
-    private func showPet(_ frame: PixelGrid, template: Bool) {
-        let key = ImageKey(grid: frame, template: template)
-        let image = imageCache[key] ?? PetRenderer.image(frame, pixel: 0.5, template: template)
+    /// glyph：数字前面的小图标，见 glyph(_:mode:)
+    private func showPet(_ frame: PixelGrid, template: Bool, glyph: String?) {
+        let key = ImageKey(grid: frame, template: template, glyph: glyph)
+        let image = imageCache[key] ?? MenuBarIcon.image(frame, template: template, glyph: glyph)
         imageCache[key] = image
         statusItem.button?.image = image
     }
 
-    private func showText(_ snapshot: UsageSnapshot?, mode: MenuBarTextMode) {
+    /// 不止一家时，数字前面加上跟着的那家的小图标（画在宠物那张图里）；只有一家、或者旁边没有数字时不加
+    private static func glyph(_ shown: [UsageSnapshot], mode: MenuBarTextMode) -> String? {
+        guard shown.count > 1, let focus = UsageSnapshot.focus(of: shown),
+              !MenuBarText.make(focus, mode: mode, now: Date()).text.isEmpty else { return nil }
+        return MenuBarIcon.glyph(for: focus.provider)
+    }
+
+    /// shown：要显示的几家（UsageSnapshot.visible）
+    private func showText(_ shown: [UsageSnapshot], mode: MenuBarTextMode) {
         guard let button = statusItem.button else { return }
         let now = Date()
+        let snapshot = UsageSnapshot.focus(of: shown)
         let (text, level) = MenuBarText.make(snapshot, mode: mode, now: now)
         let title = text.isEmpty ? "" : " " + text
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
@@ -141,28 +172,32 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             button.font = font
             button.title = title
         }
-        if let usage = tooltip(for: snapshot, now: now) {
+        if let usage = tooltip(for: shown, now: now) {
             button.toolTip = usage
-            button.setAccessibilityLabel("QuotaPet " + usage)
+            // 不止一家时，数字是哪家的只靠小图标看，读屏要说出来
+            let owner = shown.count > 1 && !text.isEmpty ? snapshot.map { tr("菜单栏显示的是 \($0.provider.displayName)。", "Showing \($0.provider.displayName). ") } : nil
+            button.setAccessibilityLabel("QuotaPet " + (owner ?? "") + usage)
         } else {
             button.toolTip = tr("QuotaPet：还没有额度数据", "QuotaPet: no usage data yet")
             button.setAccessibilityLabel(button.toolTip)
         }
     }
 
-    /// 各窗口的用量和重置时间；还没有数据时为 nil
-    private func tooltip(for snapshot: UsageSnapshot?, now: Date) -> String? {
-        guard let snapshot, snapshot.hasData else { return nil }
-        let lines = snapshot.windows.map { w -> String in
-            var line = "\(w.title) \(Fmt.percent(w.clampedPercent))"
-            if let reset = w.resetsAt {
-                let when = Fmt.fromNow(reset.timeIntervalSince(now))
-                line += tr("，\(when)重置", ", resets \(when)")
+    /// 各家各窗口的用量和重置时间；还没有数据时为 nil
+    private func tooltip(for shown: [UsageSnapshot], now: Date) -> String? {
+        let blocks = shown.filter(\.hasData).map { snapshot -> String in
+            let lines = snapshot.windows.map { w -> String in
+                var line = "\(w.title) \(Fmt.percent(w.clampedPercent))"
+                if let reset = w.resetsAt {
+                    let when = Fmt.fromNow(reset.timeIntervalSince(now))
+                    line += tr("，\(when)重置", ", resets \(when)")
+                }
+                return line
             }
-            return line
+            let name = snapshot.provider.displayName
+            return ([tr("\(name) 额度", "\(name) usage")] + lines).joined(separator: "\n")
         }
-        let name = snapshot.provider.displayName
-        return ([tr("\(name) 额度", "\(name) usage")] + lines).joined(separator: "\n")
+        return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")
     }
 
     // MARK: - 点击
@@ -178,7 +213,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func configurePopover() {
         let root = PopoverRoot(store: store, settings: settings, state: popoverState, animator: animator,
-                               onQuit: { NSApp.terminate(nil) })
+                               headerAnimator: headerAnimator, onQuit: { NSApp.terminate(nil) })
         let host = NSHostingController(rootView: root)
         host.sizingOptions = [.preferredContentSize]
         popover.contentViewController = host
@@ -193,17 +228,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         guard let button = statusItem.button else { return }
         popoverState.page = page
+        popoverState.selected = store.focus?.provider ?? .claude  // 每次打开先看宠物跟着的那家
         if let screen = button.window?.screen ?? NSScreen.main {
             popoverState.maxHeight = screen.visibleFrame.height - 30  // 留出面板的小箭头和一点边距
         }
         store.refresh()
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popoverState.isShown = true
         popover.contentViewController?.view.window?.makeKey()
     }
 
     func popoverDidClose(_ notification: Notification) {
         popoverState.page = .overview
+        popoverState.isShown = false
         pinned = keepVisible
         updateVisibility()
     }

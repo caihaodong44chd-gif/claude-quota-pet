@@ -3,10 +3,16 @@ import QuotaPetCore
 
 /// 面板首页。只接收普通的值，方便 --render-previews 直接渲染成图片。
 struct OverviewView<Pet: View>: View {
+    /// 正在看的那家
     var snapshot: UsageSnapshot?
     var errorMessage: String?
     var mood: PetMood
     var pet: Pet
+    /// 同时有几家时，头部下面显示切换条（只有一家时为空）
+    var tabs: [UsageSnapshot] = []
+    /// 宠物和菜单栏跟着的那家，切换条上画个小爪印
+    var focus: ProviderID?
+    var onSelect: (ProviderID) -> Void = { _ in }
     var onRefresh: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
@@ -26,6 +32,9 @@ struct OverviewView<Pet: View>: View {
     private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            if tabs.count > 1, let selected = snapshot?.provider {
+                ProviderTabs(snapshots: tabs, selected: selected, focus: focus, onSelect: onSelect)
+            }
             if let snapshot, snapshot.hasData {
                 VStack(spacing: 8) {
                     ForEach(snapshot.windows) { WindowCard(window: $0, now: now) }
@@ -94,9 +103,7 @@ struct OverviewView<Pet: View>: View {
     private func footer(now: Date) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if refreshedAt != nil {
-                Label(tr("已刷新：本机部分是最新的，\(nextOfficialText(now: now))",
-                         "Refreshed: local data is up to date; \(nextOfficialText(now: now))"),
-                      systemImage: "checkmark.circle.fill")
+                Label(refreshedText(now: now), systemImage: "checkmark.circle.fill")
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color(nsColor: .systemGreen))
                     .fixedSize(horizontal: false, vertical: true)
@@ -118,6 +125,9 @@ struct OverviewView<Pet: View>: View {
         guard let snapshot, snapshot.hasData else {
             return tr("只读本机文件，不联网、不读登录凭据", "Reads local files only: no network, no login credentials")
         }
+        if snapshot.provider == .codex {
+            return tr("Codex 每轮对话结束时在本机日志里记一次官方读数", "Codex logs an official reading after every turn")
+        }
         guard snapshot.officialAt != nil else {
             return snapshot.windows.contains(where: \.limitReported)
                 ? tr("暂无桌面端的官方读数：「用完了」是 Claude Code 报告的，其余是本机估算",
@@ -128,6 +138,12 @@ struct OverviewView<Pet: View>: View {
                   "The Claude desktop app records an official reading every 15 min; \(nextOfficialText(now: now))")
     }
 
+    private func refreshedText(now: Date) -> String {
+        snapshot?.provider == .codex
+            ? tr("已刷新：本机日志里的读数都读到了", "Refreshed: every reading in the local logs is loaded")
+            : tr("已刷新：本机部分是最新的，\(nextOfficialText(now: now))", "Refreshed: local data is up to date; \(nextOfficialText(now: now))")
+    }
+
     /// 桌面端很准时地每 15 分钟记一次，下一次 = 上一次 + 15 分钟
     private func nextOfficialText(now: Date) -> String {
         guard let last = snapshot?.officialAt else { return tr("官方读数暂时没有", "no official reading yet") }
@@ -135,6 +151,54 @@ struct OverviewView<Pet: View>: View {
         if next > now { return tr("下次约 \(Fmt.clock(next, now: now))", "next around \(Fmt.clock(next, now: now))") }
         if now.timeIntervalSince(last) < 45 * 60 { return tr("下一次随时会到", "the next one is due any moment") }
         return tr("官方读数暂停了（Claude 桌面端没开？）", "official readings have paused (is the Claude desktop app closed?)")
+    }
+}
+
+/// 同时有几家时，头部下面的切换条：每段带着那家最紧张窗口的百分比，宠物跟着的那家有个小爪印
+struct ProviderTabs: View {
+    var snapshots: [UsageSnapshot]
+    var selected: ProviderID
+    var focus: ProviderID?
+    var onSelect: (ProviderID) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(snapshots, id: \.provider) { snapshot in
+                let on = snapshot.provider == selected
+                Button { onSelect(snapshot.provider) } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: MenuBarIcon.glyph(for: snapshot.provider))
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(snapshot.provider == .claude ? Color(red: 0.85, green: 0.47, blue: 0.34) : .primary)
+                        Text(snapshot.provider.displayName).font(.system(size: 12, weight: on ? .semibold : .regular))
+                        if snapshot.hasData, let top = snapshot.tightest {
+                            Text(Fmt.percent(top.clampedPercent))
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(Level.text(top.percent))
+                        } else {
+                            Text("–").foregroundStyle(.tertiary)
+                        }
+                        if snapshot.provider == focus {
+                            Image(systemName: "pawprint.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(on ? (colorScheme == .dark ? Color.white.opacity(0.14) : .white) : .clear)
+                        .shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1, y: 0.5))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(on ? .primary : .secondary)
+                .help(tr("看 \(snapshot.provider.displayName) 的额度", "Show \(snapshot.provider.displayName) usage"))
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.07)))
     }
 }
 

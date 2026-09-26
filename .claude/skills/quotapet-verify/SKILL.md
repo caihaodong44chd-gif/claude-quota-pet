@@ -16,7 +16,7 @@ description: 验证 QuotaPet（Swift 写的 macOS 菜单栏 App）的改动真�
 | 任何 Swift 文件 | 第 2 步（编译 + 自检），每次必做 |
 | 界面、宠物、菜单栏的样子：`Views/`、`Pet/`、`PetArt.swift`、`Formatting.swift` 等 | 再做第 3 步（预览图） |
 | `QuotaPetCore/Claude/` 下的解析、定价、窗口推算、换算率 | 再做第 4 步（真实数据对账） |
-| App 运行时的行为：`AppDelegate`、`ClaudeAppWatcher`、`NotificationManager`、设置的保存、点击和菜单 | 预览图看不到，做第 5 步 |
+| App 运行时的行为：`AppDelegate`、`AppWatcher`、`NotificationManager`、设置的保存、点击和菜单、面板切换条 | 预览图看不到，做第 5 步 |
 
 ## 2. 编译 + 自检
 
@@ -41,6 +41,8 @@ make previews   # 输出到 build/previews/
 |---|---|
 | `pet-sheet.png` / `pet-sheet-mono.png` | 每种心情一行、每帧一列（彩色 / 单色） |
 | `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色、各种百分比、限流倒计时 |
+| `menubar-codex.png` / `popover-codex{,-tab}.png` / `settings-codex.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex 换成龙娘）、设置页的说明 |
+| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon` 是 Codex 的龙娘） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
 | `settings.png` | 设置页 |
 | `popover-*-en.png` / `settings-en.png` / `pet-sheet-en.png` | 英文界面（面板、设置页各有 `-dark` 版）：改了界面文字要看，英文比中文长，容易折行、截断 |
@@ -48,7 +50,7 @@ make previews   # 输出到 build/previews/
 
 看的时候检查：文字有没有被截断、对齐和间距对不对、深浅色下是不是都看得清、宠物表情和心情对不对得上。
 
-如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`pet-sheet`、`popover-busy`、`popover-limited`（后两个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en` 及 `-dark`），`menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
+如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`menubar-codex`、`pet-sheet`、`popover-busy`、`popover-limited`、`popover-codex-tab`（后三个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en`、`popover-codex-tab-en` 及 `-dark`），两张 `menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
 
 ## 4. 用真实数据对账（改了数据逻辑时）
 

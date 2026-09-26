@@ -5,6 +5,9 @@ import QuotaPetCore
 final class PopoverState: ObservableObject {
     enum Page { case overview, settings }
     @Published var page: Page = .overview
+    /// 同时有几家时，面板上看的是哪家；每次打开面板先看宠物跟着的那家
+    @Published var selected: ProviderID = .claude
+    @Published var isShown = false
     /// 面板最高多高：菜单栏所在的屏幕放得下多少。小屏幕上设置页放不下，超出的部分滚动
     @Published var maxHeight: CGFloat = .infinity
 }
@@ -13,8 +16,10 @@ struct PopoverRoot: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings: AppSettings
     @ObservedObject var state: PopoverState
-    /// 不用 @ObservedObject：动画每秒好几帧，只让宠物那一小块跟着刷新
+    /// 不用 @ObservedObject：动画每秒好几帧，只让宠物那一小块跟着刷新。
+    /// animator 是菜单栏上的宠物；面板切到另一家时换成 headerAnimator
     let animator: PetAnimator
+    let headerAnimator: PetAnimator
     var onQuit: () -> Void
 
     var body: some View {
@@ -29,22 +34,48 @@ struct PopoverRoot: View {
         Group {
             switch state.page {
             case .overview:
+                let shown = store.shown
+                let focus = store.focus?.provider
+                // 选中的那家没数据了（比如 Codex 的记录过期了）就回到宠物跟着的那家
+                let selected = shown.contains { $0.provider == state.selected } ? state.selected : focus ?? .claude
+                let snapshot = store.snapshot(for: selected)
+                let look = PetLook(mood: PetMood.of(snapshot, failed: store.errors[selected] != nil),
+                                   style: PetStyle.of(selected, claudeStyle: settings.petStyle))
                 OverviewView(
-                    snapshot: store.snapshot,
-                    errorMessage: store.errorMessage,
-                    mood: store.snapshot == nil && store.errorMessage != nil ? .confused : PetMood.from(snapshot: store.snapshot),
-                    pet: LivePet(animator: animator),
+                    snapshot: snapshot,
+                    errorMessage: store.errors[selected],
+                    mood: look.mood,
+                    pet: LivePet(animator: selected == focus ? animator : headerAnimator),
+                    tabs: shown.count > 1 ? shown : [],
+                    focus: focus,
+                    onSelect: { state.selected = $0 },
                     onRefresh: { store.refresh() },
                     onSettings: { state.page = .settings },
                     onQuit: onQuit)
+                    .onChange(of: look, initial: true) { _, look in headerAnimator.show(mood: look.mood, style: look.style) }
             case .settings:
+                let claude = store.snapshot(for: .claude)
                 SettingsView(settings: settings,
-                             suggestedWeeklyReset: store.snapshot?.window("seven_day")?.resetsAt,
-                             estimation: store.snapshot?.estimation,
+                             suggestedWeeklyReset: claude?.window("seven_day")?.resetsAt,
+                             estimation: claude?.estimation,
+                             usesCodex: store.shown.contains { $0.provider == .codex },
                              onBack: { state.page = .overview })
             }
         }
         .id(settings.language)  // 换语言时整个面板重建：输入没变的子视图 SwiftUI 不会重画，文字会停在旧语言
+    }
+}
+
+/// 面板上的宠物长什么样：哪种心情、哪个形象
+struct PetLook: Equatable {
+    var mood: PetMood
+    var style: PetStyle
+}
+
+extension PetMood {
+    /// 这家的心情；还一次都没算出来又出错了时是疑惑
+    static func of(_ snapshot: UsageSnapshot?, failed: Bool) -> PetMood {
+        snapshot == nil && failed ? .confused : PetMood.from(snapshot: snapshot)
     }
 }
 

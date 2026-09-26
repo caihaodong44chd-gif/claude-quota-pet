@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(demo: Bool, watchBundleID: String?, enableLoginItem: Bool) {
         self.demo = demo
-        self.watchBundleID = watchBundleID ?? ClaudeAppWatcher.claudeBundleID
+        self.watchBundleID = watchBundleID ?? AppWatcher.claudeBundleID
         self.enableLoginItem = enableLoginItem
         super.init()
     }
@@ -31,11 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if enableLoginItem {  // make install 时传进来：开机自动启动，才能在 Claude 打开时自动出现
             settings.launchAtLogin = true
         }
-        store = UsageStore(provider: demo ? DemoProvider() : ClaudeProvider(), settings: settings)
-        animator = PetAnimator(settings: settings)
+        store = UsageStore(providers: demo ? [DemoProvider(), DemoCodexProvider()] : [ClaudeProvider(), CodexProvider()],
+                           settings: settings)
+        animator = PetAnimator(settings: settings, style: settings.petStyle)
         notifier = NotificationManager(settings: settings)
         statusController = StatusItemController(store: store, settings: settings, animator: animator,
-                                                claudeWatcher: ClaudeAppWatcher(bundleID: watchBundleID),
+                                                headerAnimator: PetAnimator(settings: settings, style: settings.petStyle, isVisible: false),
+                                                appWatcher: AppWatcher(claudeBundleID: watchBundleID),
                                                 keepVisible: demo)
 
         if !demo {  // 演示模式的数据一直在变，不发通知

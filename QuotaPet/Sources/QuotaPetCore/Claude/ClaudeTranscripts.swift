@@ -67,12 +67,7 @@ public final class ClaudeTranscriptScanner {
     /// 只保留这么久以内的请求（周额度窗口是 7 天，多留一天）
     public let retention: TimeInterval
 
-    private struct Cursor {
-        var offset: UInt64 = 0
-        var partial = Data()  // 还没写完的最后一行
-    }
-
-    private var cursors: [String: Cursor] = [:]
+    private var cursors: [String: LineCursor] = [:]
     private var records: [String: ClaudeRequest] = [:]
     /// 同一次限流会连着重试好几次，按「窗口 + 恢复时间」去重，留最早的那条
     private var limits: [String: ClaudeLimitEvent] = [:]
@@ -97,10 +92,8 @@ public final class ClaudeTranscriptScanner {
                 // 很久没动过的文件不用读
                 if cursors[path] == nil, let mtime = values.contentModificationDate, mtime < cutoff { continue }
                 seen.insert(path)
-                var cursor = cursors[path] ?? Cursor()
-                let size = UInt64(values.fileSize ?? 0)
-                if size < cursor.offset { cursor = Cursor() }  // 文件被截断或重写了，从头读
-                if size > cursor.offset { readAppended(url, &cursor) }
+                var cursor = cursors[path] ?? LineCursor()
+                cursor.readAppended(from: url, size: UInt64(values.fileSize ?? 0)) { ingest(line: $0, path: path) }
                 cursors[path] = cursor
             }
         }
@@ -110,22 +103,6 @@ public final class ClaudeTranscriptScanner {
         limits = limits.filter { $0.value.time >= cutoff }
         limitEvents = limits.values.sorted { $0.time < $1.time }
         return records.values.sorted { $0.time < $1.time }
-    }
-
-    private func readAppended(_ url: URL, _ cursor: inout Cursor) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-        defer { try? handle.close() }
-        guard (try? handle.seek(toOffset: cursor.offset)) != nil,
-              let data = try? handle.readToEnd(), !data.isEmpty else { return }
-        cursor.offset += UInt64(data.count)
-        var buffer = cursor.partial
-        buffer.append(data)
-        var start = buffer.startIndex
-        while let newline = buffer[start...].firstIndex(of: 0x0A) {
-            ingest(line: buffer[start..<newline], path: url.path)
-            start = buffer.index(after: newline)
-        }
-        cursor.partial = Data(buffer[start...])
     }
 
     private static let usageMarker = Data("\"usage\"".utf8)

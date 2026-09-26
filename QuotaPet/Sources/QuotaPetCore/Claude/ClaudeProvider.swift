@@ -20,9 +20,6 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// （给本机看不到的网页 / 手机用量和估算误差留 25 个点）；别的账号撞线时很难刚好这么高
     static let limitEvidenceFloor = 75.0
 
-    /// 两个窗口的名字，跟着界面语言走（演示模式、预览图也用）
-    public static var sessionTitle: String { tr("5 小时会话", "5-hour session") }
-    public static var weeklyTitle: String { tr("本周额度", "Weekly quota") }
     public static var missingHistoryNote: String {
         tr("没找到 Claude 桌面端的额度记录。装好并登录 Claude 桌面端后，它每 15 分钟会记一次官方额度。",
            "No usage history from the Claude desktop app yet. Once it's installed and signed in, it records your official usage every 15 minutes.")
@@ -110,11 +107,11 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let sessionSeries = samples.compactMap { s in s.session.map { UsageSample(time: s.time, value: $0) } }
         let weeklySeries = samples.compactMap { s in s.weekly.map { UsageSample(time: s.time, value: $0) } }
         let session = buildWindow(
-            id: "five_hour", title: Self.sessionTitle, duration: Self.sessionDuration,
+            id: "five_hour", title: UsageWindow.sessionTitle, duration: Self.sessionDuration,
             series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
             resetAnchor: nil, limits: limits, live: cfg.liveEstimate, now: now)
         let weekly = buildWindow(
-            id: "seven_day", title: Self.weeklyTitle, duration: Self.weekDuration,
+            id: "seven_day", title: UsageWindow.weeklyTitle, duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
             resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, live: cfg.liveEstimate, now: now)
 

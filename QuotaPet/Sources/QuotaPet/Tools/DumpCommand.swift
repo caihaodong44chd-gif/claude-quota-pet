@@ -2,7 +2,7 @@ import Foundation
 import ServiceManagement
 import QuotaPetCore
 
-/// QuotaPet --dump：在终端打印当前的额度推算，方便调试、和 usage_lab.py 对账
+/// QuotaPet --dump：在终端打印当前的额度推算，方便调试、和 usage_lab.py 对账；最后附上 Codex 的读数
 enum DumpCommand {
     static func run() {
         L10n.language = .zhHans  // 对账工具，和 usage_lab.py 一样只输出中文
@@ -103,5 +103,40 @@ enum DumpCommand {
             print("")
             snap.notes.forEach { print("· \($0)") }
         }
+        dumpCodex(now: now)
+    }
+
+    /// Codex 的读数就是官方百分比，这里只列最近几次读数和推出来的窗口
+    private static func dumpCodex(now: Date) {
+        let provider = CodexProvider()
+        guard let snap = try? provider.snapshot(now: now) else { return }
+        print("")
+        print("QuotaPet · Codex 额度（只读 ~/.codex 下的对话日志：不联网、不读凭据）")
+        guard snap.hasData else {
+            snap.notes.forEach { print("· \($0)") }
+            return
+        }
+        print("读了 \(provider.scanner.trackedFiles) 个日志文件，保留期内 \(provider.lastReadings.count) 次读数（Codex 总额度）")
+        for r in provider.lastReadings.suffix(4) {
+            let windows = r.windows.map { "\(UsageWindow.title(minutes: $0.minutes)) \(Fmt.percent($0.usedPercent))" }.joined(separator: "，")
+            print("  \(Fmt.clock(r.time, now: now))  \(windows)")
+        }
+        for w in snap.windows {
+            var line = "\(w.title)：\(Fmt.percent(w.percent))"
+            if let reset = w.resetsAt {
+                line += "，\(Fmt.fromNow(reset.timeIntervalSince(now)))重置（\(Fmt.clock(reset, now: now))）"
+            } else {
+                line += "，上次读数之后已经重置，下次使用时开始计时"
+            }
+            print(line)
+            if let burn = w.burnPerHour, burn > 0 {
+                let span = w.burnLookback >= 86400 ? "24 小时" : "\(Int(w.burnLookback / 60)) 分钟"
+                print(String(format: "  最近 %@ 消耗速度 %.1f%%/小时", span, burn))
+            }
+            if let t = w.projectedExhaustion(now: now) {
+                print("  ⚠️ 照这个速度 \(Fmt.clock(t, now: now)) 会用完")
+            }
+        }
+        snap.notes.forEach { print("· \($0)") }
     }
 }

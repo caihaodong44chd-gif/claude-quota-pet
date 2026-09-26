@@ -22,7 +22,12 @@ make run / make demo / make install
 
 ## 架构
 
-数据流：`UsageProvider`（`QuotaPetCore/Models.swift`）→ `UsageStore`（FSEvents 触发，另外每分钟兜底刷新，在后台串行队列上算快照）→ 菜单栏、面板、`NotificationManager`。宠物、菜单栏、通知只认 `UsageSnapshot`，不关心是哪家 AI；接入新的 AI 就实现一个 `UsageProvider`（例子见 `QuotaPet/README.md`）。
+数据流：`UsageProvider`（`QuotaPetCore/Models.swift`）→ `UsageStore`（FSEvents 触发，另外每分钟兜底刷新，几家数据源在同一个后台串行队列上依次算快照）→ 菜单栏、面板、`NotificationManager`。宠物、菜单栏、通知只认 `UsageSnapshot`，不关心是哪家 AI；接入新的 AI 就实现一个 `UsageProvider`（例子见 `QuotaPet/README.md`）。
+
+- 现在有 Claude（`ClaudeProvider`）和 Codex（`CodexProvider`）两家。`UsageSnapshot.visible` 决定显示哪几家：Claude 一直在，别的有数据才出现，所以没用过 Codex 时界面和只有 Claude 时一样。`UsageSnapshot.focus` 是宠物和菜单栏跟着的那家（最紧张的，一样时 Claude 优先）。
+  - 面板不止一家时顶部有切换条（`ProviderTabs`），每次打开先选 focus 那家；看的是 focus 时面板和菜单栏共用一个 `PetAnimator`，切到另一家时换成 `headerAnimator`。
+  - 菜单栏不止一家时，数字前面加一个 SF Symbol 小图标（`MenuBarIcon`：星号是 Claude，终端是 Codex），和宠物画在同一张图里。
+  - `@Published` 在赋值前就通知，`StatusItemController` 的订阅里要用传进来的新值，不能去读 `store` 的属性。
 
 - `QuotaPetCore` 是纯逻辑，不能依赖 AppKit，这样自检才跑得起来。界面代码都在 `QuotaPet` target 里。
 - `ClaudeProvider.snapshot` 的算法：当前 % = 最近一次官方读数（桌面端每 15 分钟写一次 `plan-usage-history.json`）+ 读数之后本机日志里请求的额度加权花费（API 价格，但缓存读按半价）÷ 换算率。
@@ -31,13 +36,20 @@ make run / make demo / make install
   - Claude Code 被限流时会在日志里写一条 synthetic 消息，带 `quotaLimits`（`rateLimitType`、秒级 `resetsAt`）。扫描器把它记成 `ClaudeLimitEvent`：没到恢复时间前这个窗口直接算用完，重置时间以它为准。
   - 其他端（网页、手机、桌面端聊天）用量由 `OtherUsage` 算：相邻两次官方读数之间，官方增量比本机估算多出门槛以上的部分。`RateLearner` 学换算率时也用同一个门槛，跳过这种混用的区间。
   - **不变量**：官方读数没到 100 时，估算值最多 99%。只有官方读数或限流消息能宣布「用完了」，免得宠物误睡、误发提醒。
-- **和 `usage_lab.py` 要保持一致的地方**，改一边就要改另一边：
+- `CodexProvider`：Codex（命令行和桌面端）每轮对话结束时把服务器给的额度写进 `~/.codex/sessions/**/*.jsonl`（归档的在 `archived_sessions/`）的 `token_count` 事件（`payload.rate_limits`：`primary` / `secondary` 各有 `used_percent`、`window_minutes`、秒级 `resets_at`；老版本是 `resets_in_seconds`）。
+  - 读数就是官方百分比，不用估算；只看总额度（`limit_id` 是 `codex` 或没有），个别模型单独的额度桶不显示。300 分钟和 10080 分钟的窗口用和 Claude 一样的 id（`five_hour`、`seven_day`），菜单栏的「5 小时」「5h + 周」对两家都管用；某家没有这种窗口时退回最紧张的窗口。
+  - 最近一次读数之后已经过了重置时间的窗口算 0%、没有重置时间（等下次使用）。消耗速度用同一个窗口里的历次读数算，回看时长和 Claude 一样（5 小时窗口 30 分钟，其他 24 小时）。
+  - 日志可能有几百 MB：`CodexLogScanner` 第一次从最近改过的文件往前读，比最新读数早 25 小时以上的文件只从末尾往后跟。两家的扫描器都用 `LineCursor` 增量读：分块读、每块包在 `autoreleasepool` 里，不然第一次扫描时内存会涨几百 MB。
+  - `UsageStore` 按数据源分开刷新：文件变了只重算那一家（`providersAffected`），每分钟兜底全部重算，也顺便给启动后才出现的目录补上监听。
+  - 只解析带 `rate_limits` 的行，只取时间和额度字段；`~/.codex` 下别的文件（`auth.json` 登录凭据、数据库）都不碰。
+- **和 `usage_lab.py` 要保持一致的地方**，改一边就要改另一边（只涉及 Claude；Codex 不用估算，usage_lab 里没有它）：
   - `ClaudePricing.prices` 对应 `PRICES`，`cacheReadQuotaWeight` 对应 `CACHE_READ_WEIGHT`，`ClaudeRates.starting` 对应 `STARTING`，`OtherUsage.threshold` 对应 `OTHER_THRESHOLD`
   - `ModelFamily.of` 对应 `family()`：按模型名里的子串匹配，名字里不含 fable、opus、sonnet、haiku 的新模型族不会计价，要加 case 和价格
   - `ClaudeTranscripts` 的解析规则：按 `message.id` 去重、同一个响应的各字段取最大值、跳过 synthetic 和写到一半的行（限流消息只有 App 读，usage_lab 不需要）
 - 改换算相关的逻辑之前，先看 `docs/PRODUCT_PLAN.md` 第 7 节的回归结论：所有模型用一个系数，思考程度（effort）不单独算，缓存读按半价。改完用 `python3 usage_lab.py backtest` 回测，和改之前比一比。
 - `QuotaPetCore/Pet/PetArt.swift` 是 `design/export_swift.py` 生成的，**不要手改**。改宠物的流程：改 `design/pet_pixel.py` → 运行它出预览图 → 运行 `export_swift.py` 导出（要装 Pillow 和 NumPy）。
   - 可选的形象（经典、猫耳、青春、魔女）在 `design/chibi4.py` 的 `STYLES` 里：可以换发型、饰品、配色、眼睛（`pet_pixel.EYE_SETS`）、嘴和腮红，`SsPW` 的颜色不能改（单色模式靠它们挖空脸）。标了 `draft` 的是设计稿，不导出。加一款要同时在 `PetSprites.swift` 的 `PetStyle` 里加 case。`python3 design/pet_pixel.py styles` 会把各款并排出一张对比图。
+  - 龙娘（`dragon`：白色长卷发、龙角、尖耳、小龙翼、中国结）是 Codex 专用的，不在 Claude 的形象选项里（`PetStyle.claudeChoices`），`PetStyle.of(_:claudeStyle:)` 决定每家用哪个形象。中国结太小，用形状画会糊成一团，是在 `decorate` 里缩成像素之后手画盖上去的（`KNOTS`）。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
 - 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：
   - 每句界面文字都写成 `tr("中文", "English")`，两种语言写在一起；新加或改界面文字时两种都要写。英文里的数量用 `plural(n, "day")` 分单复数。
@@ -48,8 +60,8 @@ make run / make demo / make install
 
 ## 隐私（仓库是公开的）
 
-- 只读本机文件：不联网，不读任何登录凭据。「用凭据调官方 usage 接口」是刻意不做的。
-- `make previews` 会额外生成 `popover-live.png` 和 `popover-live-dark.png`，用的是**本机真实额度数据**，不能复制进 `docs/images/` 或提交；其余预览图都是假数据。
+- 只读本机文件：不联网，不读任何登录凭据。「用凭据调官方 usage 接口」是刻意不做的。Codex 也一样：只读 `~/.codex` 下对话日志里的额度字段，不读 `~/.codex/auth.json`。
+- `make previews` 会额外生成 `popover-live.png` 和 `popover-live-dark.png`，用的是**本机真实额度数据**（Claude 和 Codex），不能复制进 `docs/images/` 或提交；其余预览图都是假数据。
 - `make dump` 和 `usage_lab.py` 的输出、`snapshots.jsonl`、`intervals.jsonl` 都是真实数据，不进 git，也不贴进 issue 或 PR。
 - `.githooks/pre-commit` 会在提交时拦住 `.jsonl` 文件、截图、`popover-live*`、本机绝对路径和不是 noreply 的邮箱。它是用 `git config core.hooksPath .githooks` 启用的，被拦了就改内容，不要加 `--no-verify` 绕过。
 
