@@ -216,14 +216,15 @@ do {  // 每周额度按固定时间重置，不管有没有用：前几天没�
     let later = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(28, 12) + 2 * week, fixedCadence: true)
     check(later.current?.start == at(28, 6, 5) + 2 * week, "之后没有用量也每 7 天重置一次")
 
-    // 桌面端夜里没开，这次只知道重置在 01:00–10:00 之间；上周看到过 05:50–06:10，合起来是 05:50–06:10
+    // 桌面端夜里没开，这次只知道重置在 01:00–10:00 之间；上周看到过 05:50–06:10，合起来是 05:50–06:10。
+    // 重置是每 7×24 小时一次（绝对时间），期望值从上周的时刻加 week 算，不写成 at(28, …)：那一周本地时间可能跨夏令时
     let wide = [S(time: at(21, 5, 50), value: 70), S(time: at(21, 6, 10), value: 0), S(time: at(28, 1), value: 50),
                 S(time: at(28, 10), value: 2)]
     let narrowed = WindowInference.infer(samples: wide, activity: [], duration: week, now: at(28, 11), fixedCadence: true)
-    check(narrowed.lastReset == at(28, 6, 10), "多次跳变取交集，收窄重置时间：\(narrowed)")
+    check(narrowed.lastReset == at(21, 6, 10) + week, "多次跳变取交集，收窄重置时间：\(narrowed)")
     let exact = WindowInference.infer(samples: Array(wide.suffix(2)), activity: [], duration: week, now: at(28, 11),
                                       knownResets: [at(21, 6, 3)], fixedCadence: true)
-    check(exact.lastReset == at(28, 6, 3), "限流消息的精确时间也能推到之后的每一周：\(exact)")
+    check(exact.lastReset == at(21, 6, 3) + week, "限流消息的精确时间也能推到之后的每一周：\(exact)")
     // 上周的跳变在 15:00 左右，和这周对不上：重置时间变过，只信最近的
     let moved = [S(time: at(21, 15), value: 70), S(time: at(21, 15, 20), value: 0), S(time: at(28, 5, 50), value: 50),
                  S(time: at(28, 6, 10), value: 0)]
@@ -311,7 +312,7 @@ do {
 
     let manual = provider.buildWindow(id: "seven_day", title: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
-    check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
+    check(manual.startedAt == at(16, 18) + week && manual.resetsAt == at(16, 18) + 2 * week, "手动指定的每周重置时间每 7 天循环")
 
     // 固定周期：上周看到过 06:10 前后的重置，这周到点之后还没有新的官方读数，就只按本机用量从头算
     let weekly = [S(time: at(14, 5, 50), value: 70), S(time: at(14, 6, 10), value: 0), S(time: at(20, 12), value: 40)]
