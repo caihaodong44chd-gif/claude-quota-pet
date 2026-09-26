@@ -3,19 +3,11 @@ import QuotaPetCore
 
 /// 把像素画渲染成 NSImage
 enum PetRenderer {
-    /// 按 ASCII 查颜色（调色板来自 PetArt，和 design/ 里的 Python 原型一致）
-    private static let colors: [NSColor?] = {
-        var table = [NSColor?](repeating: nil, count: 128)
-        for (ch, hex) in PetArt.palette {
-            guard let ascii = ch.asciiValue else { continue }
-            table[Int(ascii)] = NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
-                                        blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        }
-        return table
-    }()
-
-    static func color(for code: UInt8) -> NSColor {
-        (code < 128 ? colors[Int(code)] : nil) ?? .magenta
+    /// 按这款形象的调色板查颜色（和 design/ 里的 Python 原型一致）；没定义的字符画成洋红，一眼看得出
+    static func color(for code: UInt8, in palette: PetPalette) -> NSColor {
+        guard let hex = palette[code] else { return .magenta }
+        return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
+                       blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
     }
 
     /// 单色模式下挖空的像素：脸（皮肤、腮红）和眼睛高光。头发、衣服、五官保持实心，剪影里看得出是一张脸
@@ -70,11 +62,20 @@ enum PetRenderer {
 
     /// 直接画到当前（y 轴朝下的）上下文里
     static func draw(_ grid: PixelGrid, pixel: CGFloat, origin: CGPoint, template: Bool, templateColor: NSColor) {
+        var colors = [NSColor?](repeating: nil, count: 128)  // 这张图里用到的颜色，每种只建一次
         for y in 0..<grid.height {
             for x in 0..<grid.width {
                 let code = grid[x, y]
                 if code == 0 || (template && isCutout(code)) { continue }
-                (template ? templateColor : color(for: code)).setFill()
+                if template {
+                    templateColor.setFill()
+                } else if code < 128 {
+                    let fill = colors[Int(code)] ?? color(for: code, in: grid.palette)
+                    colors[Int(code)] = fill
+                    fill.setFill()
+                } else {
+                    NSColor.magenta.setFill()
+                }
                 NSRect(x: origin.x + CGFloat(x) * pixel, y: origin.y + CGFloat(y) * pixel, width: pixel, height: pixel).fill()
             }
         }

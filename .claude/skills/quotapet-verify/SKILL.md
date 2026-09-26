@@ -41,10 +41,10 @@ make previews   # 输出到 build/previews/
 |---|---|
 | `pet-sheet.png` / `pet-sheet-mono.png` | 每种心情一行、每帧一列（彩色 / 单色） |
 | `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色、各种百分比、限流倒计时 |
-| `menubar-codex.png` / `popover-codex{,-tab}.png` / `settings-codex.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex 换成龙娘）、设置页的说明 |
-| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon` 是 Codex 的龙娘） |
+| `menubar-codex.png` / `popover-codex{,-tab}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的） |
+| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
-| `settings.png` | 设置页 |
+| `settings.png` / `settings-claude.png` / `settings-codex.png` | 设置页的「通用 / Claude / Codex」三个分页 |
 | `popover-*-en.png` / `settings-en.png` / `pet-sheet-en.png` | 英文界面（面板、设置页各有 `-dark` 版）：改了界面文字要看，英文比中文长，容易折行、截断 |
 | `popover-live*.png` | **本机真实数据**：只能自己看，不能复制到 `docs/images/`，也不能提交 |
 

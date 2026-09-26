@@ -167,9 +167,9 @@ public struct UsageSnapshot: Equatable, Sendable {
     /// 最紧张的窗口，宠物的心情跟它走
     public var tightest: UsageWindow? { windows.max { $0.percent < $1.percent } }
 
-    /// 面板和菜单栏上显示哪几家：Claude 一直显示（没数据时由它说明怎么回事），别的有数据才出现
-    public static func visible(_ snapshots: [UsageSnapshot]) -> [UsageSnapshot] {
-        snapshots.filter { $0.provider == .claude || $0.hasData }
+    /// 面板和菜单栏上显示哪几家：Claude 一直显示（没数据时由它说明怎么回事），别的有数据、用户又没在设置里关掉（hidden）才出现
+    public static func visible(_ snapshots: [UsageSnapshot], hidden: Set<ProviderID> = []) -> [UsageSnapshot] {
+        snapshots.filter { $0.provider == .claude || ($0.hasData && !hidden.contains($0.provider)) }
     }
 
     /// 同时有几家的数据时，宠物和菜单栏跟着谁：有数据的里面最紧张的那家，一样紧张时排在前面的优先；

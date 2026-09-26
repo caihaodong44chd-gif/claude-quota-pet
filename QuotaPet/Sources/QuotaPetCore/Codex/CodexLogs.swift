@@ -65,6 +65,7 @@ public struct CodexRateReading: Equatable, Sendable {
             windows.append(Window(minutes: minutes, usedPercent: used, resetsAt: resetsAt))
         }
         guard !windows.isEmpty else { return nil }
+        // rate_limit_reached_type 先不用：见过的日志里它一直是 null，取值和含义没法确认，猜错了宠物会误睡。只认 used_percent
         return CodexRateReading(time: time, limitID: limits["limit_id"] as? String, windows: windows)
     }
 }

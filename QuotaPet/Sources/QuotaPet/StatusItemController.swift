@@ -56,33 +56,36 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         configureButton()
         configurePopover()
 
-        // @Published 在赋值之前就通知，所以下面都用传进来的新值，不去读 store 的属性
-        let glyph = Publishers.CombineLatest(store.$snapshots, settings.$menuBarText)
-            .map { snapshots, mode in Self.glyph(UsageSnapshot.visible(snapshots), mode: mode) }
+        // @Published 在赋值之前就通知，所以下面都用传进来的新值，不去读 store 的属性。
+        // shown：要显示的几家（有数据、又没在设置里关掉的）
+        let shown = Publishers.CombineLatest(store.$snapshots, settings.$showCodex)
+            .map { snapshots, showCodex in UsageSnapshot.visible(snapshots, hidden: AppSettings.hiddenProviders(showCodex: showCodex)) }
+        let glyph = Publishers.CombineLatest(shown, settings.$menuBarText)
+            .map { shown, mode in Self.glyph(shown, mode: mode) }
             .removeDuplicates()
         Publishers.CombineLatest3(animator.$frame, settings.$monochromePet, glyph)
             .sink { [weak self] frame, monochrome, glyph in self?.showPet(frame.icon, template: monochrome, glyph: glyph) }
             .store(in: &cancellables)
-        Publishers.CombineLatest3(store.$snapshots, settings.$menuBarText, settings.$language)
-            .sink { [weak self] snapshots, mode, _ in self?.showText(UsageSnapshot.visible(snapshots), mode: mode) }
+        Publishers.CombineLatest3(shown, settings.$menuBarText, settings.$language)
+            .sink { [weak self] shown, mode, _ in self?.showText(shown, mode: mode) }
             .store(in: &cancellables)
-        Publishers.CombineLatest3(store.$snapshots, store.$errors, settings.$petStyle)
-            .sink { [weak animator] snapshots, errors, style in
+        Publishers.CombineLatest4(shown, store.$errors, settings.$petStyle, settings.$codexPetStyle)
+            .sink { [weak animator] shown, errors, claudeStyle, codexStyle in
                 // 一家都显示不了（比如 Claude 第一次就读出错、又没有 Codex 的数据）又有出错的：疑惑
-                let focus = UsageSnapshot.focus(of: UsageSnapshot.visible(snapshots))
+                let focus = UsageSnapshot.focus(of: shown)
                 animator?.show(mood: PetMood.of(focus, failed: !errors.isEmpty),
-                               style: PetStyle.of(focus?.provider ?? .claude, claudeStyle: style))
+                               style: PetStyle.of(focus?.provider ?? .claude, claudeStyle: claudeStyle, codexStyle: codexStyle))
             }
             .store(in: &cancellables)
         // 面板开着、看的又不是菜单栏上那家时，面板上的宠物才要单独播
-        Publishers.CombineLatest3(popoverState.$isShown, popoverState.$selected, store.$snapshots)
-            .sink { [weak headerAnimator] shown, selected, snapshots in
-                headerAnimator?.isVisible = shown && selected != UsageSnapshot.focus(of: UsageSnapshot.visible(snapshots))?.provider
+        Publishers.CombineLatest3(popoverState.$isShown, popoverState.$selected, shown)
+            .sink { [weak headerAnimator] isShown, selected, shown in
+                headerAnimator?.isVisible = isShown && selected != UsageSnapshot.focus(of: shown)?.provider
             }
             .store(in: &cancellables)
-        Publishers.CombineLatest4(settings.$visibility, appWatcher.$claudeRunning, appWatcher.$codexRunning, store.$snapshots)
-            .sink { [weak self] visibility, claude, codex, snapshots in
-                let usesCodex = UsageSnapshot.visible(snapshots).contains { $0.provider == .codex }
+        Publishers.CombineLatest4(settings.$visibility, appWatcher.$claudeRunning, appWatcher.$codexRunning, shown)
+            .sink { [weak self] visibility, claude, codex, shown in
+                let usesCodex = shown.contains { $0.provider == .codex }
                 self?.visibility = visibility
                 self?.appRunning = claude || (codex && usesCodex)
                 self?.updateVisibility()

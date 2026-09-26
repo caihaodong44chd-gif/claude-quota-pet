@@ -49,7 +49,6 @@ check(Fmt.fromNow(30) == "不到 1 分钟后", "fromNow 不到 1 分钟时不说
 
 // MARK: - 宠物
 
-let palette = Set(PetArt.palette.keys.compactMap(\.asciiValue))
 for style in PetStyle.allCases {
     for (name, art, size) in [("头像", style.art.icon, PetSprites.iconSize), ("半身像", style.art.portrait, PetSprites.portraitSize)] {
         let name = "\(style.label)\(name)"
@@ -69,19 +68,26 @@ for style in PetStyle.allCases {
             check(frame.duration > 0, "\(style.label) \(mood) 帧时长 > 0")
             check(frame.icon.width == 32 && frame.icon.height == 32 && frame.portrait.width == 64 && frame.portrait.height == 64,
                   "\(style.label) \(mood) 头像 32×32、半身像 64×64")
-            let cells = frame.icon.cells + frame.portrait.cells
-            check(cells.allSatisfy { $0 == 0 || palette.contains($0) }, "\(style.label) \(mood) 只能用调色板里的颜色")
+            check([frame.icon, frame.portrait].allSatisfy { grid in grid.cells.allSatisfy { $0 == 0 || grid.palette[$0] != nil } },
+                  "\(style.label) \(mood) 只能用这款调色板里的颜色")
         }
     }
     // 单色模式靠皮肤挖空脸，每款都得有
     check(PetSprites.frames(for: .normal, style: style)[0].icon.cells.contains(UInt8(ascii: "S")), "\(style.label)的头像有皮肤色")
-    check(PetSprites.frames(for: .normal, style: style)[0].icon != PixelGrid(rows: style.art.icon.base), "\(style.label)画上了眼睛")
+    check(PetSprites.frames(for: .normal, style: style)[0].icon != PixelGrid(rows: style.art.icon.base, palette: style.art.palette),
+          "\(style.label)画上了眼睛")
 }
 check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
 check(PetSprites.frames(for: .normal, style: .neko)[0] != PetSprites.frames(for: .normal)[0], "不同形象画出来不一样")
-check(!PetStyle.claudeChoices.contains(.dragon) && PetStyle.claudeChoices.count == PetStyle.allCases.count - 1, "龙娘不在 Claude 的形象选项里")
-check(PetStyle.of(.codex, claudeStyle: .neko) == .dragon && PetStyle.of(.claude, claudeStyle: .neko) == .neko, "Codex 固定是龙娘，Claude 用选的形象")
+check(Set(PetStyle.claudeChoices).isDisjoint(with: PetStyle.codexChoices)
+      && Set(PetStyle.claudeChoices + PetStyle.codexChoices) == Set(PetStyle.allCases), "两家的形象各一组，不重叠、不漏")
+check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .geek) == .geek && PetStyle.of(.claude, claudeStyle: .neko, codexStyle: .geek) == .neko,
+      "两家各用自己选的形象")
+check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .neko) == .dragon && PetStyle.of(.claude, claudeStyle: .hanfu, codexStyle: .geek) == .classic,
+      "选到别家那组的形象时退回自己那组的第一款")
 check(PetSprites.frames(for: .normal, style: .dragon)[0] != PetSprites.frames(for: .normal, style: .neko)[0], "龙娘和猫耳画出来不一样")
+// 每款各有调色板：同一个字符在不同形象里颜色不同（头发 H）
+check(PetStyle.hanfu.art.palette[UInt8(ascii: "H")] != PetStyle.geek.art.palette[UInt8(ascii: "H")], "汉服和极客的发色不一样")
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")
@@ -510,6 +516,8 @@ do {
     check(UsageSnapshot.focus(of: []) == nil, "还没有快照")
     check(UsageSnapshot.visible([snap(.claude, nil), snap(.codex, nil)]).map(\.provider) == [.claude], "Codex 没数据就不显示")
     check(UsageSnapshot.visible([snap(.claude, 10), snap(.codex, 20)]).map(\.provider) == [.claude, .codex], "两家都显示")
+    check(UsageSnapshot.visible([snap(.claude, 10), snap(.codex, 20)], hidden: [.codex]).map(\.provider) == [.claude], "设置里关掉 Codex 就不显示")
+    check(UsageSnapshot.visible([snap(.claude, nil)], hidden: [.claude]).map(\.provider) == [.claude], "Claude 关不掉（没数据时由它说明）")
     check(MenuBarText.make(snap(.codex, 55, windowID: "seven_day"), mode: .session, now: at(20, 12)).text == "55%",
           "只有每周额度时，「5 小时」显示方式退回最紧张的窗口")
 }

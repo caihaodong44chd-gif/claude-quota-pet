@@ -22,10 +22,11 @@ enum PreviewRenderer {
 
         let now = Date()
         // 用本机真实数据渲染一张，和点开菜单栏看到的一样：先看宠物跟着的那家（宠物停在第一帧）
-        let live = UsageSnapshot.visible([try? ClaudeProvider().snapshot(now: now), try? CodexProvider().snapshot(now: now)].compactMap { $0 })
+        let live = UsageSnapshot.visible([try? ClaudeProvider().snapshot(now: now), try? CodexProvider().snapshot(now: now)].compactMap { $0 },
+                                         hidden: settings.hiddenProviders)
         if let focus = UsageSnapshot.focus(of: live) {
             let mood = PetMood.from(snapshot: focus)
-            let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle)
+            let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle)
             for dark in [false, true] {
                 let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood,
                                         pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
@@ -52,7 +53,7 @@ enum PreviewRenderer {
             for (name, tabs, selected) in codexSamples(now: now) {
                 let snapshot = tabs.first { $0.provider == selected }
                 let mood = PetMood.from(snapshot: snapshot)
-                let style = PetStyle.of(selected, claudeStyle: .classic)
+                let style = PetStyle.of(selected, claudeStyle: .classic, codexStyle: .dragon)
                 for dark in [false, true] {
                     let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
                                             pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
@@ -62,11 +63,15 @@ enum PreviewRenderer {
             }
             let estimation = EstimationInfo(sessionUSDPerPercent: 0.33, weeklyUSDPerPercent: 2.41, learnedIntervals: 86,
                                             recordedIntervals: 214, learnedUntil: now.addingTimeInterval(-300))
-            let page = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, onBack: {})
-            write(renderInWindow(page, dark: false), to: dir.appendingPathComponent("settings\(lang).png"))
-            write(renderInWindow(page, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
-            let withCodex = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, usesCodex: true, onBack: {})
-            write(renderInWindow(withCodex, dark: false), to: dir.appendingPathComponent("settings-codex\(lang).png"))
+            // 设置页三个分页：settings（通用）、settings-claude、settings-codex
+            for (name, page) in [("", SettingsView.Page.general), ("-claude", .claude), ("-codex", .codex)] {
+                let view = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, hasCodex: true,
+                                        codexReadingAt: now.addingTimeInterval(-12 * 60), onBack: {}, page: page)
+                write(renderInWindow(view, dark: false), to: dir.appendingPathComponent("settings\(name)\(lang).png"))
+                if page == .general {
+                    write(renderInWindow(view, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
+                }
+            }
         }
         print("预览图已写入 \(dir.path)")
     }

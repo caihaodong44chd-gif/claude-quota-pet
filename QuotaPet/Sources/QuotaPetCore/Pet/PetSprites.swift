@@ -19,8 +19,13 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
     case youth
     /// 紫色长发、金色眼睛，魔女帽和高立领披肩
     case witch
-    /// Codex 专用：白色长卷发的龙娘，龙角、尖耳、背后一对小龙翼，发饰和立领上是中国结
+    // 下面三款是 Codex 的形象
+    /// 白发龙娘：弯龙角、尖耳，鬓角和立领上是红色中国结
     case dragon
+    /// 墨色长发盘两个丸子头、金步摇，粉色襦裙配红色交领
+    case hanfu
+    /// 薄荷绿长发、头戴耳机，深灰连帽衫
+    case geek
 
     public var id: String { rawValue }
 
@@ -31,6 +36,8 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         case .youth: return tr("青春", "Youthful")
         case .witch: return tr("魔女", "Witch")
         case .dragon: return tr("龙娘", "Dragon girl")
+        case .hanfu: return tr("汉服", "Hanfu")
+        case .geek: return tr("极客", "Geek")
         }
     }
 
@@ -41,15 +48,21 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
         case .youth: return PetArt.youth
         case .witch: return PetArt.witch
         case .dragon: return PetArt.dragon
+        case .hanfu: return PetArt.hanfu
+        case .geek: return PetArt.geek
         }
     }
 
-    /// 设置里能给 Claude 选的形象。龙娘留给 Codex，两家的宠物一眼就能分开
-    public static var claudeChoices: [PetStyle] { allCases.filter { $0 != .dragon } }
+    /// 两家各有一组形象，互不重叠，两家的宠物一眼就能分开
+    public static let claudeChoices: [PetStyle] = [.classic, .neko, .youth, .witch]
+    public static let codexChoices: [PetStyle] = [.dragon, .hanfu, .geek]
 
-    /// 这家 AI 的宠物：Claude 用设置里选的形象，Codex 固定是龙娘
-    public static func of(_ provider: ProviderID, claudeStyle: PetStyle) -> PetStyle {
-        provider == .codex ? .dragon : claudeStyle
+    /// 这家 AI 的宠物：各用设置里给它选的形象；选的不在它那一组里（比如设置被改坏了）就用那组的第一款
+    public static func of(_ provider: ProviderID, claudeStyle: PetStyle, codexStyle: PetStyle) -> PetStyle {
+        switch provider {
+        case .claude: return claudeChoices.contains(claudeStyle) ? claudeStyle : claudeChoices[0]
+        case .codex: return codexChoices.contains(codexStyle) ? codexStyle : codexChoices[0]
+        }
     }
 }
 
@@ -64,13 +77,13 @@ public enum PetSprites {
     /// 小道具：starBig / starSmall / sweatA / sweatB / tearsA / tearsB / zzzA / zzzB / question
     static func makeFrame(_ art: PetArt.Look, _ eyes: String, _ mouth: String, _ extras: [String],
                       _ duration: TimeInterval) -> PetFrame {
-        PetFrame(icon: compose(art.icon, eyes: eyes, mouth: mouth, extras: extras),
-                 portrait: compose(art.portrait, eyes: eyes, mouth: mouth, extras: extras),
+        PetFrame(icon: compose(art.icon, palette: art.palette, eyes: eyes, mouth: mouth, extras: extras),
+                 portrait: compose(art.portrait, palette: art.palette, eyes: eyes, mouth: mouth, extras: extras),
                  duration: duration)
     }
 
-    static func compose(_ art: PetArt.Layers, eyes: String, mouth: String, extras: [String]) -> PixelGrid {
-        var grid = PixelGrid(rows: art.base)
+    static func compose(_ art: PetArt.Layers, palette: PetPalette, eyes: String, mouth: String, extras: [String]) -> PixelGrid {
+        var grid = PixelGrid(rows: art.base, palette: palette)
         if let patch = art.mouths[mouth] { grid.apply(patch) }  // 头像太小时有的嘴画不出来，没有就不画
         if let patch = art.eyes[eyes] { grid.apply(patch) }
         for name in extras {
@@ -134,8 +147,8 @@ public enum PetSprites {
 
 extension PixelGrid {
     /// 用字符画建一张画布（'.' 是透明）
-    public init(rows: [String]) {
-        self.init(width: rows.first?.utf8.count ?? 0, height: rows.count)
+    public init(rows: [String], palette: PetPalette) {
+        self.init(width: rows.first?.utf8.count ?? 0, height: rows.count, palette: palette)
         stamp(rows, x: 0, y: 0)
     }
 

@@ -15,8 +15,17 @@ final class AppSettings: ObservableObject {
     @Published var visibility: MenuBarVisibility {
         didSet { defaults.set(visibility.rawValue, forKey: Keys.visibility) }
     }
+    /// Claude 的宠物形象
     @Published var petStyle: PetStyle {
         didSet { defaults.set(petStyle.rawValue, forKey: Keys.petStyle) }
+    }
+    /// Codex 的宠物形象（和 Claude 各选各的，见 PetStyle.codexChoices）
+    @Published var codexPetStyle: PetStyle {
+        didSet { defaults.set(codexPetStyle.rawValue, forKey: Keys.codexPetStyle) }
+    }
+    /// 本机有 Codex 的记录时，在面板、菜单栏上显示它、给它发提醒
+    @Published var showCodex: Bool {
+        didSet { defaults.set(showCodex, forKey: Keys.showCodex) }
     }
     @Published var animatePet: Bool {
         didSet { defaults.set(animatePet, forKey: Keys.animatePet) }
@@ -64,10 +73,16 @@ final class AppSettings: ObservableObject {
             Keys.notifyOnReset: true,
             Keys.liveEstimate: true,
             Keys.autoLearn: true,
+            Keys.showCodex: true,
         ])
         menuBarText = MenuBarTextMode(rawValue: defaults.string(forKey: Keys.menuBarText) ?? "") ?? .session
         visibility = MenuBarVisibility(rawValue: defaults.string(forKey: Keys.visibility) ?? "") ?? .withClaude
-        petStyle = PetStyle(rawValue: defaults.string(forKey: Keys.petStyle) ?? "") ?? .classic
+        // 存的形象不在这家的那一组里（比如以前的版本存的）就用那组的第一款
+        petStyle = PetStyle(rawValue: defaults.string(forKey: Keys.petStyle) ?? "").flatMap { PetStyle.claudeChoices.contains($0) ? $0 : nil }
+            ?? PetStyle.claudeChoices[0]
+        codexPetStyle = PetStyle(rawValue: defaults.string(forKey: Keys.codexPetStyle) ?? "")
+            .flatMap { PetStyle.codexChoices.contains($0) ? $0 : nil } ?? PetStyle.codexChoices[0]
+        showCodex = defaults.bool(forKey: Keys.showCodex)
         animatePet = defaults.bool(forKey: Keys.animatePet)
         monochromePet = defaults.bool(forKey: Keys.monochromePet)
         notificationsEnabled = defaults.bool(forKey: Keys.notificationsEnabled)
@@ -79,6 +94,11 @@ final class AppSettings: ObservableObject {
         language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "")
         L10n.language = language ?? .preferred()  // init 里不会触发 willSet
     }
+
+    /// 用户在设置里关掉、不在面板和菜单栏上显示的几家
+    var hiddenProviders: Set<ProviderID> { Self.hiddenProviders(showCodex: showCodex) }
+
+    nonisolated static func hiddenProviders(showCodex: Bool) -> Set<ProviderID> { showCodex ? [] : [.codex] }
 
     var providerConfig: ClaudeProvider.Config {
         Self.providerConfig(liveEstimate: liveEstimate, autoLearn: autoLearn, weeklyResetAnchor: weeklyResetAnchor)
@@ -114,6 +134,8 @@ final class AppSettings: ObservableObject {
         static let menuBarText = "menuBarText"
         static let visibility = "visibility"
         static let petStyle = "petStyle"
+        static let codexPetStyle = "codexPetStyle"
+        static let showCodex = "showCodex"
         static let animatePet = "animatePet"
         static let monochromePet = "monochromePet"
         static let notificationsEnabled = "notificationsEnabled"

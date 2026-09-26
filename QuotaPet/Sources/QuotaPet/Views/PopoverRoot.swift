@@ -40,7 +40,7 @@ struct PopoverRoot: View {
                 let selected = shown.contains { $0.provider == state.selected } ? state.selected : focus ?? .claude
                 let snapshot = store.snapshot(for: selected)
                 let look = PetLook(mood: PetMood.of(snapshot, failed: store.errors[selected] != nil),
-                                   style: PetStyle.of(selected, claudeStyle: settings.petStyle))
+                                   style: PetStyle.of(selected, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle))
                 OverviewView(
                     snapshot: snapshot,
                     errorMessage: store.errors[selected],
@@ -58,7 +58,8 @@ struct PopoverRoot: View {
                 SettingsView(settings: settings,
                              suggestedWeeklyReset: claude?.window("seven_day")?.resetsAt,
                              estimation: claude?.estimation,
-                             usesCodex: store.shown.contains { $0.provider == .codex },
+                             hasCodex: store.snapshot(for: .codex)?.hasData == true,
+                             codexReadingAt: store.snapshot(for: .codex)?.officialAt,
                              onBack: { state.page = .overview })
             }
         }

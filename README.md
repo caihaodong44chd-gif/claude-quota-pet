@@ -58,12 +58,13 @@
 
 - 面板顶部多一个 Claude / Codex 切换条，上面带着两家的百分比；每次点开先看更紧张的那家
 - 宠物和菜单栏上的数字跟着两家里更紧张的那个，数字前面的小图标告诉你是哪家：星号是 Claude，终端是 Codex
-- Codex 有自己的宠物：白发龙娘，长着龙角和小翅膀，和 Claude 的形象一眼就能分开
+- Codex 有自己的一组宠物：龙娘、汉服、极客，在「设置 → Codex」里选；和 Claude 的四款互不重叠，一眼就能分开
+- 不想看 Codex 的话，在「设置 → Codex」里关掉，面板、菜单栏和提醒就只管 Claude
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-codex-tab-dark.png">
-    <img src="docs/images/popover-codex-tab.png" width="320" alt="面板：切到 Codex，本周额度 93%，龙娘快撑不住了">
+    <img src="docs/images/popover-codex-tab.png" width="320" alt="面板：切到 Codex，本周额度 93%，Codex 的宠物（龙娘）快撑不住了">
   </picture>
   <br>
   <img src="docs/images/menubar-codex.png" width="384" alt="菜单栏：数字前面的小图标，星号是 Claude，终端是 Codex；Codex 的宠物是龙娘">

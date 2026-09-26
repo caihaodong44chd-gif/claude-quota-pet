@@ -26,13 +26,15 @@ final class NotificationManager {
     func process(old: UsageSnapshot?, new: UsageSnapshot) {
         guard new.hasData else { return }
         let now = new.generatedAt
+        // 设置里关掉了这家：记录照常更新（重新打开时不会一下子补发一堆），只是不发通知
+        let muted = settings.hiddenProviders.contains(new.provider)
         for window in new.windows {
             let key = "notify.\(new.provider.rawValue).\(window.id)"
             var state = loadState(key)
             let percent = window.percent
 
             if percent < 5 {
-                if state.last >= 60, settings.notifyOnReset {
+                if state.last >= 60, settings.notifyOnReset, !muted {
                     let name = new.provider.displayName
                     post(title: tr("\(name) \(window.title)已恢复", "\(name) · \(window.title) has reset"),
                          body: tr("满血复活！可以继续干活了 🎉", "Fully recharged, back to work! 🎉"))
@@ -43,8 +45,10 @@ final class NotificationManager {
             if settings.notificationsEnabled {
                 let crossed = settings.thresholds.filter { percent >= Double($0) && !state.notified.contains($0) }
                 if let top = crossed.max() {
-                    post(title: title(for: window, threshold: top, provider: new.provider),
-                         body: body(for: window, threshold: top, now: now))
+                    if !muted {
+                        post(title: title(for: window, threshold: top, provider: new.provider),
+                             body: body(for: window, threshold: top, now: now))
+                    }
                     state.notified.formUnion(crossed)
                 }
             }

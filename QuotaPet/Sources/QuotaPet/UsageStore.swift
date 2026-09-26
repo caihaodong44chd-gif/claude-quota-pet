@@ -36,7 +36,7 @@ final class UsageStore: ObservableObject {
     }
 
     /// 面板和菜单栏要显示的几家
-    var shown: [UsageSnapshot] { UsageSnapshot.visible(snapshots) }
+    var shown: [UsageSnapshot] { UsageSnapshot.visible(snapshots, hidden: settings.hiddenProviders) }
 
     /// 宠物和菜单栏跟着的那家：最紧张的
     var focus: UsageSnapshot? { UsageSnapshot.focus(of: shown) }

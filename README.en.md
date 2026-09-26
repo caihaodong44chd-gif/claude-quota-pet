@@ -52,7 +52,7 @@ Her mood follows whichever usage window is tightest:
 
 <img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet, one mood per row">
 
-There are four looks to choose from in Settings for Claude: Classic, Cat ears, Youthful and Witch. Codex gets its own look, the dragon girl.
+Claude has four looks to choose from in Settings: Classic, Cat ears, Youthful and Witch. Codex has three of its own: Dragon girl, Hanfu and Geek.
 
 ## Codex too
 
@@ -60,12 +60,13 @@ If you use Codex (CLI or desktop app) on this Mac, QuotaPet picks up its usage a
 
 - A Claude / Codex switcher appears at the top of the popover, showing both percentages. The popover always opens on whichever is tighter
 - The pet and the menu bar number follow whichever of the two is tighter, and a small icon in front of the number tells you which one it is: the asterisk is Claude, the terminal is Codex
-- Codex has its own pet, a white-haired dragon girl with horns and little wings, so you can tell the two apart at a glance
+- Codex has its own set of pets (Dragon girl, Hanfu and Geek; pick one in Settings → Codex), separate from Claude's four, so you can tell the two apart at a glance
+- Don't want Codex? Turn it off in Settings → Codex, and the popover, menu bar and alerts only cover Claude
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-codex-tab-en-dark.png">
-    <img src="docs/images/popover-codex-tab-en.png" width="320" alt="Popover switched to Codex: weekly quota at 93%, and the dragon girl is almost out">
+    <img src="docs/images/popover-codex-tab-en.png" width="320" alt="Popover switched to Codex: weekly quota at 93%, and the Codex pet (the dragon girl) is almost out">
   </picture>
   <br>
   <img src="docs/images/menubar-codex.png" width="384" alt="Menu bar: a small icon before the number, an asterisk for Claude and a terminal for Codex; the Codex pet is the dragon girl">
@@ -99,14 +100,13 @@ make previews   # render the pet, menu bar and popover to PNGs in build/previews
 - By default the pet **follows the Claude desktop app**: it appears when Claude opens and hides when Claude quits (reset notifications still arrive in the background). If you use Codex, the Codex desktop app counts too. If the pet is hidden and you want to check your usage, open QuotaPet again from Spotlight and the popover pops up.
 - To appear automatically with Claude, QuotaPet has to launch at login (`make install` turns this on). To turn it off: QuotaPet Settings → General, or System Settings → General → Login Items.
 
-Settings (right-click → Settings…):
+Settings (right-click → Settings…) has a page per topic:
 
-| Group | Options |
+| Page | Options |
 |---|---|
-| Menu Bar | When to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), Claude's pet style, animation, monochrome pet |
-| Notifications | Usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), notify when quota resets |
-| Live Estimate | Estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
-| General | Language (system / 简体中文 / English), launch at login |
+| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet. Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
+| Claude | Pet style (Classic / Cat ears / Youthful / Witch). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
+| Codex (only if you use it) | Show Codex usage, pet style (Dragon girl / Hanfu / Geek), where the data comes from and when the last reading arrived |
 
 **Can't see the pet?** On MacBooks with a notch, menu bar icons that don't fit are hidden behind the notch. QuotaPet places itself on the far right, next to the clock, the first time it runs. If it's still hidden: hold ⌘ and drag menu bar icons to reorder them, hide icons you don't need in System Settings → Menu Bar, or switch QuotaPet to "Pet only" to save half the width.
 
