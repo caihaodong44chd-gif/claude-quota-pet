@@ -30,9 +30,9 @@ Reads local files only · No network · No login credentials
 ## Features
 
 - **Usage at a glance**: the menu bar shows the pet plus your 5-hour usage. The number turns orange above 75% and red above 90%; once you hit the limit it switches to a countdown such as `1h23m`
-- **Details on click**: 5-hour and weekly usage, when each resets, your recent burn rate, and "at this rate you'll run out at…"
+- **Details on click**: 5-hour and weekly usage, when each resets, your recent burn rate, "at this rate you'll run out at…", and whether your weekly usage is over or under an even pace, with how much you can use per day until the reset
 - **Live between official readings**: official readings only arrive every 15 minutes, so in between QuotaPet estimates from Claude Code's local logs, using a conversion rate it learns from your own data
-- **Only the notifications that matter**: one alert each at 75% / 90% / 100%, and one when your quota resets
+- **Only the notifications that matter**: one alert each at 75% / 90% / 100%, a heads-up when the recent pace will run you out soon (about 30 minutes ahead for the 5-hour window, a day ahead for the weekly quota), and one when your quota resets
 - **Codex too**: if you use Codex on this Mac, it's picked up automatically. Switch between the two in the popover, and the pet follows whichever is tighter ([more below](#codex-too))
 - **Follows Claude**: the pet appears when the Claude desktop app opens and hides when it quits (if you use Codex, its desktop app counts too; or set it to always show)
 - **English and Simplified Chinese**: follows your system language, or pick one in Settings
@@ -98,13 +98,14 @@ make previews   # render the pet, menu bar and popover to PNGs in build/previews
 
 - **Left-click** the pet to open the popover; **right-click** for Refresh, Settings and Quit.
 - By default the pet **follows the Claude desktop app**: it appears when Claude opens and hides when Claude quits (reset notifications still arrive in the background). If you use Codex, the Codex desktop app counts too. If the pet is hidden and you want to check your usage, open QuotaPet again from Spotlight and the popover pops up.
+- In the popover, the weekly bar has a small tick where you'd be at an even pace. The line below says how many points you're over or under it and how much you can use per day until the reset (orange when you're 10 or more points over). For Claude it appears once the weekly reset time is known: after QuotaPet has seen one reset, or when you set the reset time manually in Settings.
 - To appear automatically with Claude, QuotaPet has to launch at login (`make install` turns this on). To turn it off: QuotaPet Settings → General, or System Settings → General → Login Items.
 
 Settings (right-click → Settings…) has a page per topic:
 
 | Page | Options |
 |---|---|
-| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet. Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
+| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet. Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
 | Claude | Pet style (Classic / Cat ears / Youthful / Witch). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
 | Codex (only if you use it) | Show Codex usage, pet style (Dragon girl / Hanfu / Geek), where the data comes from and when the last reading arrived |
 

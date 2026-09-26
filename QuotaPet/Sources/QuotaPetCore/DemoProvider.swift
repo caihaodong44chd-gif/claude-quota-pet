@@ -23,7 +23,7 @@ public final class DemoProvider: UsageProvider, Sendable {
             UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: 7 * 86400, percent: weekly,
                         official: weekly.rounded(.down), officialAt: now.addingTimeInterval(-240),
                         startedAt: now.addingTimeInterval(-3 * 86400), resetsAt: now.addingTimeInterval(4 * 86400 + 5 * 3600),
-                        burnPerHour: 4),
+                        burnPerHour: 0.9),
         ]
         let today = ActivitySummary(
             requests: 128, tokens: 12_345_678, usd: 18.42,

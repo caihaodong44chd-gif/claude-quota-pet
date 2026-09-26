@@ -160,6 +160,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
         var current: InferredWindow?
         var lastReset: Date?
+        var scheduleKnown = true
         // 限流中：限流消息里的恢复时间就是这个窗口的结束时间，和手动指定的每周重置时间一样算
         if let anchor = limit?.resetsAt ?? resetAnchor {
             current = WindowInference.cycle(from: anchor, duration: duration, now: now)
@@ -169,6 +170,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
                                                  knownResets: limits.map(\.resetsAt), fixedCadence: fixedCadence)
             current = inferred.current
             lastReset = inferred.lastReset
+            // 按固定时间重置的窗口还没看到过重置：是按第一次使用猜的，会偏晚。5 小时窗口本来就从第一次使用开始算
+            scheduleKnown = !fixedCadence || inferred.fromCadence
         }
 
         func added(after from: Date, including: Bool = false) -> Double {
@@ -234,7 +237,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
         return UsageWindow(id: id, title: title, duration: duration, percent: percent,
                            official: official, officialAt: officialAt, limitReported: limitReported, startedAt: current?.start,
-                           resetsAt: current?.end, otherPercent: other.reduce(0) { $0 + $1.percent },
+                           resetsAt: current?.end, scheduleKnown: scheduleKnown, otherPercent: other.reduce(0) { $0 + $1.percent },
                            burnPerHour: burn, otherBurnPerHour: otherBurn, burnLookback: lookback)
     }
 

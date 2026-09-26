@@ -234,10 +234,10 @@ enum PreviewRenderer {
         let session = UsageWindow.sessionTitle, weekly = UsageWindow.weeklyTitle
         return [
             ("calm", snapshot([window("five_hour", session, 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
-                               window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.7)])),
+                               window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.5)])),
             ("busy", snapshot([window("five_hour", session, 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42,
                                      other: 14, otherBurn: 8),
-                               window("seven_day", weekly, week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 5)])),
+                               window("seven_day", weekly, week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 0.9)])),
             ("limited", snapshot([window("five_hour", session, 5 * 3600, 100, official: 100, resetIn: 83 * 60, burn: 0),
                                   window("seven_day", weekly, week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
             ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now, notes: [ClaudeProvider.missingHistoryNote],
@@ -258,7 +258,7 @@ enum PreviewRenderer {
         }
         return [
             ("codex", [claude["busy"]!, codex(55, agoMinutes: 12, resetIn: 2 * 86400 + 5 * 3600, burn: 0.6)], .claude),
-            ("codex-tab", [claude["calm"]!, codex(93, agoMinutes: 4, resetIn: 86400 + 3 * 3600, burn: 3.8)], .codex),
+            ("codex-tab", [claude["calm"]!, codex(93, agoMinutes: 4, resetIn: 86400 + 3 * 3600, burn: 0.9)], .codex),
         ]
     }
 

@@ -40,6 +40,10 @@ final class AppSettings: ObservableObject {
     @Published var thresholds: [Int] {
         didSet { defaults.set(thresholds, forKey: Keys.thresholds) }
     }
+    /// 照最近的速度快用完时提前提醒（见 UsageWindow.warningLead）
+    @Published var notifyRunningOut: Bool {
+        didSet { defaults.set(notifyRunningOut, forKey: Keys.notifyRunningOut) }
+    }
     @Published var notifyOnReset: Bool {
         didSet { defaults.set(notifyOnReset, forKey: Keys.notifyOnReset) }
     }
@@ -70,6 +74,7 @@ final class AppSettings: ObservableObject {
             Keys.monochromePet: false,
             Keys.notificationsEnabled: true,
             Keys.thresholds: [75, 90, 100],
+            Keys.notifyRunningOut: true,
             Keys.notifyOnReset: true,
             Keys.liveEstimate: true,
             Keys.autoLearn: true,
@@ -87,6 +92,7 @@ final class AppSettings: ObservableObject {
         monochromePet = defaults.bool(forKey: Keys.monochromePet)
         notificationsEnabled = defaults.bool(forKey: Keys.notificationsEnabled)
         thresholds = (defaults.array(forKey: Keys.thresholds) as? [Int]) ?? [75, 90, 100]
+        notifyRunningOut = defaults.bool(forKey: Keys.notifyRunningOut)
         notifyOnReset = defaults.bool(forKey: Keys.notifyOnReset)
         liveEstimate = defaults.bool(forKey: Keys.liveEstimate)
         autoLearn = defaults.bool(forKey: Keys.autoLearn)
@@ -140,6 +146,7 @@ final class AppSettings: ObservableObject {
         static let monochromePet = "monochromePet"
         static let notificationsEnabled = "notificationsEnabled"
         static let thresholds = "thresholds"
+        static let notifyRunningOut = "notifyRunningOut"
         static let notifyOnReset = "notifyOnReset"
         static let liveEstimate = "liveEstimate"
         static let autoLearn = "autoLearn"

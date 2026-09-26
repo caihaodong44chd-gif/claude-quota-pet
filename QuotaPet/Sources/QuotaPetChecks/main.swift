@@ -203,7 +203,7 @@ do {  // 每周：桌面端最早的读数是 0，说明更早的窗口都结束
     let r = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(25, 23))
     check(r.current?.start == at(23, 17, 58), "每周窗口从读数为 0 之后的第一次使用开始：\(String(describing: r.current))")
     let fixed = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(25, 23), fixedCadence: true)
-    check(fixed == r, "固定周期：还没看到过重置时，照样按第一次使用推")
+    check(fixed == r && !fixed.fromCadence, "固定周期：还没看到过重置时，照样按第一次使用推")
 }
 
 do {  // 每周额度按固定时间重置，不管有没有用：前几天没用，周二晚上才第一次用
@@ -211,7 +211,7 @@ do {  // 每周额度按固定时间重置，不管有没有用：前几天没�
                    S(time: at(28, 6, 5), value: 0)]
     let activity = [at(22, 21, 5), at(28, 8)]
     let r = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(28, 12), fixedCadence: true)
-    check(r.current == InferredWindow(start: at(28, 6, 5), end: at(28, 6, 5) + week) && r.lastReset == at(28, 6, 5),
+    check(r.current == InferredWindow(start: at(28, 6, 5), end: at(28, 6, 5) + week) && r.lastReset == at(28, 6, 5) && r.fromCadence,
           "重置之后的窗口从重置时刻（跳变区间里最晚的时刻）开始，不等第一次使用：\(r)")
     let later = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(28, 12) + 2 * week, fixedCadence: true)
     check(later.current?.start == at(28, 6, 5) + 2 * week, "之后没有用量也每 7 天重置一次")
@@ -320,6 +320,11 @@ do {
                                        resetAnchor: nil, fixedCadence: true, live: true, now: at(21, 8))
     check(cadence.startedAt == at(21, 6, 10) && cadence.official == nil && near(cadence.percent, 2, 1e-3),
           "每周窗口到点重置，之前的官方读数不再算：\(cadence)")
+    // 重置时间靠不靠得住（决定面板上看不看节奏）：看到过重置、手动指定的靠得住；还没看到过重置时是按第一次使用猜的
+    let guessed = provider.buildWindow(id: "seven_day", title: "", duration: week, series: Array(weekly.suffix(1)),
+                                       requests: [opus(at(21, 7), usd: 0.117 * 2)], scale: 1, percentOf: percentOf,
+                                       resetAnchor: nil, fixedCadence: true, live: true, now: at(21, 8))
+    check(cadence.scheduleKnown && manual.scheduleKnown && !guessed.scheduleKnown, "每周重置时间是不是猜的：\(guessed)")
 }
 
 do {  // 整条链路：日志里的限流消息经过 snapshot() 分到各自的窗口
@@ -637,6 +642,114 @@ do {
     check(slow.projectedExhaustion(now: at(25, 12)) == nil, "重置前用不完就不预警")
 }
 
+// MARK: - 配速 & 用量提醒
+
+do {
+    // 每周额度正好过了一半，用了 62%。开始和重置时间从 now 往前后推，不用 at()：那一周本地时间可能跨夏令时（比如新西兰）
+    let now = at(24, 12), day = 86400.0
+    let weekly = UsageWindow(id: "seven_day", title: "", duration: week, percent: 62,
+                             startedAt: now - 3.5 * day, resetsAt: now + 3.5 * day)
+    let pace = weekly.pace(now: now)
+    check(near(pace?.expected, 50) && near(pace?.ahead, 12), "过了一半时间用了 62%：比平均节奏多用 12 个点")
+    check(near(pace?.perDay, 38 / 3.5), "剩下的 38% 平摊到 3.5 天")
+    let late = weekly.pace(now: now + 3 * day)
+    check(late != nil && late?.perDay == nil, "离重置不到一天：只比节奏，不算每天能用多少")
+    check(weekly.pace(now: now - 4 * day) == nil && weekly.pace(now: now + 4 * day) == nil, "窗口外不算节奏")
+    var full = weekly, unknown = weekly, guessed = weekly
+    full.percent = 100
+    unknown.resetsAt = nil
+    guessed.scheduleKnown = false
+    check(full.pace(now: now) == nil && unknown.pace(now: now) == nil, "用完了、不知道重置时间都不算节奏")
+    check(guessed.pace(now: now) == nil, "重置时间是按第一次使用猜的：不算节奏（会偏晚，每天能用多少会算多）")
+    let session = UsageWindow(id: "five_hour", title: "", duration: fiveHours, percent: 40, startedAt: at(24, 10), resetsAt: at(24, 15))
+    check(session.pace(now: at(24, 12)) == nil, "5 小时窗口不看节奏")
+    check(session.warningLead == 1800 && weekly.warningLead == 86400, "预警提前量：5 小时窗口半小时，每周额度一天")
+
+    // 消耗速度的门槛按单位算：5 小时窗口每小时 1%，每周额度每天 1%
+    var steady = weekly
+    steady.percent = 85
+    steady.burnPerHour = 0.75  // 每天 18%：剩下的 15% 20 小时用完，比重置早两天多
+    check(steady.projectedExhaustion(now: now) == now + 20 * hour, "每周额度每小时不到 1% 也会预测用完")
+    let crawl = UsageWindow(id: "five_hour", title: "", duration: fiveHours, percent: 99.5, resetsAt: at(24, 15), burnPerHour: 0.75)
+    check(crawl.projectedExhaustion(now: at(24, 12)) == nil, "5 小时窗口每小时不到 1% 不预测")
+    let open = UsageWindow(id: "seven_day", title: "", duration: week, percent: 30, burnPerHour: 1.0 / 24)
+    check(open.projectedExhaustion(now: now) == nil, "不知道重置时间时，一个窗口长度以外的不预测")
+    check(weekly.burnUnit == 86400 && session.burnUnit == 3600 && near(weekly.perUnit(0.75), 18), "速度的单位")
+}
+
+do {
+    let options = UsageAlerts.Options(usage: true, thresholds: [75, 90, 100], runningOut: true, reset: true)
+    /// 5 小时窗口，15 点重置
+    func session(_ percent: Double, burn: Double?) -> UsageWindow {
+        UsageWindow(id: "five_hour", title: UsageWindow.sessionTitle, duration: fiveHours, percent: percent,
+                    startedAt: at(25, 10), resetsAt: at(25, 15), burnPerHour: burn)
+    }
+    // 12:00 跨过 75%，每小时 20% → 13:00 用完：阈值提醒里顺带说，还没到半小时内，不算预警过
+    var r = UsageAlerts.evaluate(session(80, burn: 20), state: .init(last: 70), options: options, now: at(25, 12))
+    check(r.alerts == [.threshold(75, runsOutAt: at(25, 13))] && !r.state.warned, "跨过 75%：\(r.alerts)")
+    // 12:30 到 85%，每小时 60% → 12:45 用完，半小时内：预警
+    r = UsageAlerts.evaluate(session(85, burn: 60), state: r.state, options: options, now: at(25, 12, 30))
+    check(r.alerts == [.runningOut(at(25, 12, 45))] && r.state.warned, "快用完了：\(r.alerts)")
+    r = UsageAlerts.evaluate(session(88, burn: 48), state: r.state, options: options, now: at(25, 12, 35))
+    check(r.alerts.isEmpty, "同一个周期只预警一次：\(r.alerts)")
+    r = UsageAlerts.evaluate(session(92, burn: 32), state: r.state, options: options, now: at(25, 12, 40))
+    check(r.alerts == [.threshold(90, runsOutAt: at(25, 12, 55))], "预警过也照常提醒阈值：\(r.alerts)")
+    r = UsageAlerts.evaluate(session(0, burn: nil), state: r.state, options: options, now: at(25, 15, 5))
+    check(r.alerts == [.reset] && r.state.notified.isEmpty && !r.state.warned && r.state.last == 0,
+          "重置了：说一声，记录清空：\(r.alerts) \(r.state)")
+
+    // App 没开着时跨过了重置，重新打开时新窗口（18:00–23:00）已经用了 20%：看重置时间往后跳了，记录照样清空
+    let stale = UsageAlerts.State(last: 92, notified: [75, 90], warned: true, cycleEnd: at(25, 15))
+    func next(_ percent: Double) -> UsageWindow {
+        UsageWindow(id: "five_hour", title: "", duration: fiveHours, percent: percent, startedAt: at(25, 18), resetsAt: at(25, 23))
+    }
+    r = UsageAlerts.evaluate(next(20), state: stale, options: options, now: at(25, 19))
+    check(r.alerts.isEmpty && r.state.notified.isEmpty && !r.state.warned && r.state.cycleEnd == at(25, 23),
+          "重置时间跳到下一个周期：清空记录，不补发恢复提醒：\(r.alerts) \(r.state)")
+    r = UsageAlerts.evaluate(next(80), state: r.state, options: options, now: at(25, 20))
+    check(r.alerts == [.threshold(75, runsOutAt: nil)], "新周期里 75% 照常提醒：\(r.alerts)")
+    var nudged = stale
+    nudged.cycleEnd = at(25, 22, 40)  // 推算的重置时间挪了 20 分钟，还是同一个周期
+    r = UsageAlerts.evaluate(next(92), state: nudged, options: options, now: at(25, 20))
+    check(r.alerts.isEmpty && r.state.notified == [75, 90], "重置时间只挪了一点：不算新周期：\(r.alerts)")
+
+    // 一下子跨过 90%、又半小时内会用完：只发一条阈值提醒，里面说几点用完
+    r = UsageAlerts.evaluate(session(90, burn: 40), state: .init(last: 70), options: options, now: at(25, 12))
+    check(r.alerts == [.threshold(90, runsOutAt: at(25, 12, 15))] && r.state.warned && r.state.notified == [75, 90],
+          "跨阈值和快用完同时发生：\(r.alerts)")
+    var off = options
+    off.runningOut = false
+    r = UsageAlerts.evaluate(session(85, burn: 60), state: .init(last: 80, notified: [75]), options: off, now: at(25, 12, 30))
+    check(r.alerts.isEmpty && !r.state.warned, "关掉预警：不提醒，也不记成提醒过（之后打开还能提醒）")
+    var silent = options
+    silent.usage = false
+    r = UsageAlerts.evaluate(session(85, burn: 60), state: .init(last: 80), options: silent, now: at(25, 12, 30))
+    check(r.alerts.isEmpty, "关掉用量提醒：快用完也不提醒")
+    r = UsageAlerts.evaluate(session(85, burn: 5), state: .init(last: 80, notified: [75]), options: options, now: at(25, 12, 30))
+    check(r.alerts.isEmpty, "来得及重置就不预警")
+
+    // 每周额度提前一天预警：70%，每小时 1.5% → 20 小时后用完
+    let now = at(24, 12)
+    var weekly = UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: week, percent: 70,
+                             startedAt: now - 3.5 * 86400, resetsAt: now + 3.5 * 86400, burnPerHour: 1.5)
+    r = UsageAlerts.evaluate(weekly, state: .init(last: 69), options: options, now: now)
+    check(r.alerts == [.runningOut(now + 20 * hour)], "每周额度一天内会用完：\(r.alerts)")
+    weekly.burnPerHour = 1
+    check(UsageAlerts.evaluate(weekly, state: .init(last: 69), options: options, now: now).alerts.isEmpty,
+          "还要一天多才用完，先不提醒")
+
+    let w = session(85, burn: 60)
+    check(UsageAlerts.title(.runningOut(at(25, 12, 45)), window: w, provider: .claude) == "Claude 5 小时会话快用完了", "预警标题")
+    check(UsageAlerts.body(.runningOut(at(25, 12, 45)), window: w, now: at(25, 12, 30))
+          == "照最近的速度，12:45 左右用完（约 15 分钟后），比重置早 2 小时 15 分。", "预警内容")
+    var noReset = w
+    noReset.resetsAt = nil
+    check(UsageAlerts.body(.runningOut(at(25, 12, 45)), window: noReset, now: at(25, 12, 30))
+          == "照最近的速度，12:45 左右用完（约 15 分钟后）。", "不知道重置时间就不说比重置早多少")
+    check(UsageAlerts.body(.threshold(75, runsOutAt: at(25, 13)), window: w, now: at(25, 12))
+          == "约 3 小时后重置（15:00）。照最近的速度 13:00 左右就会用完。" + PetMood.tired.line, "阈值提醒顺带说几点用完")
+}
+
 // MARK: - 多语言
 
 check(Language.preferred(["zh-Hans-CN", "en-US"]) == .zhHans, "系统首选简体中文")
@@ -689,6 +802,14 @@ do {
     english += [CodexProvider.missingNote, UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
     english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,
                 Fmt.clock(at(24, 9), now: at(25, 12)), Fmt.duration(30)]
+    let alertWindow = UsageWindow(id: "five_hour", title: UsageWindow.sessionTitle, duration: fiveHours, percent: 85,
+                                  startedAt: at(25, 10), resetsAt: at(25, 15), burnPerHour: 60)
+    let alerts: [UsageAlerts.Alert] = [.reset, .threshold(75, runsOutAt: at(25, 13)), .threshold(100, runsOutAt: nil),
+                                       .runningOut(at(25, 12, 45))]
+    english += alerts.flatMap { [UsageAlerts.title($0, window: alertWindow, provider: .claude),
+                                 UsageAlerts.body($0, window: alertWindow, now: at(25, 12, 30))] }
+    check(UsageAlerts.body(.runningOut(at(25, 12, 45)), window: alertWindow, now: at(25, 12, 30))
+          == "At the recent pace it runs out around 12:45 (in about 15 min), 2 hr 15 min before the reset.", "英文预警")
     check(!english.contains(where: hasChinese), "英文界面里有中文：\(english.filter(hasChinese))")
 
     // App 本体（面板、设置页、通知、菜单）的文字上面调不到：直接扫源码，每个 tr("中文", "English") 的英文参数里都不能有中文

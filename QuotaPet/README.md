@@ -29,6 +29,8 @@ make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/pre
 - 菜单栏显示 5 小时额度（可以在设置里改成「5h + 周」或「最紧张的窗口」）；75% 以上数字变橙，90% 以上变红。
 - 宠物心情跟着最紧张的那个窗口走：< 50% 元气满满 → 50% 状态不错 → 75% 有点累 → 90% 快撑不住 → 100% 睡着。
 - 被限流时菜单栏改显示恢复倒计时，比如 `1h23m`；额度恢复时会提醒。
+- 除了跨过阈值，照最近的速度快用完时也会提前提醒一次（5 小时额度提前约半小时，每周额度提前约一天），设置里可以关。
+- 面板里每周额度的进度条上有一条小竖线：按平均节奏现在应该用到这里。下面一行写着比平均节奏多用或少用了几个点、之后每天还能用多少（多用 10 个点以上标橙）。Claude 的每周重置时间还没看准时（刚装好、还没看到过一次重置）不显示，也可以在设置里手动指定重置时间。
 - **同时用 Codex**（命令行或桌面端）时自动接进来：面板顶部有 Claude / Codex 切换条，每次点开先看更紧张的那家；宠物和菜单栏数字跟着两家里更紧张的那个，数字前面加一个小图标（星号是 Claude，终端是 Codex）。两家的宠物各选各的：Claude 四款，Codex 三款（龙娘、汉服、极客），互不重叠。
   「Claude 打开时出现」这时也看 Codex 桌面端。不想看 Codex，在「设置 → Codex」里关掉就行。
 - 界面有简体中文和英文，默认跟随系统语言（系统语言不是这两种时用英文），可以在设置 → 通用 → 语言里改。
@@ -37,7 +39,7 @@ make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/pre
 
 | 分页 | 设置项 |
 |---|---|
-| 通用 | 菜单栏：什么时候出现（Claude 打开时，在用 Codex 时也看 Codex / 一直显示）、宠物旁边显示什么、宠物动画、单色宠物。提醒：用量提醒和阈值（50 / 75 / 90 / 100%，默认 75 / 90 / 100）、额度恢复时提醒。其他：语言（跟随系统 / 简体中文 / English）、开机自动启动 |
+| 通用 | 菜单栏：什么时候出现（Claude 打开时，在用 Codex 时也看 Codex / 一直显示）、宠物旁边显示什么、宠物动画、单色宠物。提醒：用量提醒和阈值（50 / 75 / 90 / 100%，默认 75 / 90 / 100）、快用完时提前提醒、额度恢复时提醒。其他：语言（跟随系统 / 简体中文 / English）、开机自动启动 |
 | Claude | 宠物形象（经典 / 猫耳 / 青春 / 魔女）。实时估算：用本机日志实时估算、自动学习换算率（能看到当前学到的值）、手动指定每周重置时间 |
 | Codex（本机有记录时才有这页） | 显示 Codex 的额度、宠物形象（龙娘 / 汉服 / 极客）、数据从哪来和最近一次读数的时间 |
 
@@ -77,6 +79,7 @@ Sources/
     Models.swift                UsageProvider 协议、UsageWindow、UsageSnapshot
     Localization.swift          界面语言，tr("中文", "English")
     Formatting.swift            时间格式（跟着界面语言）、菜单栏文字
+    UsageAlerts.swift           用量提醒：什么时候提醒、怎么说（发通知在 App 的 NotificationManager）
     Claude/
       ClaudeDesktopHistory      解析桌面端的官方读数
       ClaudeTranscripts         增量读取 Claude Code 日志（规则同 usage_lab.py）
@@ -95,7 +98,7 @@ Sources/
     MenuBarIcon                 菜单栏上的图：宠物头像 + 几家同时显示时的小图标
     AppWatcher                  盯着 Claude / Codex 桌面端有没有开
     UsageStore                  几家数据源一起算；FSEvents + 每分钟兜底的刷新调度
-    NotificationManager         阈值提醒、恢复提醒
+    NotificationManager         发通知、存每个窗口的提醒记录（判断在 UsageAlerts）
     Pet/                        动画播放、像素画渲染
     Views/                      SwiftUI 面板和设置页
     Tools/                      --dump、--render-previews、--render-icon

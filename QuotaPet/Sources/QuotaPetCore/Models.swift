@@ -28,6 +28,9 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// 当前窗口的开始 / 重置时间（推算值）；窗口还没开始时为 nil
     public var startedAt: Date?
     public var resetsAt: Date?
+    /// 开始 / 重置时间靠得住：服务器给的、手动指定的，或者按看到过的重置推的固定周期。
+    /// Claude 的每周额度还没看到过重置时，是按第一次使用猜的（会偏晚），这时为 false，不看节奏
+    public var scheduleKnown: Bool
     /// 这个窗口里网页、手机、桌面端聊天等其他端用了多少（已经包含在官方读数里，见 OtherUsage）
     public var otherPercent: Double
     /// 最近一段时间（burnLookback）的消耗速度，百分点 / 小时：本机 Claude Code + 官方读数里看出来的其他端
@@ -39,8 +42,8 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
 
     public init(id: String, title: String, duration: TimeInterval, percent: Double,
                 official: Double? = nil, officialAt: Date? = nil, limitReported: Bool = false, startedAt: Date? = nil,
-                resetsAt: Date? = nil, otherPercent: Double = 0, burnPerHour: Double? = nil, otherBurnPerHour: Double? = nil,
-                burnLookback: TimeInterval = 1800) {
+                resetsAt: Date? = nil, scheduleKnown: Bool = true, otherPercent: Double = 0, burnPerHour: Double? = nil,
+                otherBurnPerHour: Double? = nil, burnLookback: TimeInterval = 1800) {
         self.id = id
         self.title = title
         self.duration = duration
@@ -50,6 +53,7 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
         self.limitReported = limitReported
         self.startedAt = startedAt
         self.resetsAt = resetsAt
+        self.scheduleKnown = scheduleKnown
         self.otherPercent = otherPercent
         self.burnPerHour = burnPerHour
         self.otherBurnPerHour = otherBurnPerHour
@@ -77,12 +81,43 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// 实时估算比官方读数多出来的部分（没有官方读数时，整个百分比都是估算）
     public var estimatedExtra: Double { official.map { max(0, percent - $0) } ?? percent }
 
-    /// 照最近的消耗速度，会在重置之前的什么时候用完；来得及重置就返回 nil
+    /// 说消耗速度的单位：一天以上的窗口按天（每天 20%），5 小时窗口按小时（每小时 42%）
+    public var burnUnit: TimeInterval { duration > 86400 ? 86400 : 3600 }
+
+    /// 每个单位（burnUnit）用多少个百分点
+    public func perUnit(_ perHour: Double) -> Double { perHour * burnUnit / 3600 }
+
+    /// 照最近的消耗速度，会在重置之前的什么时候用完；来得及重置就返回 nil。
+    /// 速度至少要每个单位 1%（5 小时窗口每小时 1%，每周额度每天 1%），太慢的不算。不知道重置时间时只看一个窗口长度以内
     public func projectedExhaustion(now: Date) -> Date? {
-        guard let burn = burnPerHour, burn >= 1, percent < 100 else { return nil }
+        guard let burn = burnPerHour, perUnit(burn) >= 1, percent < 100 else { return nil }
         let t = now.addingTimeInterval((100 - percent) / burn * 3600)
-        if let reset = resetsAt, t >= reset { return nil }
+        if t >= resetsAt ?? now.addingTimeInterval(duration) { return nil }
         return t
+    }
+
+    /// 「快用完」预警提前多久：5 小时窗口提前半小时（窗口长度的 1/10），一天以上的窗口提前一天
+    public var warningLead: TimeInterval { duration > 86400 ? 86400 : duration / 10 }
+
+    /// 和平均节奏（整个窗口均匀地用完）比
+    public struct Pace: Equatable, Sendable {
+        /// 按平均节奏，现在应该用到多少
+        public var expected: Double
+        /// 比平均节奏多用了多少个百分点，少用是负数
+        public var ahead: Double
+        /// 剩下的额度平摊到重置前，每天能用多少；离重置不到一天时为 nil
+        public var perDay: Double?
+    }
+
+    /// 一天以上的窗口（每周额度等）才看节奏，5 小时窗口是从第一次使用开始算的，一阵一阵地用，看节奏没意义。
+    /// 窗口还没开始、重置时间不知道或者是猜的（scheduleKnown）、已经用完时为 nil
+    public func pace(now: Date) -> Pace? {
+        guard duration > 86400, percent < 100, scheduleKnown, let start = startedAt, let reset = resetsAt,
+              now >= start, now < reset else { return nil }
+        let expected = now.timeIntervalSince(start) / reset.timeIntervalSince(start) * 100
+        let left = reset.timeIntervalSince(now)
+        return Pace(expected: expected, ahead: percent - expected,
+                    perDay: left >= 86400 ? (100 - percent) / (left / 86400) : nil)
     }
 }
 

@@ -94,6 +94,11 @@ struct SettingsView: View {
                 }
             }
             .disabled(!settings.notificationsEnabled)
+            SwitchRow(tr("快用完时提前提醒", "Warn before running out"),
+                      subtitle: tr("照最近的速度快用完时提醒一次：5 小时额度提前约半小时，每周额度提前约一天",
+                                   "Alerts once when the recent pace will use it up: about 30 min ahead for the 5-hour window, a day ahead for the weekly quota"),
+                      isOn: $settings.notifyRunningOut)
+                .disabled(!settings.notificationsEnabled)
             SwitchRow(tr("额度恢复时提醒", "Notify when quota resets"), isOn: $settings.notifyOnReset)
         }
 

@@ -208,6 +208,7 @@ struct WindowCard: View {
     var now: Date
 
     var body: some View {
+        let pace = window.pace(now: now)
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(window.title)
@@ -223,7 +224,8 @@ struct WindowCard: View {
                     .foregroundStyle(Level.text(window.percent))
                     .contentTransition(.numericText())
             }
-            UsageBar(percent: window.clampedPercent, official: window.official, tint: Level.bar(window.percent))
+            UsageBar(percent: window.clampedPercent, official: window.official, tint: Level.bar(window.percent),
+                     pace: pace?.expected)
                 .padding(.bottom, 1)
             legend
             if window.otherPercent >= 1 {
@@ -235,17 +237,20 @@ struct WindowCard: View {
             Text(resetText)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
+            if let pace {
+                PaceLine(pace: pace)
+            }
             if let exhaustion = window.projectedExhaustion(now: now), let burn = window.burnPerHour {
-                let rate = Int(burn.rounded()), clock = Fmt.clock(exhaustion, now: now)
-                Label(tr("照这个速度（每小时 \(rate)%\(otherBurnText)），\(clock) 左右用完",
-                         "At this rate (\(rate)%/hr\(otherBurnText)), it runs out around \(clock)"),
+                let rate = rateValue(burn), clock = Fmt.clock(exhaustion, now: now)
+                Label(tr("照这个速度（\(unit) \(rate)%\(otherBurnText)），\(clock) 左右用完",
+                         "At this rate (\(rate)%\(unit)\(otherBurnText)), it runs out around \(clock)"),
                       systemImage: "flame.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color(nsColor: .systemOrange))
                     .fixedSize(horizontal: false, vertical: true)
-            } else if let burn = window.burnPerHour, burn >= 1, window.percent < 100 {
-                Text(tr("\(lookbackText)：每小时约 \(Int(burn.rounded()))%\(otherBurnText)",
-                        "\(lookbackText): about \(Int(burn.rounded()))%/hr\(otherBurnText)"))
+            } else if let burn = window.burnPerHour, window.perUnit(burn) >= 1, window.percent < 100 {
+                Text(tr("\(lookbackText)：\(unit)约 \(rateValue(burn))%\(otherBurnText)",
+                        "\(lookbackText): about \(rateValue(burn))%\(unit)\(otherBurnText)"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -254,10 +259,17 @@ struct WindowCard: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 
+    /// 速度的单位：一天以上的窗口按天说（每天 20%），5 小时窗口按小时说（每小时 42%）
+    private var unit: String {
+        window.burnUnit >= 86400 ? tr("每天", "/day") : tr("每小时", "/hr")
+    }
+
+    private func rateValue(_ perHour: Double) -> Int { Int(window.perUnit(perHour).rounded()) }
+
     /// 消耗速度里有其他端的部分时，补一句「，其中其他端约 6%」
     private var otherBurnText: String {
-        guard let other = window.otherBurnPerHour, other >= 1 else { return "" }
-        return tr("，其中其他端约 \(Int(other.rounded()))%", ", ~\(Int(other.rounded()))% from other apps")
+        guard let other = window.otherBurnPerHour, window.perUnit(other) >= 1 else { return "" }
+        return tr("，其中其他端约 \(rateValue(other))%", ", ~\(rateValue(other))% from other apps")
     }
 
     private var lookbackText: String {
@@ -319,11 +331,48 @@ struct LegendItem: View {
     }
 }
 
-/// 进度条：实色是官方读数，浅色是之后的本机估算
+/// 每周额度等长窗口：比平均节奏多用了还是少用了，之后每天能用多少。
+/// 前面的小竖线和进度条上的刻度一样，一看就知道刻度是什么意思；多用 10 个点以上标橙
+struct PaceLine: View {
+    var pace: UsageWindow.Pace
+
+    var body: some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            PaceTick()
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(pace.ahead >= 10 ? Color(nsColor: .systemOrange) : .secondary)
+    }
+
+    private var text: String {
+        let points = Int(abs(pace.ahead).rounded())
+        let relation = pace.ahead >= 3
+            ? tr("比平均节奏多用 \(points) 个点", "\(plural(points, "point")) over an even pace")
+            : pace.ahead <= -3
+            ? tr("比平均节奏少用 \(points) 个点", "\(plural(points, "point")) under an even pace")
+            : tr("和平均节奏差不多", "On an even pace")
+        guard let perDay = pace.perDay else { return relation }
+        return relation + (perDay < 1
+            ? tr(" · 之后每天可用不到 1%", " · under 1%/day until reset")
+            : tr(" · 之后每天可用约 \(Int(perDay.rounded()))%", " · ~\(Int(perDay.rounded()))%/day until reset"))
+    }
+}
+
+/// 平均节奏的刻度：按平均节奏现在应该用到哪
+struct PaceTick: View {
+    var body: some View {
+        Capsule().fill(Color.primary.opacity(0.55)).frame(width: 2, height: 10)
+    }
+}
+
+/// 进度条：实色是官方读数，浅色是之后的本机估算；pace 是平均节奏的刻度（长窗口才有）
 struct UsageBar: View {
     var percent: Double
     var official: Double?
     var tint: Color
+    var pace: Double?
 
     var body: some View {
         GeometryReader { geo in
@@ -337,6 +386,12 @@ struct UsageBar: View {
                 }
                 if confirmed > 0 {
                     Capsule().fill(tint).frame(width: max(confirmed * width, 7))
+                }
+            }
+            // 用 overlay 画刻度：比进度条高一点，但不撑高进度条
+            .overlay(alignment: .leading) {
+                if let pace {
+                    PaceTick().offset(x: min(max(pace / 100 * width - 1, 0), width - 2))
                 }
             }
         }

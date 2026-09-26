@@ -21,6 +21,8 @@ public struct WindowInferenceResult: Equatable, Sendable {
     public var current: InferredWindow?
     /// 最近一次（推算的）重置时间
     public var lastReset: Date?
+    /// 是按看到过的重置每 duration 循环推的（fixedCadence），不是按第一次使用猜的
+    public var fromCadence = false
 }
 
 /// 推算额度窗口什么时候开始、什么时候重置。
@@ -95,7 +97,7 @@ public enum WindowInference {
         if fixedCadence, let reset = cadenceReset(anchors.filter { $0.observed && $0.by.timeIntervalSince($0.after) < duration },
                                                   duration: duration) {
             let window = cycle(from: reset, duration: duration, now: now)
-            return WindowInferenceResult(current: window, lastReset: window.start)
+            return WindowInferenceResult(current: window, lastReset: window.start, fromCadence: true)
         }
         events.sort()
 

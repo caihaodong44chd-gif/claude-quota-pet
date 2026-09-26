@@ -29,6 +29,9 @@ make run / make demo / make install
   - 面板不止一家时顶部有切换条（`ProviderTabs`），每次打开先选 focus 那家；看的是 focus 时面板和菜单栏共用一个 `PetAnimator`，切到另一家时换成 `headerAnimator`。
   - 菜单栏不止一家时，数字前面加一个 SF Symbol 小图标（`MenuBarIcon`：星号是 Claude，终端是 Codex），和宠物画在同一张图里。
   - `@Published` 在赋值前就通知，`StatusItemController` 的订阅里要用传进来的新值，不能去读 `store` 的属性。
+- 提醒的判断和措辞在 `QuotaPetCore/UsageAlerts.swift`（能进自检），`NotificationManager` 只发通知、把每个窗口的记录（`last`、`notified`、`warned`、`cycleEnd`）存进 UserDefaults。每个窗口每个周期，每个阈值和「快用完」各只提醒一次；用量掉到 5% 以下，或者重置时间往后跳了半个窗口以上，算新周期。「快用完」= `projectedExhaustion` 落在 `warningLead` 以内（5 小时窗口半小时，一天以上的窗口一天），归在「用量提醒」总开关下面；和阈值提醒同时发生时并成一条。
+- 消耗速度按 `UsageWindow.burnUnit` 说：一天以上的窗口按天（每天 20%），5 小时窗口按小时；`projectedExhaustion` 的门槛也是每个单位 1%。
+- `UsageWindow.pace`：一天以上的窗口（每周额度等）和平均节奏比，画成面板进度条上的刻度和下面那行「比平均节奏多用 N 个点 · 之后每天可用约 X%」。5 小时窗口从第一次使用才开始计时，不看节奏；Claude 每周额度还没看到过重置时（`scheduleKnown` 为 false，重置时间是按第一次使用猜的）也不看。
 
 - `QuotaPetCore` 是纯逻辑，不能依赖 AppKit，这样自检才跑得起来。界面代码都在 `QuotaPet` target 里。
 - `ClaudeProvider.snapshot` 的算法：当前 % = 最近一次官方读数（桌面端每 15 分钟写一次 `plan-usage-history.json`）+ 读数之后本机日志里请求的额度加权花费（API 价格，但缓存读按半价）÷ 换算率。
