@@ -48,7 +48,7 @@ make previews   # 输出到 build/previews/
 
 看的时候检查：文字有没有被截断、对齐和间距对不对、深浅色下是不是都看得清、宠物表情和心情对不对得上。
 
-如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`pet-sheet`、`popover-busy`、`popover-limited`（后两个各有 `-dark` 版）。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
+如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`pet-sheet`、`popover-busy`、`popover-limited`（后两个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en` 及 `-dark`），`menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
 
 ## 4. 用真实数据对账（改了数据逻辑时）
 

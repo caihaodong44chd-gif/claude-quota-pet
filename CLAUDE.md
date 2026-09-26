@@ -44,6 +44,7 @@ make run / make demo / make install
   - 当前语言在 `L10n.language`，由 `AppSettings.language` 在 willSet 里同步（订阅者要读到新语言）。快照里的窗口名、说明文字是后台按当前语言算的，换语言时 `UsageStore` 会重算，面板用 `.id(settings.language)` 整个重建。
   - 自检开头固定成中文；「多语言」一节查英文，并检查英文里没混进中文。App 本体的文字自检覆盖不到，改了要看 `make previews` 的 `-en` 图。
   - `--dump` 是对账工具，固定输出中文。App 在访达、通知里显示的名字在 `Resources/*.lproj/InfoPlist.strings`。
+  - 仓库首页有中英两份：`README.md` 和 `README.en.md`（英文版还收了 `QuotaPet/README.md` 里的用法和设置项）。改了功能、设置项或截图，两份都要改。
 
 ## 隐私（仓库是公开的）
 
