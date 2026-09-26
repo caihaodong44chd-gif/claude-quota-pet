@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(swift run QuotaPetChecks *)",
+      "Bash(make check)",
+      "mcp__ccd_session_mgmt__get_usage",
+      "Bash(python3 usage_lab.py calibrate *)",
+      "Bash(swift run -c release QuotaPet --render-previews build/previews)",
+      "Bash(make previews)",
+      "Bash(swift build)",
+      "Bash(python3 usage_lab.py summary *)",
+      "mcp__Claude_Browser__get_page_text",
+      "Bash(defaults read dev.quotapet.app *)",
+      "Bash(python3 usage_lab.py ratio *)",
+      "mcp__ccd_session_mgmt__search_session_transcripts",
+      "Bash(swift run QuotaPet --dump)",
+      "Bash(make dump)"
+    ]
+  }
+}
