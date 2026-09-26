@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# 个人数据：usage_lab.py snap 手动记下的额度快照，只留在本机
+snapshots.jsonl
+
+# 宠物设计稿的输出图（重新跑 design/ 里的脚本就会生成）
+QuotaPet/design/out/
+
+# Claude Code 的本机设置
+.claude/settings.local.json

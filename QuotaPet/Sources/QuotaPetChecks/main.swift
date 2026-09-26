@@ -1,0 +1,274 @@
+// 自检：swift run QuotaPetChecks
+// 命令行工具（CLT）里没有 XCTest / swift-testing，所以用一个小可执行文件代替。
+import Foundation
+@testable import QuotaPetCore
+
+var passed = 0
+var failed = 0
+
+func check(_ condition: @autoclosure () -> Bool, _ message: String, line: Int = #line) {
+    if condition() {
+        passed += 1
+    } else {
+        failed += 1
+        print("✗ 第 \(line) 行：\(message)")
+    }
+}
+
+func near(_ a: Double?, _ b: Double, _ tolerance: Double = 1e-6) -> Bool {
+    guard let a else { return false }
+    return abs(a - b) <= tolerance
+}
+
+/// 2026 年 9 月某天的本地时间
+func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+    Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute))!
+}
+
+let hour: TimeInterval = 3600
+let fiveHours = 5 * hour
+let week = 7 * 86400.0
+typealias S = UsageSample
+
+// MARK: - 格式化
+
+check(Fmt.duration(2 * hour + 14 * 60) == "2 小时 14 分", "duration")
+check(Fmt.duration(30) == "不到 1 分钟", "duration < 1 分钟")
+check(Fmt.duration(3 * 86400 + 4 * hour) == "3 天 4 小时", "duration 天")
+check(Fmt.compactDuration(hour + 5 * 60) == "1h05m", "compactDuration")
+check(Fmt.compactDuration(20) == "1m", "compactDuration 不到 1 分钟")
+check(Fmt.clock(at(25, 15, 5), now: at(25, 12)) == "15:05", "clock 当天")
+check(Fmt.clock(at(26, 9), now: at(25, 12)) == "明天 09:00", "clock 明天")
+check(Fmt.clock(at(30, 17, 45), now: at(25, 12)) == "周三 17:45", "clock 一周内")
+check(Fmt.ago(at(25, 11, 45), now: at(25, 12)) == "15 分钟前", "ago")
+
+// MARK: - 宠物
+
+let palette = Set(PetArt.palette.keys.compactMap(\.asciiValue))
+for (name, art, size) in [("头像", PetArt.icon, PetSprites.iconSize), ("半身像", PetArt.portrait, PetSprites.portraitSize)] {
+    check(art.base.count == size && art.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
+    for (kind, patches) in [("眼睛", art.eyes), ("嘴", art.mouths), ("小道具", art.extras)] {
+        for (key, patch) in patches {
+            let width = patch.rows.first?.utf8.count ?? 0
+            check(patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
+                  && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
+        }
+    }
+}
+for mood in PetMood.allCases {
+    let frames = PetSprites.frames(for: mood)
+    check(!frames.isEmpty, "\(mood) 要有动画帧")
+    for frame in frames {
+        check(frame.duration > 0, "\(mood) 帧时长 > 0")
+        check(frame.icon.width == 32 && frame.icon.height == 32 && frame.portrait.width == 64 && frame.portrait.height == 64,
+              "\(mood) 头像 32×32、半身像 64×64")
+        check((frame.icon.cells + frame.portrait.cells).allSatisfy { $0 == 0 || palette.contains($0) }, "\(mood) 只能用调色板里的颜色")
+    }
+}
+check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
+check(PetSprites.frames(for: .normal)[0].icon != PixelGrid(rows: PetArt.icon.base), "画上了眼睛")
+check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
+check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
+check(PetMood.from(percent: 80) == .tired, "80% 累了")
+check(PetMood.from(percent: 95) == .exhausted, "95% 快撑不住")
+check(PetMood.from(percent: 100) == .sleeping, "100% 睡觉")
+check(PetMood.from(snapshot: nil) == .loading, "还没数据时在加载")
+check(PetMood.from(snapshot: UsageSnapshot(provider: .claude, windows: [], generatedAt: Date(), hasData: false)) == .confused, "没数据时疑惑")
+
+// MARK: - 桌面端读数
+
+let historyJSON = """
+{"version": 2, "samples": [
+  {"t": 1790325603721, "org": "old", "u": {"fh": 50, "sd": 10}},
+  {"t": 1790326504168, "org": "A", "u": {}},
+  {"t": 1790327403783, "org": "A", "u": {"fh": 24, "sd": 24}},
+  {"t": 1790326000000, "org": "A", "u": {"fh": 23, "sd": 24}}
+]}
+"""
+let parsed = try! ClaudeDesktopHistory.parse(Data(historyJSON.utf8))
+check(parsed.count == 2, "跳过空读数和旧组织：\(parsed.count)")
+check(parsed.first?.session == 23 && parsed.last?.session == 24, "按时间排序")
+check(parsed.last?.weekly == 24, "sd 是每周额度")
+check((try? ClaudeDesktopHistory.parse(Data("[]".utf8))) == nil, "格式不对要报错")
+
+// MARK: - Claude Code 日志（规则和 usage_lab.py 一致）
+
+func logLine(_ id: String, _ ts: String, _ model: String, input: Int = 0, output: Int = 0, cacheRead: Int = 0, cacheWrite1h: Int = 0) -> String {
+    #"{"type":"assistant","timestamp":"\#(ts)","message":{"id":"\#(id)","model":"\#(model)","usage":{"input_tokens":\#(input),"cache_creation_input_tokens":\#(cacheWrite1h),"cache_read_input_tokens":\#(cacheRead),"output_tokens":\#(output),"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":\#(cacheWrite1h)}}}}"#
+}
+
+let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-check-\(UUID().uuidString)")
+let project = tmp.appendingPathComponent("-Users-me-demo")
+try! FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+let file = project.appendingPathComponent("session.jsonl")
+let sonnetLine = logLine("m4", "2026-09-25T02:04:00.000Z", "claude-sonnet-5", output: 10_000)
+let content = [
+    logLine("m1", "2026-09-25T02:00:00.000Z", "claude-opus-5-5", input: 10, output: 100),
+    logLine("m1", "2026-09-25T02:00:05.000Z", "claude-opus-5-5", input: 10, output: 1000, cacheRead: 5000, cacheWrite1h: 2000),
+    #"{"type":"user","timestamp":"2026-09-25T02:01:00.000Z","message":{"role":"user","content":"how is my \"usage\""}}"#,
+    logLine("m2", "2026-09-25T02:02:00.000Z", "<synthetic>", input: 1, output: 1),
+    logLine("m3", "2026-09-25T02:03:00.000Z", "claude-haiku-4-5", input: 1000, output: 2000),
+    String(sonnetLine.prefix(40)),  // Claude Code 还没写完的半行
+].joined(separator: "\n")
+try! content.write(to: file, atomically: true, encoding: .utf8)
+
+let scanner = ClaudeTranscriptScanner(root: tmp, retention: 365 * 86400)
+var requests = scanner.refresh(now: at(25, 23))
+check(requests.count == 2, "按 message.id 去重，跳过 synthetic 和半行：\(requests.count)")
+let m1 = requests.first { $0.id == "m1" }
+check(m1?.tokens == TokenCounts(input: 10, cacheWrite1h: 2000, cacheRead: 5000, output: 1000), "同一响应各字段取最大值")
+// opus：10×4 + 2000×8 + 5000×0.2 + 1000×20 = 37040 / 1e6
+check(near(m1?.usd, 0.03704), "opus 成本：\(m1?.usd ?? -1)")
+
+let handle = try! FileHandle(forWritingTo: file)
+handle.seekToEndOfFile()
+handle.write(Data((String(sonnetLine.dropFirst(40)) + "\n").utf8))
+try! handle.close()
+requests = scanner.refresh(now: at(25, 23))
+check(requests.count == 3 && requests.last?.family == .sonnet, "增量读取：半行写完后被读到")
+check(near(requests.last?.usd, 0.10), "sonnet 1 万输出 tokens = $0.10")
+try? FileManager.default.removeItem(at: tmp)
+
+check(ClaudeRates.starting.usdPerSessionPercent == 0.31 && near(ClaudeRates.starting.usdPerWeeklyPercent, 2.5),
+      "起始换算率：5 小时 $0.31 / 1%，每周 $2.5 / 1%")
+/// 下面的估算测试用 $0.117 / 1%，数字好算
+let testRate = 0.117
+
+// MARK: - 窗口推算
+
+do {  // 自然到期
+    let r1 = WindowInference.infer(samples: [], activity: [at(25, 10), at(25, 10, 30), at(25, 11)], duration: fiveHours, now: at(25, 14))
+    check(r1.current == InferredWindow(start: at(25, 10), end: at(25, 15)), "第一次使用开启 5 小时窗口")
+    let r2 = WindowInference.infer(samples: [], activity: [at(25, 10)], duration: fiveHours, now: at(25, 15, 30))
+    check(r2.current == nil && r2.lastReset == at(25, 15), "5 小时后自然结束")
+    let r3 = WindowInference.infer(samples: [], activity: [at(25, 10), at(25, 15, 10)], duration: fiveHours, now: at(25, 16))
+    check(r3.current?.start == at(25, 15, 10), "结束后的第一次使用开启新窗口")
+}
+
+do {  // 88% → 0%：以读数跳变为准（真实数据 09-25 下午的形状）
+    let samples = [S(time: at(25, 10, 16), value: 0), S(time: at(25, 10, 21), value: 6), S(time: at(25, 14, 55), value: 88),
+                   S(time: at(25, 15, 10), value: 0), S(time: at(25, 15, 25), value: 6)]
+    let activity = [at(25, 10, 19), at(25, 12), at(25, 14, 50), at(25, 15, 12), at(25, 15, 20)]
+    let r = WindowInference.infer(samples: samples, activity: activity, duration: fiveHours, now: at(25, 15, 30))
+    check(r.current?.start == at(25, 15, 12), "重置后的第一个请求开启新窗口：\(String(describing: r.current))")
+    check(r.lastReset.map { $0 > at(25, 14, 55) && $0 <= at(25, 15, 10) } == true, "重置发生在两次读数之间")
+}
+
+do {  // 15% → 3%：重置后马上又用了（网页端，没有本机请求）
+    let samples = [S(time: at(23, 17, 52), value: 0), S(time: at(23, 18, 10), value: 6), S(time: at(23, 22, 40), value: 15),
+                   S(time: at(23, 22, 55), value: 3), S(time: at(23, 23, 10), value: 1)]
+    let r = WindowInference.infer(samples: samples, activity: [], duration: fiveHours, now: at(23, 23, 30))
+    let start = r.current?.start
+    check(start.map { $0 > at(23, 22, 40) && $0 <= at(23, 22, 55) } == true, "新窗口开始于跳变区间：\(String(describing: start))")
+    check(!WindowInference.isReset(from: 3, to: 1), "3 → 1 是噪声，不算重置")
+    check(WindowInference.isReset(from: 88, to: 0) && WindowInference.isReset(from: 15, to: 3), "明显下跌是重置")
+}
+
+do {  // 每周：桌面端最早的读数是 0，说明更早的窗口都结束了
+    let samples = [S(time: at(23, 17, 52), value: 0), S(time: at(23, 18, 10), value: 0), S(time: at(23, 19, 40), value: 1)]
+    let activity = [at(17, 10), at(20, 9), at(23, 17, 58), at(24, 12)]
+    let r = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(25, 23))
+    check(r.current?.start == at(23, 17, 58), "每周窗口从读数为 0 之后的第一次使用开始：\(String(describing: r.current))")
+}
+
+// MARK: - 官方读数 + 实时估算
+
+do {
+    let provider = ClaudeProvider(historyURL: URL(fileURLWithPath: "/nonexistent/h.json"),
+                                  projectsURL: URL(fileURLWithPath: "/nonexistent/projects"), archiveURL: nil)
+    func opus(_ t: Date, usd: Double) -> ClaudeRequest {
+        ClaudeRequest(id: UUID().uuidString, time: t, family: .opus, tokens: TokenCounts(output: Int((usd / 20 * 1e6).rounded())))
+    }
+    let series = [S(time: at(25, 22, 54), value: 0), S(time: at(25, 23, 25), value: 20)]
+    let reqs = [opus(at(25, 23, 0), usd: 0.117 * 5), opus(at(25, 23, 30), usd: 0.117 * 3)]
+    let percentOf: (ClaudeRequest) -> Double = { $0.usd / testRate }
+    let live = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+                                    requests: reqs, scale: 1, percentOf: percentOf, resetAnchor: nil, live: true, now: at(25, 23, 40))
+    check(near(live.official, 20) && near(live.percent, 23, 1e-3), "官方 20% + 之后本机 3%：\(live.percent)")
+    check(live.startedAt == at(25, 23, 0) && live.resetsAt == at(26, 4, 0), "窗口从 23:00 的请求开始")
+    let off = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+                                   requests: reqs, scale: 1, percentOf: percentOf, resetAnchor: nil, live: false, now: at(25, 23, 40))
+    check(near(off.percent, 20), "关掉实时估算时只显示官方读数")
+
+    let heavy = [opus(at(25, 23, 30), usd: 0.117 * 90)]  // 20% + 90% 会冲过 100%
+    let capped = provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+                                      requests: heavy, scale: 1, percentOf: percentOf, resetAnchor: nil, live: true, now: at(25, 23, 40))
+    check(near(capped.percent, 99), "估算不能宣布用完：官方没到 100% 时最多 99%：\(capped.percent)")
+
+    let manual = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: [], requests: [],
+                                      scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
+    check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
+}
+
+// MARK: - 什么时候显示
+
+check(MenuBarVisibility.withClaude.shouldShow(claudeRunning: true, pinned: false), "Claude 开着就显示")
+check(!MenuBarVisibility.withClaude.shouldShow(claudeRunning: false, pinned: false), "Claude 关了就藏起来")
+check(MenuBarVisibility.withClaude.shouldShow(claudeRunning: false, pinned: true), "用户临时叫出来时显示")
+check(MenuBarVisibility.always.shouldShow(claudeRunning: false, pinned: false), "一直显示")
+
+// MARK: - 区间记录 & 学习换算率
+
+do {
+    func opus(_ t: Date, usd: Double, effort: String = "max") -> ClaudeRequest {
+        ClaudeRequest(id: UUID().uuidString, time: t, family: .opus,
+                      tokens: TokenCounts(output: Int((usd / 20 * 1e6).rounded())), effort: effort, thinkingTokens: 100)
+    }
+    func sample(_ t: Date, _ session: Double, _ weekly: Double) -> PlanUsageSample {
+        PlanUsageSample(time: t, org: "A", values: ["fh": session, "sd": weekly])
+    }
+    let samples = [sample(at(25, 10), 10, 20), sample(at(25, 10, 15), 14, 20), sample(at(25, 10, 30), 20, 21),
+                   sample(at(25, 10, 45), 3, 21),  // 5 小时窗口重置了
+                   sample(at(25, 13), 5, 22)]      // 桌面端关了一阵，间隔太长
+    let reqs = [opus(at(25, 10, 5), usd: 1.2), opus(at(25, 10, 20), usd: 1.8), opus(at(25, 10, 40), usd: 3.0, effort: "high")]
+    let intervals = UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 14))
+    check(intervals.count == 3, "间隔太长的不算：\(intervals.count)")
+    check(near(intervals.first?.usd, 1.2) && intervals.first?.sessionDelta == 4 && intervals.first?.usdByGroup["opus/max"] != nil,
+          "区间里的花费、官方增量、按模型/思考程度分的花费")
+    check(intervals.last?.sessionDelta == nil && intervals.last?.weeklyDelta == 0, "重置过的区间没有 5 小时增量")
+    check(UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 16)).isEmpty, "刚结束 2 分钟内的区间先不记")
+
+    let fit = RateLearner.learn(intervals, delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
+    check(near(fit.usdPerPercent, 0.30, 1e-3) && fit.intervals == 2, "换算率 = 本机花费 $3 ÷ 官方增量 10%：\(fit)")
+    let cold = RateLearner.learn([], delta: \.sessionDelta, prior: 0.31)
+    check(cold.usdPerPercent == 0.31 && cold.intervals == 0, "还没有记录时用起始值")
+    var older = intervals[0], newer = intervals[1]
+    older.end = at(20, 10); older.usd = 2.0; older.sessionFrom = 0; older.sessionTo = 4   // 5 天前：$0.5 / 1%
+    newer.end = at(25, 10); newer.usd = 0.8; newer.sessionFrom = 0; newer.sessionTo = 4   // 最近：$0.2 / 1%
+    let recency = RateLearner.learn([older, newer], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
+    check(recency.usdPerPercent < 0.26, "越近的记录权重越大：\(recency.usdPerPercent)")
+
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-archive-\(UUID().uuidString)")
+    let url = dir.appendingPathComponent("intervals.jsonl")
+    let archive = IntervalArchive(url: url)
+    check(archive.merge(intervals) == 3 && archive.merge(intervals) == 0, "同一段只记一次")
+    let reopened = IntervalArchive(url: url)
+    check(reopened.intervals == intervals, "重启后记录能原样读回来")
+    check(reopened.merge(intervals) == 0, "重启后也不会重复记录")
+    try? FileManager.default.removeItem(at: dir)
+}
+
+// MARK: - 菜单栏文字 & 预测
+
+do {
+    let session = UsageWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, percent: 27.4)
+    let weekly = UsageWindow(id: "seven_day", title: "", shortTitle: "", duration: week, percent: 81)
+    let snap = UsageSnapshot(provider: .claude, windows: [session, weekly], generatedAt: at(25, 12))
+    check(MenuBarText.make(snap, mode: .session, now: at(25, 12)).text == "27%", "只显示 5 小时")
+    check(MenuBarText.make(snap, mode: .sessionAndWeekly, now: at(25, 12)).text == "27% · 81%", "5 小时 + 每周")
+    check(MenuBarText.make(snap, mode: .tightest, now: at(25, 12)).text == "81%", "最紧张的窗口")
+    check(MenuBarText.make(snap, mode: .petOnly, now: at(25, 12)).text == "", "只显示宠物")
+    var limited = snap
+    limited.windows[0].percent = 100
+    limited.windows[0].resetsAt = at(25, 13, 23)
+    check(MenuBarText.make(limited, mode: .session, now: at(25, 12)).text == "1h23m", "限流时显示恢复倒计时")
+    check(PetMood.from(snapshot: limited) == .sleeping, "限流时宠物睡觉")
+
+    let fast = UsageWindow(id: "x", title: "", shortTitle: "", duration: fiveHours, percent: 60, resetsAt: at(25, 16), burnPerHour: 20)
+    check(fast.projectedExhaustion(now: at(25, 12)) == at(25, 14), "60% + 20%/小时 → 2 小时后用完")
+    let slow = UsageWindow(id: "x", title: "", shortTitle: "", duration: fiveHours, percent: 60, resetsAt: at(25, 13), burnPerHour: 20)
+    check(slow.projectedExhaustion(now: at(25, 12)) == nil, "重置前用不完就不预警")
+}
+
+print(failed == 0 ? "✓ 全部 \(passed) 项自检通过" : "✗ \(failed) 项失败，\(passed) 项通过")
+exit(failed == 0 ? 0 : 1)

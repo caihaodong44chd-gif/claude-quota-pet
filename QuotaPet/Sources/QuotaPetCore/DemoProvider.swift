@@ -1,0 +1,35 @@
+import Foundation
+
+/// 演示模式：75 秒一轮，额度从 0 涨到 100%，再睡 15 秒，看看宠物的所有状态。
+public final class DemoProvider: UsageProvider, Sendable {
+    public let id = ProviderID.claude
+    public let pollInterval: TimeInterval = 1
+    public var watchPaths: [String] { [] }
+    private let started = Date()
+
+    public init() {}
+
+    public func isRelevantChange(path: String) -> Bool { false }
+
+    public func snapshot(now: Date) throws -> UsageSnapshot {
+        let t = now.timeIntervalSince(started).truncatingRemainder(dividingBy: 75)
+        let session = min(100, t / 60 * 100)
+        let weekly = 20 + session * 0.15
+        let sessionReset = now.addingTimeInterval(session >= 100 ? 75 - t : 2 * 3600 + 23 * 60)
+        let windows = [
+            UsageWindow(id: "five_hour", title: "5 小时会话", shortTitle: "5h", duration: 5 * 3600, percent: session,
+                        official: (session / 5).rounded(.down) * 5, officialAt: now.addingTimeInterval(-240),
+                        startedAt: sessionReset.addingTimeInterval(-5 * 3600), resetsAt: sessionReset, burnPerHour: 38),
+            UsageWindow(id: "seven_day", title: "本周额度", shortTitle: "周", duration: 7 * 86400, percent: weekly,
+                        official: weekly.rounded(.down), officialAt: now.addingTimeInterval(-240),
+                        startedAt: now.addingTimeInterval(-3 * 86400), resetsAt: now.addingTimeInterval(4 * 86400 + 5 * 3600),
+                        burnPerHour: 4),
+        ]
+        let today = ActivitySummary(
+            requests: 128, tokens: 12_345_678, usd: 18.42,
+            byFamily: [FamilyUsage(family: "Opus", requests: 90, usd: 15.1), FamilyUsage(family: "Sonnet", requests: 38, usd: 3.32)],
+            lastRequestAt: now)
+        return UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-240),
+                             today: today, notes: ["演示模式：数据是假的，75 秒看完宠物的所有状态。"])
+    }
+}

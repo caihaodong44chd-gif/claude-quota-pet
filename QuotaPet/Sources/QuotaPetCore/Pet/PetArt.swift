@@ -1,0 +1,205 @@
+// 由 design/export_swift.py 生成，不要手改。
+// 想改宠物：改 design/ 里的 Python 原型，python3 design/pet_pixel.py 出预览图，满意了再运行 python3 design/export_swift.py。
+
+/// 宠物的像素数据：一张不带五官的底图，加上可以叠上去的眼睛、嘴、小道具。
+public enum PetArt {
+    struct Patch: Sendable {
+        let x: Int
+        let y: Int
+        let rows: [String]
+    }
+
+    struct Layers: Sendable {
+        let base: [String]
+        let eyes: [String: Patch]
+        let mouths: [String: Patch]
+        let extras: [String: Patch]
+    }
+
+    /// 调色板：字符 → 0xRRGGBB
+    public static let palette: [Character: UInt32] = [
+        "A": 0x7A3510,
+        "B": 0xC8661E,
+        "C": 0xF5A93B,
+        "E": 0x3A1A0A,
+        "F": 0xF08A3C,
+        "G": 0xE7B04A,
+        "H": 0xE8743B,
+        "K": 0x4A2A20,
+        "M": 0x8A3A2A,
+        "N": 0x2B2222,
+        "O": 0xE0662A,
+        "P": 0xF7A08C,
+        "Q": 0xFFF6EA,
+        "S": 0xFFE9DB,
+        "T": 0xF07F7F,
+        "W": 0xFFFFFF,
+        "X": 0x7CC8F8,
+        "Y": 0xFFD34A,
+        "Z": 0x8E9AAF,
+        "b": 0x7A3E28,
+        "d": 0xC4531F,
+        "f": 0xC8561E,
+        "h": 0xF8AA70,
+        "k": 0x4E261A,
+        "q": 0xEAD9C4,
+        "s": 0xF6CDB8,
+    ]
+
+    /// 菜单栏头像 32×32（显示成 16pt）
+    static let icon = Layers(
+        base: [
+            "..............KKHHK.............",
+            "..........KKKKHHHHKKKK..........",
+            ".........KHHHHHHHHHHHHK.KKK.....",
+            ".......KKHHHHHHhhhHHHHKKKKKK....",
+            "......KHHHHhhhhHHHhhhKKKFFKKK...",
+            ".....KHHHHhhHHHHHHHHHKKFGGfKK...",
+            "....KHHHHhHHHHHHHHHHHKKFGGfKK...",
+            "....KHHHhHHHHHHHHHHHHKKKffKKKKK.",
+            "...KHHHHHHHHHHHHHHHHHHKKKKKKKNNK",
+            "...KHHHHHHHHHHHHHHHHHHHKKKKKNNK.",
+            "...KHHHHHHHHHHHHHHHHHHHHHNHNNNK.",
+            "..KHHHHHHHHHHHHHHHHHHHHHHNHNNK..",
+            "..KHHHHHHHsHHsHHHHHHsHHHHNHHNK..",
+            "..KHHHHHHHSHHSHHssHsSsHsHNNHNNK.",
+            "...KHHHHssSssSsHSSsSSSsSHHHHNNK.",
+            "...KHHHHSSSSSSSsSSSSSSSSHHHHKK..",
+            "..KHHHHHSSSSSSSSSSSSSSSSHHHHHK..",
+            "..KHHHHHSSSSSSSSSSSSSSSSHHHHHK..",
+            "..KHHHHHSSSSSSSSSSSSSSSSHHHHHK..",
+            "..KHHHHHSSSSSSSSSSSSSSSSHHHHHK..",
+            "..KHHHHHKSSSSSSSSSSSSSSSHHHHHK..",
+            "..KHHHHHKPPPSSSSSSSSPPPKHHHHHK..",
+            "..KHHHHHKKSSSSSSSSSSSSKKHHHHHK..",
+            "..KHHHHHKdKSSSSSSSSSSKdKHHHHHK..",
+            ".KHHHHHHKddKSSSSSSSSKddKHHHHHHK.",
+            ".KHHHHHHKdddKSSSSSSKdddKHHHHHHK.",
+            ".KHHHHHHKdddddKKKKdddddKHHHHHHK.",
+            ".KHHHHHHKdddQQQQQQQQddddHHHHHHK.",
+            ".KHHHHHHQqQQQQQQQQQQQQqQHHHHHHK.",
+            ".KHHHHHqqQQQNNNGGNNNQQQqqQHHHHK.",
+            ".KHHHQqQQQQQQNNQQNNQQQQQQqQHHHK.",
+            ".KHHHqQQQQQQQQQQQQQQQQQQQQqQHHK.",
+        ],
+        eyes: [
+            "open": Patch(x: 10, y: 16, rows: [".KKK....KKK.", "KWAA....AWAK", "AWEA....AWEA", "BEEB....BEEB", ".CC......CC."]),
+            "sparkle": Patch(x: 10, y: 16, rows: [".KKK....KKK.", "KWAA....AWAK", "WWWA....WWWA", "BWEB....BWEB", ".CC......CC."]),
+            "tired": Patch(x: 10, y: 17, rows: ["KKKK....KKKK", "AWEA....AWEA", "BEEB....BEEB", ".CC......CC."]),
+            "cry": Patch(x: 10, y: 17, rows: ["KK........KK", "..KK....KK..", "KK........KK"]),
+            "closed": Patch(x: 10, y: 18, rows: ["K..K....K..K", ".KK......KK."]),
+            "happy": Patch(x: 10, y: 17, rows: [".KK......KK.", "K..K....K..K"]),
+        ],
+        mouths: [
+            "open": Patch(x: 15, y: 22, rows: ["MM", "MM"]),
+            "wavy": Patch(x: 15, y: 23, rows: ["MM"]),
+            "o": Patch(x: 15, y: 23, rows: ["MM"]),
+        ],
+        extras: [
+            "starBig": Patch(x: 1, y: 2, rows: [".Y.", "YYY", ".Y."]),
+            "starSmall": Patch(x: 2, y: 3, rows: ["Y"]),
+            "sweatA": Patch(x: 3, y: 11, rows: [".X", "XX", "XX"]),
+            "sweatB": Patch(x: 3, y: 12, rows: [".X", "XX", "XX"]),
+            "tearsA": Patch(x: 10, y: 20, rows: ["X..........X", "X..........X"]),
+            "tearsB": Patch(x: 10, y: 21, rows: ["X..........X", "X..........X"]),
+            "zzzA": Patch(x: 0, y: 2, rows: ["ZZZZ", "..Z.", ".Z..", "ZZZZ"]),
+            "zzzB": Patch(x: 1, y: 0, rows: ["ZZZZ", "..Z.", ".Z..", "ZZZZ"]),
+            "question": Patch(x: 1, y: 1, rows: ["ZZ.", "..Z", ".Z.", "...", ".Z."]),
+        ]
+    )
+
+    /// 面板半身像 64×64
+    static let portrait = Layers(
+        base: [
+            "................................................................",
+            "................................KK..............................",
+            "...............................KHHK.............................",
+            "..........................KKKKKHHKKKKK..........................",
+            ".......................KKKHHHHHHHHHHHHKKK.......................",
+            ".....................KKHHHHHHHHHHHHHHHHHHKK..KKKK...............",
+            "....................KHHHHHHHHHHHHHHHHHHHHHHKKKKKKKK.............",
+            "...................KHHHHHHHHhhhhhhhhHHHHHHKKKKKKFKKK............",
+            "..................KHHHHHHhhhhhhHHhhhhhhHHKKKKFKFFKKK............",
+            ".................KHHHHhhhhHHHHHHHHHHHHhhhKKKKfffFKKKK...........",
+            "................KHHHHHhhHHHHHHHHHHHHHHHHKKKFFGGGfFKKK...........",
+            "...............KHHHHHhhHHHHHHHHHHHHHHHHHKKKKfGGGfFKKK...........",
+            "..............KHHHHHhhHHHHHHHHHHHHHHHHHHKKKFFGGGfFKKK.K.........",
+            ".............KHHHHHhhHHHHHHHHHHHHHHHHHHHKKKKKfffFKKKKKNK........",
+            ".............KHHHHHHHHHHHHHHHHHHHHHHHHHHHKKKKFKFFKKKNNNK........",
+            "............KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHKKKKKKFKKKNNNK........",
+            "............KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHKKKKKKKKNNNNK........",
+            "............KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHKKKKKNHNNNNK........",
+            "...........KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHNHHNHNNNK........",
+            "...........KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHNHHNHKNNK........",
+            "...........KHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHNHHNNKKK.........",
+            "...........KHHHHHHHHHHssHHHHsHHHHsHHHHsHHHHsHHHNNHHNNK..........",
+            "...........KHHHHHHHHHHSsHHHsSHHHHSsHHHSsHHHSHHHNNHHNNNK.........",
+            "...........KHHHHHHHHsHSSsHHSSsHHsSSHHsSSsHsSHHHNNHHHNNK.........",
+            "...........KHHHHHHHHSsSSSssSSSHHSSSssSSSSsSSHHHHHHHHNNK.........",
+            "...........KHHHHHHHHSSSSSSSSSSsHSSSSSSSSSSSSHHHHHHHHKK..........",
+            "...........KHHHHHHHHSSSSSSSSSSSsSSSSSSSSSSSSHHHHHHHHK...........",
+            "...........KHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHK...........",
+            "...........KHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHK...........",
+            "...........KHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHK...........",
+            "..........KHHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHHK..........",
+            "..........KHHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHHK..........",
+            "..........KHHHHHHHHsSSSSSSSSSSSSSSSSSSSSSSSSsHHHHHHHHK..........",
+            "..........KHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSSSHHHHHHHHK..........",
+            "..........KHHHHHHHHKSSSSSSSSSSSSSSSSSSSSSSSSKHHHHHHHHK..........",
+            "..........KHHHHHHHHHKPPPPPSSSSSSSSSSSSPPPPPKHHHHHHHHHK..........",
+            "..........KHHHHHHHHKKSPPPSSSSSSSSSSSSSSPPPSKKHHHHHHHHK..........",
+            "..........KHHHHHHHHK.KSSSSSSSSSSSSSSSSSSSSK.KHHHHHHHHK..........",
+            "..........KHHHHHHHHKKdKSSSSSSSSSSSSSSSSSSKdKKHHHHHHHHK..........",
+            "..........KHHHHHHHHKKdKSSSSSSSSSSSSSSSSSKKdKKHHHHHHHHK..........",
+            ".........KHHHHHHHHHKKddKKSSSSSSSSSSSSSSKKddKKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHKddddKKSSSSSSSSSSSSKKddddKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHKddddddKKSSSSSSSSKKddddddKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHKddddddddKKKKKKKKddddddddKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHKddddddddssssssssddddddddKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHKddddddQQQQQQQQQQQQddddddKHHHHHHHHHK.........",
+            ".........KHHHHHHHHHQQQQQQQQQQQQQQQQQQQQQQQQQQHHHHHHHHHK.........",
+            ".........KHHHHHHHHQQqqqQQQQQQQQFFQQQQQQQQqqqQQHHHHHHHHK.........",
+            ".........KHHHHHHHQQqqQQQQQNNNNFffFNNNNQQQQQqqQQHHHHHHHK.........",
+            ".........KHHHHHHQqqQQbbbbQQNNNFGGFNNNNQQQQQQQqqQHHHHHHK.........",
+            ".........KHHHHHQbbbbbbbbbQQNNNQFFQNNNQQQQQQQQQqqQQHHHHK.........",
+            ".........KHkbbbbbbbbbbbbbQQNQQQQQQQQNQQQQQQQQQQQqqQHHHK.........",
+            ".........KHkbbbbbbbbbbbbbQQQQQQQQQQQQQQQQQQQQQQQOqQHHHK.........",
+            "........KHHkkbbbbbbbbbbbbQQQQQQQQQQQQQQQQQQQQQQQOqQHHHHK........",
+            "........KHHkkbbbbbbbbbbbbbSSQQQQQQQQQQQQQQQQQQQQqqQHHHHK........",
+            "........KHHkkbbbbbbbbbbbbSSSSQQQQQQQQQQQQQQQQQQQqqQHHHHK........",
+            "........KHHkkbbbbbbbbbbbbSSSSQQQQQQQQQQQQQQQQQOqqQQQHHHK........",
+            "........KHHkkbbbbbFbFbbbbSSSSQQQQQQQQQQQQOqqqqQQQQQQHHHK........",
+            "........KHHkkbbbbbFfFbbbSSSSQQQQQQQQQOqqqqQQQQQQQQQQHHHK........",
+            "........KHHHkbbbbbfGGFbbSSSSqqqOOqqqqqQQQQQQQQQQQQQQHHHK........",
+            "........KHHHkbbbbFfGfFbbbSSQQQQqqQQQQQQQQQQQQQQQQQQQQHHK........",
+            "........KHHQkkbbbbFFFbbbbbbQQQQQQQQQQQQQQQQQQQQQQQQQQHHK........",
+            "........KHHQkkbbbbbbbbbbbbbQQQQQQQQQQQQQQQQQQQQQQQQQQHHK........",
+            "........KHHQkkbbbbbbbbbbbbbQQQQQQQQQQQQQQQQQQQQQQQQQQHHK........",
+        ],
+        eyes: [
+            "open": Patch(x: 23, y: 27, rows: [".KKKK........KKKK.", "KKAAAK......KAAAKK", "AWWEAA......AWWEAA", "AWEEBA......AWEEBA", "BBEEBB......BBEEBB", ".BCCWB.......BCCWB", "..CC..........CC.."]),
+            "sparkle": Patch(x: 23, y: 27, rows: [".KKKK........KKKK.", "KKWAAK......KAWAKK", "AWWWEA......AWWWEA", "AAWEEB......AAWEEB", "BBEEBB......BBEEBB", ".BCCWB.......BCCWB", "..CC..........CC.."]),
+            "tired": Patch(x: 23, y: 29, rows: ["KKKKKK......KKKKKK", "AWEEBA......AWEEBA", "BBEEBB......BBEEBB", ".BCCWB.......BCCWB", "..CC..........CC.."]),
+            "cry": Patch(x: 23, y: 28, rows: ["KK..............KK", "..KK..........KK..", "....KK......KK....", "..KK..........KK..", "KK..............KK"]),
+            "closed": Patch(x: 23, y: 30, rows: ["K....K......K....K", ".KKKK........KKKK."]),
+            "happy": Patch(x: 23, y: 29, rows: ["..KK..........KK..", ".K..K........K..K.", "K....K......K....K"]),
+        ],
+        mouths: [
+            "small": Patch(x: 31, y: 38, rows: ["MM"]),
+            "open": Patch(x: 30, y: 38, rows: ["MMMM", "MTTM", ".TT."]),
+            "wavy": Patch(x: 30, y: 38, rows: ["MMMM"]),
+            "o": Patch(x: 31, y: 38, rows: ["MM", "MM", "MM"]),
+        ],
+        extras: [
+            "starBig": Patch(x: 3, y: 5, rows: ["..Y..", ".YYY.", "YYYYY", ".YYY.", "..Y.."]),
+            "starSmall": Patch(x: 4, y: 6, rows: [".Y.", "YYY", ".Y."]),
+            "sweatA": Patch(x: 8, y: 18, rows: [".X.", "XXX", "XXX", ".X."]),
+            "sweatB": Patch(x: 8, y: 20, rows: [".X.", "XXX", "XXX", ".X."]),
+            "tearsA": Patch(x: 25, y: 34, rows: ["X............X.", "XX...........XX", "XX...........XX"]),
+            "tearsB": Patch(x: 25, y: 35, rows: ["X............X.", "XX...........XX", "XX...........XX"]),
+            "zzzA": Patch(x: 3, y: 5, rows: ["ZZZZ", "..Z.", ".Z..", "ZZZZ"]),
+            "zzzB": Patch(x: 5, y: 2, rows: ["ZZZZ", "..Z.", ".Z..", "ZZZZ"]),
+            "question": Patch(x: 3, y: 3, rows: [".ZZ.", "Z..Z", "...Z", "..Z.", ".Z..", "....", ".Z.."]),
+        ]
+    )
+}

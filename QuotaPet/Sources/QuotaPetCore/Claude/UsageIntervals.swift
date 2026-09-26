@@ -1,0 +1,135 @@
+import Foundation
+
+/// 两次相邻官方读数之间（约 15 分钟）的一段记录：官方涨了多少，本机花了多少。
+/// QuotaPet 把它们一直存下来：用来学习换算率，也方便以后重新做回归（比如检验思考程度的影响）。
+public struct UsageInterval: Codable, Equatable, Sendable {
+    public var start: Date
+    public var end: Date
+    /// 这段开始 / 结束时的官方读数（5 小时、每周）
+    public var sessionFrom: Double?
+    public var sessionTo: Double?
+    public var weeklyFrom: Double?
+    public var weeklyTo: Double?
+    /// 本机 Claude Code 在这段时间里的请求数和 API 等价花费
+    public var requests: Int
+    public var usd: Double
+    /// 按「模型/思考程度」分的花费，比如 "opus/max"
+    public var usdByGroup: [String: Double]
+    public var outputTokens: Int
+    public var thinkingTokens: Int
+
+    /// 这段时间里官方读数涨了多少；中间重置过就是 nil
+    public var sessionDelta: Double? { Self.delta(sessionFrom, sessionTo) }
+    public var weeklyDelta: Double? { Self.delta(weeklyFrom, weeklyTo) }
+
+    static func delta(_ from: Double?, _ to: Double?) -> Double? {
+        guard let from, let to, to >= from else { return nil }
+        return to - from
+    }
+
+    /// 从官方读数和本机请求里切出完整的区间。只要正常的间隔（≤ 20 分钟，说明桌面端一直开着），
+    /// 并且已经结束 2 分钟以上（晚写进日志的请求也算进来了）。requests 要按时间排序。
+    public static func extract(samples: [PlanUsageSample], requests: [ClaudeRequest], now: Date) -> [UsageInterval] {
+        var intervals: [UsageInterval] = []
+        var first = 0
+        for (a, b) in zip(samples, samples.dropFirst()) {
+            let span = b.time.timeIntervalSince(a.time)
+            guard span > 0, span <= 20 * 60, b.time <= now.addingTimeInterval(-120) else { continue }
+            while first < requests.count, requests[first].time <= a.time { first += 1 }
+            var interval = UsageInterval(start: a.time, end: b.time, sessionFrom: a.session, sessionTo: b.session,
+                                         weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0,
+                                         usdByGroup: [:], outputTokens: 0, thinkingTokens: 0)
+            var i = first
+            while i < requests.count, requests[i].time <= b.time {
+                let r = requests[i]
+                let usd = r.usd
+                interval.requests += 1
+                interval.usd += usd
+                interval.usdByGroup[r.group, default: 0] += usd
+                interval.outputTokens += r.tokens.output
+                interval.thinkingTokens += r.thinkingTokens
+                i += 1
+            }
+            intervals.append(interval)
+        }
+        return intervals
+    }
+}
+
+/// 区间记录，存在 ~/Library/Application Support/QuotaPet/intervals.jsonl：一行一条，只追加，按结束时间去重。
+/// Claude Code 会清理旧日志，这份记录不会。
+public final class IntervalArchive {
+    public static var defaultURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/QuotaPet/intervals.jsonl")
+    }
+
+    public let url: URL
+    private var byEnd: [Int64: UsageInterval] = [:]
+    private var loaded = false
+
+    public init(url: URL = IntervalArchive.defaultURL) {
+        self.url = url
+    }
+
+    public var intervals: [UsageInterval] {
+        load()
+        return byEnd.values.sorted { $0.end < $1.end }
+    }
+
+    /// 合并新切出来的区间，没记过的追加到文件末尾；返回新增了几条
+    @discardableResult
+    public func merge(_ newIntervals: [UsageInterval]) -> Int {
+        load()
+        var lines = Data()
+        var added = 0
+        for interval in newIntervals where byEnd[Self.key(interval)] == nil {
+            byEnd[Self.key(interval)] = interval
+            guard let line = try? Self.encoder.encode(interval) else { continue }
+            lines.append(line)
+            lines.append(0x0A)
+            added += 1
+        }
+        if !lines.isEmpty { append(lines) }
+        return added
+    }
+
+    private func load() {
+        guard !loaded else { return }
+        loaded = true
+        guard let data = try? Data(contentsOf: url) else { return }
+        for line in data.split(separator: 0x0A) {
+            if let interval = try? Self.decoder.decode(UsageInterval.self, from: Data(line)) {
+                byEnd[Self.key(interval)] = interval
+            }
+        }
+    }
+
+    private func append(_ lines: Data) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
+        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: lines)
+    }
+
+    static func key(_ interval: UsageInterval) -> Int64 {
+        Int64((interval.end.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    // 时间存成毫秒时间戳（和桌面端的 plan-usage-history.json 一样），读回来不丢精度
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        return decoder
+    }()
+}
