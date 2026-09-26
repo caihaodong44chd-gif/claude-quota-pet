@@ -105,7 +105,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let weekly = buildWindow(
             id: "seven_day", title: "本周额度", shortTitle: "周", duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
-            resetAnchor: cfg.weeklyResetAnchor, limits: limits, live: cfg.liveEstimate, now: now)
+            resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, live: cfg.liveEstimate, now: now)
 
         let officialAt = samples.last?.time
         if let t = officialAt, now.timeIntervalSince(t) > 45 * 60 {
@@ -124,8 +124,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准
     func buildWindow(id: String, title: String, shortTitle: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
-                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, limits: [ClaudeLimitEvent] = [],
-                     live: Bool, now: Date) -> UsageWindow {
+                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, fixedCadence: Bool = false,
+                     limits: [ClaudeLimitEvent] = [], live: Bool, now: Date) -> UsageWindow {
         // 和这个窗口的官方读数对不上的限流消息（多半是别的账号，或者额度变了）不用，见 limitEvidenceFloor
         func matchesOfficial(_ limit: ClaudeLimitEvent) -> Bool {
             let start = limit.resetsAt.addingTimeInterval(-duration)
@@ -151,13 +151,11 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         var lastReset: Date?
         // 限流中：限流消息里的恢复时间就是这个窗口的结束时间，和手动指定的每周重置时间一样算
         if let anchor = limit?.resetsAt ?? resetAnchor {
-            let periods = (now.timeIntervalSince(anchor) / duration).rounded(.down) + 1
-            let end = anchor.addingTimeInterval(periods * duration)
-            current = InferredWindow(start: end.addingTimeInterval(-duration), end: end)
+            current = WindowInference.cycle(from: anchor, duration: duration, now: now)
             lastReset = current?.start
         } else {
             let inferred = WindowInference.infer(samples: series, activity: requests.map(\.time), duration: duration, now: now,
-                                                 knownResets: limits.map(\.resetsAt))
+                                                 knownResets: limits.map(\.resetsAt), fixedCadence: fixedCadence)
             current = inferred.current
             lastReset = inferred.lastReset
         }

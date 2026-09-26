@@ -33,6 +33,9 @@ public struct WindowInferenceResult: Equatable, Sendable {
 ///    说明窗口其实开始得更早（比如先在网页端用的），以锚点为准。
 /// 3. 桌面端最早的读数是 0 时，当作「在这之前的窗口都结束了」。
 /// 4. 限流消息给出的恢复时间是精确的重置时间（knownResets），优先于上面推出来的。
+///
+/// 每周额度按固定时间重置（fixedCadence），不管有没有用：看到过一次重置之后，就按它每 7 天重置一次，
+/// 不再按第一次使用推。还没看到过重置时只能按上面的规则推，会偏晚（比如一周前几天没用）。
 public enum WindowInference {
     /// 桌面端大约每 15 分钟记一次
     public static let sampleSpacing: TimeInterval = 15 * 60
@@ -42,6 +45,8 @@ public enum WindowInference {
         let by: Date
         let newUsage: Bool   // 重置后的第一个读数已经 > 0：新窗口也在这段时间里开始了
         var exact: Date?     // 限流消息给出的精确重置时间
+        /// 能确定重置时刻的锚点才用来定固定周期：规则 3 的锚点只说明之前的窗口结束了；1 → 0 这种小幅回落可能是噪声
+        var observed = true
     }
 
     /// 读数从 a 变成 b 算不算一次重置。小幅回落（比如 3 → 1）是噪声，不算。
@@ -51,19 +56,19 @@ public enum WindowInference {
     }
 
     public static func infer(samples: [UsageSample], activity: [Date], duration: TimeInterval, now: Date,
-                             knownResets: [Date] = []) -> WindowInferenceResult {
+                             knownResets: [Date] = [], fixedCadence: Bool = false) -> WindowInferenceResult {
         let exact = activity.filter { $0 <= now }.sorted()
         var events = exact
         var anchors: [Anchor] = []
 
         if let first = samples.first, first.value == 0 {
-            anchors.append(Anchor(after: first.time.addingTimeInterval(-1), by: first.time, newUsage: false))
+            anchors.append(Anchor(after: first.time.addingTimeInterval(-1), by: first.time, newUsage: false, observed: false))
         }
         for i in samples.indices.dropFirst() {
             let a = samples[i - 1], b = samples[i]
             guard b.time > a.time, b.time <= now else { continue }
             if isReset(from: a.value, to: b.value) {
-                anchors.append(Anchor(after: a.time, by: b.time, newUsage: b.value > 0))
+                anchors.append(Anchor(after: a.time, by: b.time, newUsage: b.value > 0, observed: a.value - b.value >= 3))
             }
             if b.value > a.value {
                 // 读数上涨：这段时间里有使用。本机已经有精确请求记录的话，就不用这个粗略的时间点
@@ -86,6 +91,12 @@ public enum WindowInference {
         }
         // 有精确时间的锚点在那个时刻生效，其他的在跳变之后的那次读数生效
         anchors.sort { ($0.exact ?? $0.by) < ($1.exact ?? $1.by) }
+        // 空档一周以上的跳变说明不了重置在一周里的哪个时刻
+        if fixedCadence, let reset = cadenceReset(anchors.filter { $0.observed && $0.by.timeIntervalSince($0.after) < duration },
+                                                  duration: duration) {
+            let window = cycle(from: reset, duration: duration, now: now)
+            return WindowInferenceResult(current: window, lastReset: window.start)
+        }
         events.sort()
 
         var start: Date?
@@ -130,6 +141,30 @@ public enum WindowInference {
             current: start.map { InferredWindow(start: $0, end: $0.addingTimeInterval(duration)) },
             lastReset: lastReset
         )
+    }
+
+    /// 从某次重置起每 duration 循环一次，now 所在的那个窗口
+    public static func cycle(from reset: Date, duration: TimeInterval, now: Date) -> InferredWindow {
+        let periods = (now.timeIntervalSince(reset) / duration).rounded(.down) + 1
+        let end = reset.addingTimeInterval(periods * duration)
+        return InferredWindow(start: end.addingTimeInterval(-duration), end: end)
+    }
+
+    /// 固定周期的重置时刻：读数跳变只能说明重置在两次读数之间，把各次跳变挪到最近那次的周期里取交集，
+    /// 桌面端没开的空档再长，看到的次数多了也能收窄。对不上说明重置时间变过，只用更近的那些。
+    /// 取交集里最晚的时刻：宁可晚一点宣布重置，也不要提前，不然重置前的最后一次读数会被当成新窗口的（数字来回跳、误发提醒）
+    static func cadenceReset(_ anchors: [Anchor], duration: TimeInterval) -> Date? {
+        guard let latest = anchors.last else { return nil }
+        var lo = latest.exact ?? latest.after, hi = latest.exact ?? latest.by
+        for a in anchors.dropLast().reversed() {
+            let shift = (hi.timeIntervalSince(a.exact ?? a.by) / duration).rounded() * duration
+            let newLo = max(lo, (a.exact ?? a.after).addingTimeInterval(shift))
+            let newHi = min(hi, (a.exact ?? a.by).addingTimeInterval(shift))
+            if newLo > newHi { break }
+            lo = newLo
+            hi = newHi
+        }
+        return hi
     }
 
     /// sorted 中第一个落在 (lo, hi] 的时间

@@ -181,6 +181,41 @@ do {  // 每周：桌面端最早的读数是 0，说明更早的窗口都结束
     let activity = [at(17, 10), at(20, 9), at(23, 17, 58), at(24, 12)]
     let r = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(25, 23))
     check(r.current?.start == at(23, 17, 58), "每周窗口从读数为 0 之后的第一次使用开始：\(String(describing: r.current))")
+    let fixed = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(25, 23), fixedCadence: true)
+    check(fixed == r, "固定周期：还没看到过重置时，照样按第一次使用推")
+}
+
+do {  // 每周额度按固定时间重置，不管有没有用：前几天没用，周二晚上才第一次用
+    let samples = [S(time: at(22, 20, 10), value: 0), S(time: at(22, 21, 30), value: 2), S(time: at(28, 5, 50), value: 70),
+                   S(time: at(28, 6, 5), value: 0)]
+    let activity = [at(22, 21, 5), at(28, 8)]
+    let r = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(28, 12), fixedCadence: true)
+    check(r.current == InferredWindow(start: at(28, 6, 5), end: at(28, 6, 5) + week) && r.lastReset == at(28, 6, 5),
+          "重置之后的窗口从重置时刻（跳变区间里最晚的时刻）开始，不等第一次使用：\(r)")
+    let later = WindowInference.infer(samples: samples, activity: activity, duration: week, now: at(28, 12) + 2 * week, fixedCadence: true)
+    check(later.current?.start == at(28, 6, 5) + 2 * week, "之后没有用量也每 7 天重置一次")
+
+    // 桌面端夜里没开，这次只知道重置在 01:00–10:00 之间；上周看到过 05:50–06:10，合起来是 05:50–06:10
+    let wide = [S(time: at(21, 5, 50), value: 70), S(time: at(21, 6, 10), value: 0), S(time: at(28, 1), value: 50),
+                S(time: at(28, 10), value: 2)]
+    let narrowed = WindowInference.infer(samples: wide, activity: [], duration: week, now: at(28, 11), fixedCadence: true)
+    check(narrowed.lastReset == at(28, 6, 10), "多次跳变取交集，收窄重置时间：\(narrowed)")
+    let exact = WindowInference.infer(samples: Array(wide.suffix(2)), activity: [], duration: week, now: at(28, 11),
+                                      knownResets: [at(21, 6, 3)], fixedCadence: true)
+    check(exact.lastReset == at(28, 6, 3), "限流消息的精确时间也能推到之后的每一周：\(exact)")
+    // 上周的跳变在 15:00 左右，和这周对不上：重置时间变过，只信最近的
+    let moved = [S(time: at(21, 15), value: 70), S(time: at(21, 15, 20), value: 0), S(time: at(28, 5, 50), value: 50),
+                 S(time: at(28, 6, 10), value: 0)]
+    let r2 = WindowInference.infer(samples: moved, activity: [], duration: week, now: at(28, 11), fixedCadence: true)
+    check(r2.lastReset == at(28, 6, 10), "重置时间变过时用最近的一次：\(r2)")
+
+    // 定不了重置时刻的跳变不用，照样按第一次使用推：1 → 0 可能是噪声；桌面端关了一周以上
+    let noise = [S(time: at(22, 20, 10), value: 0), S(time: at(22, 21, 30), value: 1), S(time: at(24, 9), value: 0)]
+    check(WindowInference.infer(samples: noise, activity: activity, duration: week, now: at(25, 12), fixedCadence: true)
+            == WindowInference.infer(samples: noise, activity: activity, duration: week, now: at(25, 12)), "1 → 0 不用来定周期")
+    let closed = [S(time: at(10, 9), value: 60), S(time: at(22, 9), value: 3)]
+    check(WindowInference.infer(samples: closed, activity: [at(22, 8)], duration: week, now: at(25, 12), fixedCadence: true)
+            == WindowInference.infer(samples: closed, activity: [at(22, 8)], duration: week, now: at(25, 12)), "空档一周以上的跳变不用来定周期")
 }
 
 do {  // 限流消息给出精确的重置时间：14:00（按第一次使用推的话是 14:15）
@@ -256,6 +291,14 @@ do {
     let manual = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
     check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
+
+    // 固定周期：上周看到过 06:10 前后的重置，这周到点之后还没有新的官方读数，就只按本机用量从头算
+    let weekly = [S(time: at(14, 5, 50), value: 70), S(time: at(14, 6, 10), value: 0), S(time: at(20, 12), value: 40)]
+    let cadence = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: weekly,
+                                       requests: [opus(at(21, 7), usd: 0.117 * 2)], scale: 1, percentOf: percentOf,
+                                       resetAnchor: nil, fixedCadence: true, live: true, now: at(21, 8))
+    check(cadence.startedAt == at(21, 6, 10) && cadence.official == nil && near(cadence.percent, 2, 1e-3),
+          "每周窗口到点重置，之前的官方读数不再算：\(cadence)")
 }
 
 do {  // 整条链路：日志里的限流消息经过 snapshot() 分到各自的窗口
