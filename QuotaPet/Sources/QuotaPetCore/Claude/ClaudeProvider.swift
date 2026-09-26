@@ -198,17 +198,36 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             percent = min(percent, 99)
         }
 
+        // 其他端用量：当前窗口里官方读数涨了、本机日志解释不了的部分
+        var other: [OtherUsage.Segment] = []
+        if live, let window = current {
+            let readings = series.filter { $0.time > window.start && $0.time <= now }
+            let local: (ClaudeRequest) -> Double = { percentOf($0) * scale }
+            // 窗口开始时是 0 只是推算的：开始前最后一次官方读数确实是 0 才从窗口开始算；不然从窗口里第一次读数算起，
+            // 免得窗口开始推算得偏晚（比如桌面端的记录是从一周中间开始的）时，把之前的用量都当成其他端
+            if let first = readings.first, series.last(where: { $0.time <= window.start })?.value != 0 {
+                other = OtherUsage.segments(start: first.time, startValue: first.value, readings: Array(readings.dropFirst()),
+                                            requests: requests, percentOf: local)
+            } else {
+                other = OtherUsage.segments(start: window.start, readings: readings, requests: requests, percentOf: local)
+            }
+        }
+
         // 5 小时窗口看最近 30 分钟的速度；每周窗口看最近 24 小时，不然一会儿猛用就会误报「几小时后用完」
         let lookback: TimeInterval = duration > 86400 ? 86400 : 1800
         var burn: Double?
+        var otherBurn: Double?
         if live {
             let from = max(now.addingTimeInterval(-lookback), current?.start ?? .distantPast)
-            burn = added(after: from) * 3600 / max(now.timeIntervalSince(from), lookback / 3)
+            let otherPerHour = OtherUsage.burnPerHour(other, from: from, now: now, minSpan: lookback / 3)
+            otherBurn = otherPerHour
+            burn = added(after: from) * 3600 / max(now.timeIntervalSince(from), lookback / 3) + otherPerHour
         }
 
         return UsageWindow(id: id, title: title, shortTitle: shortTitle, duration: duration, percent: percent,
                            official: official, officialAt: officialAt, limitReported: limitReported, startedAt: current?.start,
-                           resetsAt: current?.end, burnPerHour: burn, burnLookback: lookback)
+                           resetsAt: current?.end, otherPercent: other.reduce(0) { $0 + $1.percent },
+                           burnPerHour: burn, otherBurnPerHour: otherBurn, burnLookback: lookback)
     }
 
     func todaySummary(_ requests: [ClaudeRequest], now: Date) -> ActivitySummary {

@@ -253,6 +253,49 @@ do {
     check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
 }
 
+// MARK: - 其他端用量
+
+do {
+    /// 值 pct 个百分点的请求（percentOf = usd × 100）
+    func req(_ t: Date, _ pct: Double) -> ClaudeRequest {
+        ClaudeRequest(id: UUID().uuidString, time: t, family: .opus, tokens: TokenCounts(output: Int(pct * 500)))
+    }
+    let percentOf: (ClaudeRequest) -> Double = { $0.usd * 100 }
+    let reqs = [req(at(20, 10), 3), req(at(20, 10, 38), 5), req(at(20, 11, 15), 2)]
+    let readings = [S(time: at(20, 10, 10), value: 3), S(time: at(20, 10, 25), value: 9), S(time: at(20, 10, 40), value: 15),
+                    S(time: at(20, 10, 55), value: 16), S(time: at(20, 11, 10), value: 20), S(time: at(20, 11, 25), value: 30)]
+    let segments = OtherUsage.segments(start: at(20, 10), readings: readings, requests: reqs, percentOf: percentOf)
+    // 10:10 本机 3 对上；10:25 本机没有请求，+6 全是其他端；10:40 本机 5、官方 6，差 1 是误差；
+    // 10:55 +1 紧跟在 10:38 的请求后面，是服务器计数慢；11:10 本机没有请求，+4；11:25 本机 2、官方 10，多出 8
+    check(segments.count == 3 && zip(segments, [6.0, 4, 8]).allSatisfy { near($0.percent, $1) } && segments.first?.start == at(20, 10, 10),
+          "逐段找出其他端用量：\(segments.map(\.percent))")
+    check(near(OtherUsage.burnPerHour(segments, from: at(20, 10, 55), now: at(20, 11, 25), minSpan: 600), 24, 1e-6),
+          "其他端每小时：半小时里 4 + 8 = 12")
+    check(near(OtherUsage.burnPerHour(segments, from: at(20, 11), now: at(20, 11, 30), minSpan: 600), 21.3333, 1e-3),
+          "跨边界的段按时间比例摊，最近一次读数之后看不到的按 0 算：(4 × 2/3 + 8) ÷ 30 分钟")
+    let wobble = [S(time: at(20, 10, 10), value: 5), S(time: at(20, 10, 25), value: 3), S(time: at(20, 10, 40), value: 5)]
+    let wobbled = OtherUsage.segments(start: at(20, 10), readings: wobble, requests: [], percentOf: percentOf)
+    check(wobbled.count == 1 && near(wobbled.first?.percent, 5), "读数往回掉又回来，不算新用量")
+    let twin = OtherUsage.segments(start: at(20, 10), readings: [S(time: at(20, 10, 10), value: 3), S(time: at(20, 10, 10), value: 5)],
+                                   requests: [], percentOf: percentOf)
+    check(twin.count == 1 && OtherUsage.burnPerHour(twin, from: at(20, 10), now: at(20, 10, 30), minSpan: 600).isFinite,
+          "同一时刻的两条读数不会产生长度为 0 的段")
+
+    let provider = ClaudeProvider(historyURL: URL(fileURLWithPath: "/nonexistent/h.json"),
+                                  projectsURL: URL(fileURLWithPath: "/nonexistent/projects"), archiveURL: nil)
+    func window(_ series: [S], live: Bool = true) -> UsageWindow {
+        provider.buildWindow(id: "five_hour", title: "", shortTitle: "", duration: fiveHours, series: series,
+                             requests: [reqs[0]], scale: 1, percentOf: percentOf, resetAnchor: nil, live: live, now: at(20, 10, 30))
+    }
+    let zero = [S(time: at(20, 9, 30), value: 0)]  // 窗口开始前读数确实是 0
+    let w = window(zero + [S(time: at(20, 10, 10), value: 10), S(time: at(20, 10, 25), value: 16)])
+    check(near(w.otherPercent, 13) && near(w.otherBurnPerHour, 26, 1e-6) && near(w.burnPerHour, 26, 1e-6),
+          "从 0 算起：10:10 本机 3、官方 10，多 7；10:25 本机没有请求，+6；速度 13 ÷ 30 分钟：\(w.otherPercent) \(w.burnPerHour ?? -1)")
+    let midway = window([S(time: at(20, 10, 10), value: 40), S(time: at(20, 10, 25), value: 46)])
+    check(near(midway.otherPercent, 6), "开始前没有 0 的读数（记录从窗口中间开始）：第一次读数之前的 40% 不算其他端：\(midway.otherPercent)")
+    check(window(zero + Array(readings.prefix(2)), live: false).otherPercent == 0, "关掉实时估算时也不算其他端")
+}
+
 // MARK: - 什么时候显示
 
 check(MenuBarVisibility.withClaude.shouldShow(claudeRunning: true, pinned: false), "Claude 开着就显示")
@@ -302,6 +345,11 @@ do {
     older.end = at(25, 4)  // 早 6 小时 = 两个半衰期，权重 1/4：(0.5 + 0.8) ÷ (1 + 4)
     let halfLife = RateLearner.learn([older, newer], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
     check(near(halfLife.usdPerPercent, 0.26, 1e-4), "半衰期 3 小时：\(halfLife.usdPerPercent)")
+    var pure = intervals[0], mixed = intervals[1]
+    pure.end = at(25, 10); pure.usd = 3; pure.sessionFrom = 0; pure.sessionTo = 10           // $0.3 / 1%
+    mixed.end = at(25, 10, 15); mixed.usd = 0.3; mixed.sessionFrom = 10; mixed.sessionTo = 20 // 本机只够 1%，官方涨了 10%
+    let skip = RateLearner.learn([pure, mixed], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
+    check(near(skip.usdPerPercent, 0.3, 1e-3) && skip.intervals == 1, "同时在其他端用过的区间不拿来学：\(skip)")
 
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-archive-\(UUID().uuidString)")
     let url = dir.appendingPathComponent("intervals.jsonl")

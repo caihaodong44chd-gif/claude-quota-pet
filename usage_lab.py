@@ -41,6 +41,8 @@ PRICES = {
 CACHE_READ_WEIGHT = 0.5
 # 起始换算率，额度加权美元 / 1%（与 ClaudeRates.starting 一致）
 STARTING = {"fh": 0.27, "sd": 2.0}
+# 官方增量比本机估算多出 a + b×本机估算 才算其他端（网页 / 手机）用量（与 OtherUsage.threshold 一致）
+OTHER_THRESHOLD = (2, 0.2)
 FIELDS = ("inp", "cw5", "cw1h", "cr", "out")
 FIELD_NAMES = {"inp": "输入", "cw5": "缓存写5m", "cw1h": "缓存写1h", "cr": "缓存读", "out": "输出"}
 
@@ -259,7 +261,15 @@ def cmd_calibrate(args):
 
 def cmd_backtest(args):
     """每个 15 分钟区间结束时，用之前的区间学到的换算率估算这段的官方增量，和实际增量比。
-    学习方式同 RateLearner：Σ权重×加权花费 ÷ Σ权重×增量，权重按半衰期从最近一个区间往前算，加 $2 的先验。"""
+    学习方式同 RateLearner：Σ权重×加权花费 ÷ Σ权重×增量，权重按半衰期从最近一个区间往前算，加 $2 的先验；
+    先粗算一次，去掉同时在其他端用过（官方涨得明显比本机多）的区间再算。"""
+
+    def fit(items, prior, latest):
+        spent, gained = 2.0, 2.0 / prior
+        for end, u, d in items:
+            w = 0.5 ** ((latest - end) / (args.half_life * 3600))
+            spent, gained = spent + w * u, gained + w * d
+        return spent / gained
     reqs = load_requests()
     snaps = [s for s in load_snapshots() if s[3] == "desktop"]
     for col, name in ((1, "5 小时"), (2, "每周")):
@@ -272,11 +282,14 @@ def cmd_backtest(args):
             if sum(cost(f, t) for f, t in tok.items()) < 0.02:  # 本机没在用
                 continue
             usd = sum(quota_cost(f, t, args.cache_weight) for f, t in tok.items())
-            spent, gained = 2.0, 2.0 / prior
-            for end, u, d in done:
-                w = 0.5 ** ((done[-1][0] - end) / (args.half_life * 3600))
-                spent, gained = spent + w * u, gained + w * d
-            est, actual = usd / (spent / gained), b[col] - a[col]
+            rate = prior
+            if done:
+                rough = fit(done, prior, done[-1][0])
+                a0, b0 = OTHER_THRESHOLD
+                clean = [x for x in done if x[2] - x[1] / rough <= a0 + b0 * x[1] / rough]
+                rate = fit(clean, prior, done[-1][0]) if clean else rough
+                rate = min(max(rate, prior / 10), prior * 10)  # 和 App 一样限制在起始值的 1/10～10 倍
+            est, actual = usd / rate, b[col] - a[col]
             errs.append(abs(est - actual))
             stale.append(actual)
             down += actual - est < -1

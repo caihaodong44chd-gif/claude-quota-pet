@@ -152,23 +152,34 @@ struct WindowCard: View {
             UsageBar(percent: window.clampedPercent, official: window.official, tint: Level.bar(window.percent))
                 .padding(.bottom, 1)
             legend
+            if window.otherPercent >= 1 {
+                Text("其中约 \(Int(window.otherPercent.rounded()))% 是网页、手机等其他端用的")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+            }
             Text(resetText)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
             if let exhaustion = window.projectedExhaustion(now: now), let burn = window.burnPerHour {
-                Label("照这个速度（每小时 \(Int(burn.rounded()))%），\(Fmt.clock(exhaustion, now: now)) 左右用完",
+                Label("照这个速度（每小时 \(Int(burn.rounded()))%\(otherBurnText)），\(Fmt.clock(exhaustion, now: now)) 左右用完",
                       systemImage: "flame.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color(nsColor: .systemOrange))
                     .fixedSize(horizontal: false, vertical: true)
             } else if let burn = window.burnPerHour, burn >= 1, window.percent < 100 {
-                Text("\(lookbackText)：每小时约 \(Int(burn.rounded()))%")
+                Text("\(lookbackText)：每小时约 \(Int(burn.rounded()))%\(otherBurnText)")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
         }
         .padding(11)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
+
+    /// 消耗速度里有其他端的部分时，补一句「，其中其他端约 6%」
+    private var otherBurnText: String {
+        guard let other = window.otherBurnPerHour, other >= 1 else { return "" }
+        return "，其中其他端约 \(Int(other.rounded()))%"
     }
 
     private var lookbackText: String {

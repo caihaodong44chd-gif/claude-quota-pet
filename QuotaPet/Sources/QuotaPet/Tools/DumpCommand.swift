@@ -49,9 +49,13 @@ enum DumpCommand {
             } else {
                 print("  窗口还没开始（下次使用时开始计时）")
             }
+            if w.otherPercent >= 0.5 {
+                print(String(format: "  其中网页、手机等其他端约 %.1f%%", w.otherPercent))
+            }
             if let burn = w.burnPerHour, burn > 0 {
                 let span = w.burnLookback >= 86400 ? "24 小时" : "\(Int(w.burnLookback / 60)) 分钟"
-                print(String(format: "  最近 %@ 消耗速度 %.1f%%/小时", span, burn))
+                let other = (w.otherBurnPerHour ?? 0) >= 0.05 ? String(format: "（其中其他端 %.1f%%）", w.otherBurnPerHour ?? 0) : ""
+                print(String(format: "  最近 %@ 消耗速度 %.1f%%/小时", span, burn) + other)
             }
             if let t = w.projectedExhaustion(now: now) {
                 print("  ⚠️ 照这个速度 \(Fmt.clock(t, now: now)) 会用完")

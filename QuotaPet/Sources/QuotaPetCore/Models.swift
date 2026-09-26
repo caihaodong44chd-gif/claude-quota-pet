@@ -27,14 +27,19 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// 当前窗口的开始 / 重置时间（推算值）；窗口还没开始时为 nil
     public var startedAt: Date?
     public var resetsAt: Date?
-    /// 最近一段时间（burnLookback）的消耗速度，百分点 / 小时（只统计本机 Claude Code）
+    /// 这个窗口里网页、手机、桌面端聊天等其他端用了多少（已经包含在官方读数里，见 OtherUsage）
+    public var otherPercent: Double
+    /// 最近一段时间（burnLookback）的消耗速度，百分点 / 小时：本机 Claude Code + 官方读数里看出来的其他端
     public var burnPerHour: Double?
+    /// burnPerHour 里其他端的部分
+    public var otherBurnPerHour: Double?
     /// 消耗速度按多长时间算：5 小时窗口看最近 30 分钟，每周窗口看最近 24 小时
     public var burnLookback: TimeInterval
 
     public init(id: String, title: String, shortTitle: String, duration: TimeInterval, percent: Double,
                 official: Double? = nil, officialAt: Date? = nil, limitReported: Bool = false, startedAt: Date? = nil,
-                resetsAt: Date? = nil, burnPerHour: Double? = nil, burnLookback: TimeInterval = 1800) {
+                resetsAt: Date? = nil, otherPercent: Double = 0, burnPerHour: Double? = nil, otherBurnPerHour: Double? = nil,
+                burnLookback: TimeInterval = 1800) {
         self.id = id
         self.title = title
         self.shortTitle = shortTitle
@@ -45,7 +50,9 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
         self.limitReported = limitReported
         self.startedAt = startedAt
         self.resetsAt = resetsAt
+        self.otherPercent = otherPercent
         self.burnPerHour = burnPerHour
+        self.otherBurnPerHour = otherBurnPerHour
         self.burnLookback = burnLookback
     }
 

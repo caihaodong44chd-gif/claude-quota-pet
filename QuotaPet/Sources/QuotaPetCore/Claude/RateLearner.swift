@@ -4,7 +4,7 @@ import Foundation
 ///
 /// 换算率 = Σ 权重 × 本机额度加权花费 ÷ Σ 权重 × 官方增量：
 /// - 只用本机确实在用（≥ $0.02）、中间没有重置的区间；纯网页端的区间没有本机花费，自动排除。
-///   旧版本记下的、没有缓存读花费的区间也不用。
+///   同时在其他端用过、官方涨得明显比本机多的区间，以及旧版本记下的、没有缓存读花费的区间也不用。
 /// - 越近的区间权重越大（半衰期 3 小时）：同一个会话里换算率也会慢慢变，要跟得上。
 ///   回测（usage_lab.py backtest）：半衰期 3 小时比 2 天的误差小，往回跳的次数也少。
 ///   时间从最近一个区间往前算，隔几天不用也不会把学到的忘掉。
@@ -28,14 +28,21 @@ public enum RateLearner {
         guard let latest = usable.map(\.end).max() else {
             return Result(usdPerPercent: prior, intervals: 0, latest: nil)
         }
-        var cost = priorUSD
-        var gained = priorUSD / prior
-        for item in usable {
-            let weight = pow(0.5, latest.timeIntervalSince(item.end) / halfLife)
-            cost += weight * item.usd
-            gained += weight * item.delta
+        func fit(_ items: [(end: Date, usd: Double, delta: Double)]) -> Double {
+            var cost = priorUSD
+            var gained = priorUSD / prior
+            for item in items {
+                let weight = pow(0.5, latest.timeIntervalSince(item.end) / halfLife)
+                cost += weight * item.usd
+                gained += weight * item.delta
+            }
+            return gained > 0 ? cost / gained : prior
         }
-        let rate = gained > 0 ? cost / gained : prior
-        return Result(usdPerPercent: min(max(rate, prior / 10), prior * 10), intervals: usable.count, latest: latest)
+        // 同时在网页 / 手机上用过的区间，官方涨得比本机花费能解释的多一截（见 OtherUsage），不能拿来学：
+        // 先粗算一次，去掉这种区间再算
+        let rough = fit(usable)
+        let clean = usable.filter { $0.delta - $0.usd / rough <= OtherUsage.threshold(local: $0.usd / rough) }
+        let rate = clean.isEmpty ? rough : fit(clean)
+        return Result(usdPerPercent: min(max(rate, prior / 10), prior * 10), intervals: clean.count, latest: latest)
     }
 }

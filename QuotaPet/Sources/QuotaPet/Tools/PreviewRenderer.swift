@@ -139,10 +139,10 @@ enum PreviewRenderer {
 
     static func sampleSnapshots(now: Date) -> [(String, UsageSnapshot)] {
         func window(_ id: String, _ title: String, _ duration: TimeInterval, _ percent: Double, official: Double,
-                    resetIn: TimeInterval, burn: Double) -> UsageWindow {
+                    resetIn: TimeInterval, burn: Double, other: Double = 0, otherBurn: Double? = nil) -> UsageWindow {
             UsageWindow(id: id, title: title, shortTitle: "", duration: duration, percent: percent, official: official,
                         officialAt: now.addingTimeInterval(-9 * 60), startedAt: now.addingTimeInterval(resetIn - duration),
-                        resetsAt: now.addingTimeInterval(resetIn), burnPerHour: burn,
+                        resetsAt: now.addingTimeInterval(resetIn), otherPercent: other, burnPerHour: burn, otherBurnPerHour: otherBurn,
                         burnLookback: duration > 86400 ? 86400 : 1800)
         }
         let today = ActivitySummary(
@@ -158,7 +158,8 @@ enum PreviewRenderer {
         return [
             ("calm", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
                                window("seven_day", "本周额度", week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.7)])),
-            ("busy", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42),
+            ("busy", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42,
+                                     other: 14, otherBurn: 8),
                                window("seven_day", "本周额度", week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 5)])),
             ("limited", snapshot([window("five_hour", "5 小时会话", 5 * 3600, 100, official: 100, resetIn: 83 * 60, burn: 0),
                                   window("seven_day", "本周额度", week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
