@@ -18,6 +18,12 @@ public enum OtherUsage {
     /// 与 usage_lab.py 的 OTHER_THRESHOLD 一致
     public static func threshold(local: Double) -> Double { 2 + 0.2 * local }
 
+    /// 官方增量比本机估算多出 excess，算不算其他端用量。nearby：这段时间里（连同开始前 lag）本机有没有请求。
+    /// 学换算率时挑混用的区间也用它，两边的规则一致
+    static func isOther(excess: Double, local: Double, nearby: Bool = true) -> Bool {
+        excess > (nearby ? threshold(local: local) : 0.5)
+    }
+
     /// 服务器计数可能比请求慢一点：这么久以内的本机请求，也可能算进下一段
     static let lag: TimeInterval = 5 * 60
 
@@ -41,7 +47,7 @@ public enum OtherUsage {
                 i += 1
             }
             let excess = reading.value - high - local
-            if excess > (nearby ? threshold(local: local) : 0.5) {
+            if isOther(excess: excess, local: local, nearby: nearby) {
                 result.append(Segment(start: from, end: reading.time, percent: excess))
             }
             from = reading.time

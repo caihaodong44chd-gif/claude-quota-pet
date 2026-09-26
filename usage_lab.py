@@ -219,7 +219,7 @@ def cmd_calibrate(args):
             snaps = snaps[:i]
             break
     base_t = snaps[0][0]
-    # --known opus=0.266：该模型的 $/1% 已知，直接从 y 里扣掉，不参与回归
+    # --known opus=0.27：该模型每 1% 的额度加权花费已知（缓存读按 CACHE_READ_WEIGHT 折算，不是 API 原价），直接从 y 里扣掉，不参与回归
     known = {k: float(v) for k, v in (kv.split("=") for kv in args.known)}
     fams = sorted({r["fam"] for r in reqs if base_t < r["t"] <= snaps[-1][0]} - set(known))
     rows, ys = [], []
@@ -259,17 +259,46 @@ def cmd_calibrate(args):
         print()
 
 
-def cmd_backtest(args):
-    """每个 15 分钟区间结束时，用之前的区间学到的换算率估算这段的官方增量，和实际增量比。
-    学习方式同 RateLearner：Σ权重×加权花费 ÷ Σ权重×增量，权重按半衰期从最近一个区间往前算，加 $2 的先验；
-    先粗算一次，去掉同时在其他端用过（官方涨得明显比本机多）的区间再算。"""
+def learn(done, prior, half_life):
+    """和 App 的 RateLearner 一样学换算率。done = [(结束时间, 额度加权花费, 官方增量)]，按时间排序。
+    Σ权重×花费 ÷ Σ权重×增量，权重按半衰期从最近一个区间往前算，16 个半衰期以前的不算，加 $2 的先验。
+    同时在其他端用过（官方涨得明显比本机多）的区间不用：先用按「时间衰减 × 花费」加权的中位数挑，
+    再用剩下的区间学到的换算率重新挑，直到挑出来的不再变。"""
+    if not done:
+        return prior
+    latest = done[-1][0]
+    items = [x for x in done if latest - x[0] < 16 * half_life]
+    weight = lambda end: 0.5 ** ((latest - end) / half_life)
 
-    def fit(items, prior, latest):
+    def fit(xs):
         spent, gained = 2.0, 2.0 / prior
-        for end, u, d in items:
-            w = 0.5 ** ((latest - end) / (args.half_life * 3600))
-            spent, gained = spent + w * u, gained + w * d
+        for end, u, d in xs:
+            spent, gained = spent + weight(end) * u, gained + weight(end) * d
         return spent / gained
+
+    points = sorted(((u / d if d > 0 else float("inf")), weight(end) * u) for end, u, d in items)
+    half, acc, rate = sum(w for _, w in points) / 2, 0.0, None
+    for r, w in points:
+        acc += w
+        if acc >= half:
+            rate = r if r != float("inf") else None
+            break
+    rate = rate or fit(items)
+    a0, b0 = OTHER_THRESHOLD
+    mixed = None
+    for _ in range(len(items) + 1):  # 单调，一定会停
+        flags = [d - u / rate > a0 + b0 * u / rate for _, u, d in items]
+        if flags == mixed:
+            break
+        mixed = flags
+        clean = [x for x, f in zip(items, flags) if not f]
+        if clean:
+            rate = fit(clean)
+    return min(max(rate, prior / 10), prior * 10)
+
+
+def cmd_backtest(args):
+    """每个 15 分钟区间结束时，用之前的区间学到的换算率（见 learn）估算这段的官方增量，和实际增量比。"""
     reqs = load_requests()
     snaps = [s for s in load_snapshots() if s[3] == "desktop"]
     for col, name in ((1, "5 小时"), (2, "每周")):
@@ -282,13 +311,7 @@ def cmd_backtest(args):
             if sum(cost(f, t) for f, t in tok.items()) < 0.02:  # 本机没在用
                 continue
             usd = sum(quota_cost(f, t, args.cache_weight) for f, t in tok.items())
-            rate = prior
-            if done:
-                rough = fit(done, prior, done[-1][0])
-                a0, b0 = OTHER_THRESHOLD
-                clean = [x for x in done if x[2] - x[1] / rough <= a0 + b0 * x[1] / rough]
-                rate = fit(clean, prior, done[-1][0]) if clean else rough
-                rate = min(max(rate, prior / 10), prior * 10)  # 和 App 一样限制在起始值的 1/10～10 倍
+            rate = learn(done, prior, args.half_life * 3600)
             est, actual = usd / rate, b[col] - a[col]
             errs.append(abs(est - actual))
             stale.append(actual)
@@ -315,7 +338,7 @@ def main():
     s.add_argument("--manual-only", action="store_true", help="只用手动快照（实验时推荐）")
     s.add_argument("--weekly-ratio", type=float, help="手动指定 每周%%/5小时%% 换算比")
     s.add_argument("--known", nargs="*", default=[], metavar="模型=$每1%%",
-                   help="已知速率的模型，例如 opus=0.266，其消耗会先从额度变化里扣掉")
+                   help="已知速率的模型，例如 opus=0.27（额度加权美元：缓存读按半价，不是 API 原价），其消耗会先从额度变化里扣掉")
     s.set_defaults(fn=cmd_calibrate)
     s = sub.add_parser("backtest"); s.add_argument("--cache-weight", type=float, default=CACHE_READ_WEIGHT)
     s.add_argument("--half-life", type=float, default=3, help="小时"); s.set_defaults(fn=cmd_backtest)

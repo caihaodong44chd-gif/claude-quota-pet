@@ -101,11 +101,11 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let session = buildWindow(
             id: "five_hour", title: "5 小时会话", shortTitle: "5h", duration: Self.sessionDuration,
             series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
-            resetAnchor: nil, limits: limits.filter { $0.window == "five_hour" }, live: cfg.liveEstimate, now: now)
+            resetAnchor: nil, limits: limits, live: cfg.liveEstimate, now: now)
         let weekly = buildWindow(
             id: "seven_day", title: "本周额度", shortTitle: "周", duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
-            resetAnchor: cfg.weeklyResetAnchor, limits: limits.filter { $0.window == "seven_day" }, live: cfg.liveEstimate, now: now)
+            resetAnchor: cfg.weeklyResetAnchor, limits: limits, live: cfg.liveEstimate, now: now)
 
         let officialAt = samples.last?.time
         if let t = officialAt, now.timeIntervalSince(t) > 45 * 60 {
@@ -121,7 +121,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     }
 
     /// 官方读数 + 读数之后的本机用量 = 当前百分比。本机用量 = Σ percentOf(请求) × scale
-    /// limits 是这个窗口的限流消息：还没到恢复时间时直接算用完，窗口的开始和重置时间也以它为准
+    /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准
     func buildWindow(id: String, title: String, shortTitle: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
                      percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, limits: [ClaudeLimitEvent] = [],
@@ -142,16 +142,15 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         }
         // 恢复时间不会比限流晚一个窗口以上，超出的当成格式变了，不用
         let limits = limits.filter {
-            $0.time <= now && $0.resetsAt > $0.time && $0.resetsAt <= $0.time.addingTimeInterval(duration) && matchesOfficial($0)
+            $0.window == id && $0.time <= now && $0.resetsAt > $0.time && $0.resetsAt <= $0.time.addingTimeInterval(duration)
+                && matchesOfficial($0)
         }
         let limit = limits.last.flatMap { now < $0.resetsAt ? $0 : nil }  // 还在限流中
 
         var current: InferredWindow?
         var lastReset: Date?
-        if let limit {
-            current = InferredWindow(start: limit.resetsAt.addingTimeInterval(-duration), end: limit.resetsAt)
-            lastReset = current?.start
-        } else if let anchor = resetAnchor {
+        // 限流中：限流消息里的恢复时间就是这个窗口的结束时间，和手动指定的每周重置时间一样算
+        if let anchor = limit?.resetsAt ?? resetAnchor {
             let periods = (now.timeIntervalSince(anchor) / duration).rounded(.down) + 1
             let end = anchor.addingTimeInterval(periods * duration)
             current = InferredWindow(start: end.addingTimeInterval(-duration), end: end)
@@ -172,33 +171,33 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             return sum * scale
         }
 
+        // 限流中：限流消息就是一次 100% 的官方读数。它之后桌面端没到 100 的读数（只差一点，见 matchesOfficial）不算
+        var officialReadings = series
+        if let limit {
+            officialReadings.removeAll { $0.time > limit.time && $0.value < 100 }
+            officialReadings.insert(UsageSample(time: limit.time, value: 100),
+                                    at: officialReadings.firstIndex { $0.time > limit.time } ?? officialReadings.endIndex)
+        }
+
         var percent = 0.0
         var official: Double?
         var officialAt: Date?
         var limitReported = false
-        if let last = series.last, lastReset.map({ $0 <= last.time }) ?? true {
+        if let last = officialReadings.last, lastReset.map({ $0 <= last.time }) ?? true {
             // 最近的官方读数还属于当前窗口
             official = last.value
             officialAt = last.time
+            limitReported = last.time == limit?.time
             percent = last.value + added(after: last.time)
         } else if let window = current {
             // 读数之后窗口已经重置过了，只能从窗口开始累计本机用量
             percent = added(after: window.start, including: true)
         }
-        if let limit {
-            // 服务器已经说用完了：官方读数不到 100（读数比限流早，或者只差一点）就以限流消息为准
-            if (official ?? 0) < 100 {
-                official = 100
-                officialAt = limit.time
-                limitReported = true
-            }
-            percent = max(percent, 100)
-        } else if (official ?? 0) < 100 {
-            // 只有官方读数或限流消息能宣布「用完了」：估算最多到 99%，免得宠物误睡、误发限流提醒
-            percent = min(percent, 99)
-        }
+        // 只有官方读数或限流消息能宣布「用完了」：估算最多到 99%，免得宠物误睡、误发限流提醒
+        if (official ?? 0) < 100 { percent = min(percent, 99) }
 
-        // 其他端用量：当前窗口里官方读数涨了、本机日志解释不了的部分
+        // 其他端用量：当前窗口里官方读数涨了、本机日志解释不了的部分。用桌面端的原始读数，不含限流消息那次 100%，
+        // 免得把撞线时估算和 100 之间的差当成其他端
         var other: [OtherUsage.Segment] = []
         if live, let window = current {
             let readings = series.filter { $0.time > window.start && $0.time <= now }

@@ -23,7 +23,7 @@ public struct UsageInterval: Codable, Equatable, Sendable {
     /// 这段时间里官方读数涨了多少；中间重置过就是 nil
     public var sessionDelta: Double? { Self.delta(sessionFrom, sessionTo) }
     /// 额度加权花费（缓存读打折，见 ClaudePricing.cacheReadQuotaWeight）；旧记录算不出来，是 nil
-    public var quotaUSD: Double? { cacheReadUSD.map { usd - (1 - ClaudePricing.cacheReadQuotaWeight) * $0 } }
+    public var quotaUSD: Double? { cacheReadUSD.map { ClaudePricing.quotaCost(usd: usd, cacheReadUSD: $0) } }
     public var weeklyDelta: Double? { Self.delta(weeklyFrom, weeklyTo) }
 
     static func delta(_ from: Double?, _ to: Double?) -> Double? {

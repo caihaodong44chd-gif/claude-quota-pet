@@ -73,26 +73,31 @@ public enum WindowInference {
                 }
             }
         }
-        for reset in knownResets where reset <= now {
+        for reset in knownResets.sorted() where reset <= now {
             if let i = anchors.firstIndex(where: { reset > $0.after && reset <= $0.by }) {
+                // 一段读数空档里有好几次精确重置：读数跳变属于最后一次（跳变之后的读数是它之后的窗口），更早的各自单独成锚点
+                if let earlier = anchors[i].exact {
+                    anchors.append(Anchor(after: earlier, by: earlier, newUsage: false, exact: earlier))
+                }
                 anchors[i].exact = reset
             } else {
                 anchors.append(Anchor(after: reset, by: reset, newUsage: false, exact: reset))
             }
         }
-        anchors.sort { $0.by < $1.by }
+        // 有精确时间的锚点在那个时刻生效，其他的在跳变之后的那次读数生效
+        anchors.sort { ($0.exact ?? $0.by) < ($1.exact ?? $1.by) }
         events.sort()
 
         var start: Date?
         var lastReset: Date?
         var nextAnchor = 0
 
-        // 处理 by <= t 的锚点：当前窗口若开始于锚点之前，说明它已经在锚点处被重置
+        // 处理 t 之前生效的锚点：当前窗口若开始于重置之前，说明它已经在锚点处被重置
         func applyAnchors(upTo t: Date) {
-            while nextAnchor < anchors.count, anchors[nextAnchor].by <= t {
+            while nextAnchor < anchors.count, (anchors[nextAnchor].exact ?? anchors[nextAnchor].by) <= t {
                 let anchor = anchors[nextAnchor]
                 nextAnchor += 1
-                guard let s = start, s <= anchor.after else { continue }
+                guard let s = start, s <= (anchor.exact ?? anchor.after) else { continue }
                 let natural = s.addingTimeInterval(duration)
                 let reset = anchor.exact ?? ((natural > anchor.after && natural <= anchor.by)
                     ? natural

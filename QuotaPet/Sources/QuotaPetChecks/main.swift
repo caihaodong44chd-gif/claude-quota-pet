@@ -194,6 +194,11 @@ do {  // 限流消息给出精确的重置时间：14:00（按第一次使用推
     let r2 = WindowInference.infer(samples: samples, activity: [at(20, 9, 15)], duration: fiveHours, now: at(20, 14, 30),
                                    knownResets: [at(20, 14)])
     check(r2.lastReset == at(20, 14) && r2.current == nil, "读数跳变区间里的精确重置时间：\(r2)")
+    // 桌面端关了 12 小时（80 → 3），中间撞了两次限流：14:00 和 19:05 各重置一次（窗口都是从网页上先开始的，比本机第一次请求早）
+    let gap = [S(time: at(20, 10), value: 80), S(time: at(20, 22), value: 3)]
+    let r3 = WindowInference.infer(samples: gap, activity: [at(20, 9, 30), at(20, 14, 20), at(20, 19, 10)], duration: fiveHours,
+                                   now: at(20, 22, 10), knownResets: [at(20, 14), at(20, 19, 5)])
+    check(r3.lastReset == at(20, 19, 5) && r3.current?.start == at(20, 19, 10), "一段空档里的两次精确重置都用上：\(r3)")
 }
 
 // MARK: - 官方读数 + 实时估算
@@ -251,6 +256,30 @@ do {
     let manual = provider.buildWindow(id: "seven_day", title: "", shortTitle: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
     check(manual.startedAt == at(23, 18) && manual.resetsAt == at(30, 18), "手动指定的每周重置时间每 7 天循环")
+}
+
+do {  // 整条链路：日志里的限流消息经过 snapshot() 分到各自的窗口
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-limits-\(UUID().uuidString)")
+    let projects = dir.appendingPathComponent("projects/-Users-me-demo")
+    try! FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    let iso = ISO8601DateFormatter()
+    let history = #"{"version":2,"samples":[{"t":\#(Int(at(20, 14, 30).timeIntervalSince1970 * 1000)),"org":"A","u":{"fh":85,"sd":90}}]}"#
+    try! history.write(to: dir.appendingPathComponent("history.json"), atomically: true, encoding: .utf8)
+    func limit(_ t: Date, _ type: String, resets: Date) -> String {
+        #"{"type":"assistant","timestamp":"\#(iso.string(from: t))","message":{"id":"\#(type)","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}},"quotaLimits":{"status":"rejected","resetsAt":\#(Int(resets.timeIntervalSince1970)),"rateLimitType":"\#(type)"}}"#
+    }
+    let log = [logLine("w1", iso.string(from: at(20, 14, 35)), "claude-opus-5-5", output: 10_000),
+               limit(at(20, 14, 45), "five_hour", resets: at(20, 18)), limit(at(20, 14, 46), "seven_day", resets: at(24, 9))]
+    try! (log.joined(separator: "\n") + "\n").write(to: projects.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+    let provider = ClaudeProvider(historyURL: dir.appendingPathComponent("history.json"),
+                                  projectsURL: dir.appendingPathComponent("projects"), archiveURL: nil)
+    let snap = try! provider.snapshot(now: at(20, 15))
+    let session = snap.window("five_hour"), weekly = snap.window("seven_day")
+    check(session?.limitReported == true && near(session?.percent, 100) && session?.resetsAt == at(20, 18),
+          "5 小时的限流消息进了 5 小时窗口：\(String(describing: session))")
+    check(weekly?.limitReported == true && near(weekly?.percent, 100) && weekly?.resetsAt == at(24, 9),
+          "每周的限流消息进了每周窗口：\(String(describing: weekly))")
+    try? FileManager.default.removeItem(at: dir)
 }
 
 // MARK: - 其他端用量
@@ -350,6 +379,22 @@ do {
     mixed.end = at(25, 10, 15); mixed.usd = 0.3; mixed.sessionFrom = 10; mixed.sessionTo = 20 // 本机只够 1%，官方涨了 10%
     let skip = RateLearner.learn([pure, mixed], delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
     check(near(skip.usdPerPercent, 0.3, 1e-3) && skip.intervals == 1, "同时在其他端用过的区间不拿来学：\(skip)")
+    // 10 段里有 4 段混用（官方 +15，本机只够 +10）：简单平均会被拉到 $0.25、一段都挑不出来；中位数 + 反复挑能找全
+    let crowded = (0..<10).map { i -> UsageInterval in
+        var interval = intervals[0]
+        interval.end = at(25, 10).addingTimeInterval(Double(i) * 900)
+        interval.usd = 3
+        interval.sessionFrom = 0
+        interval.sessionTo = [1, 4, 6, 8].contains(i) ? 15 : 10
+        return interval
+    }
+    let robust = RateLearner.learn(crowded, delta: \.sessionDelta, prior: 0.31, priorUSD: 0.0001)
+    check(near(robust.usdPerPercent, 0.3, 1e-3) && robust.intervals == 6, "混用的区间多的时候也挑得出来：\(robust)")
+    let flagged = crowded.filter { OtherUsage.isOther(excess: $0.sessionDelta! - $0.usd / robust.usdPerPercent, local: $0.usd / robust.usdPerPercent) }
+    check(flagged.count == 4, "学换算率时挑掉的，正好是按学到的换算率会被面板算成其他端的那几段")
+    var stale = intervals[0]
+    stale.end = at(22, 10); stale.usd = 3; stale.sessionFrom = 0; stale.sessionTo = 10
+    check(RateLearner.learn([stale, pure], delta: \.sessionDelta, prior: 0.31).intervals == 1, "两天以前的区间不再算")
 
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-archive-\(UUID().uuidString)")
     let url = dir.appendingPathComponent("intervals.jsonl")

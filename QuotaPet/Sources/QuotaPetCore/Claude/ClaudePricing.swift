@@ -80,7 +80,12 @@ public enum ClaudePricing {
 
     /// 额度加权花费：API 等价花费，但缓存读打折。实时估算和学习换算率都用它
     public static func quotaCost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
-        cost(family, t) - (1 - cacheReadQuotaWeight) * cacheReadCost(family, t)
+        quotaCost(usd: cost(family, t), cacheReadUSD: cacheReadCost(family, t))
+    }
+
+    /// 已经知道 API 等价花费和其中缓存读的部分时（比如区间记录）
+    public static func quotaCost(usd: Double, cacheReadUSD: Double) -> Double {
+        usd - (1 - cacheReadQuotaWeight) * cacheReadUSD
     }
 }
 
