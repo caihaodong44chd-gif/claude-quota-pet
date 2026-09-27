@@ -33,12 +33,15 @@ public struct UsageInterval: Codable, Equatable, Sendable {
 
     /// 从官方读数和本机请求里切出完整的区间。只要正常的间隔（≤ 20 分钟，说明桌面端一直开着），
     /// 并且已经结束 2 分钟以上（晚写进日志的请求也算进来了）。requests 要按时间排序。
-    public static func extract(samples: [PlanUsageSample], requests: [ClaudeRequest], now: Date) -> [UsageInterval] {
+    /// since：requests 从什么时候开始是全的（扫描器的保留期）。桌面端的读数可能早得多，更早开始的区间
+    /// 本机花费看不全，会被当成 0 记进只追加的记录里，所以不切
+    public static func extract(samples: [PlanUsageSample], requests: [ClaudeRequest], since: Date = .distantPast,
+                               now: Date) -> [UsageInterval] {
         var intervals: [UsageInterval] = []
         var first = 0
         for (a, b) in zip(samples, samples.dropFirst()) {
             let span = b.time.timeIntervalSince(a.time)
-            guard span > 0, span <= 20 * 60, b.time <= now.addingTimeInterval(-120) else { continue }
+            guard span > 0, span <= 20 * 60, a.time >= since, b.time <= now.addingTimeInterval(-120) else { continue }
             while first < requests.count, requests[first].time <= a.time { first += 1 }
             var interval = UsageInterval(start: a.time, end: b.time, sessionFrom: a.session, sessionTo: b.session,
                                          weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0, cacheReadUSD: 0,

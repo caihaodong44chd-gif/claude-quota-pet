@@ -162,6 +162,35 @@ check(requests.count == 3 && requests.last?.family == .sonnet, "增量读取：�
 check(near(requests.last?.usd, 0.10), "sonnet 1 万输出 tokens = $0.10")
 try? FileManager.default.removeItem(at: tmp)
 
+// 按模型版本定价：同一族里老版本的价格不一样（和 usage_lab.py 的 price() 一致）
+for (model, family, version) in [
+    ("claude-opus-5-5", ModelFamily.opus, (5, 5)), ("claude-opus-4-20250514", .opus, (4, 0)), ("claude-opus-4-8[1m]", .opus, (4, 8)),
+    ("claude-haiku-4-5-20251001", .haiku, (4, 5)), ("claude-3-7-sonnet-20250219", .sonnet, (3, 7)), ("us.anthropic.claude-sonnet-4-5-v1:0", .sonnet, (4, 5)),
+    ("claude-mythos-5", .fable, (5, 0)),
+] {
+    let v = ClaudePricing.version(of: model, family: family)
+    check(v.map { $0 == version } ?? false, "\(model) 的版本号：\(String(describing: v))")
+}
+check(ClaudePricing.version(of: "claude-opus", family: .opus) == nil && ClaudePricing.version(of: "opus", family: .opus) == nil,
+      "没有版本号的模型名")
+check(ModelFamily.of(model: "claude-mythos-5-1") == .fable, "Mythos 和 Fable 同一档，按 Fable 算")
+for (model, input, cacheRead, output) in [
+    ("claude-opus-5-5", 4.0, 0.2, 20.0), ("claude-opus-5", 5, 0.5, 25), ("claude-opus-4-8", 5, 0.5, 25), ("claude-opus-4-1-20250805", 15, 1.5, 75),
+    ("claude-opus-6", 4, 0.2, 20),  // 还没收录的新版本按当前这一代算
+    ("claude-fable-5-1", 10, 0.25, 50), ("claude-fable-5", 10, 1, 50), ("claude-mythos-5-1", 10, 0.25, 50),
+    ("claude-sonnet-5", 2, 0.2, 10), ("claude-sonnet-4-6", 3, 0.3, 15), ("claude-3-7-sonnet-20250219", 3, 0.3, 15),
+    ("claude-haiku-4-5-20251001", 1, 0.1, 5), ("anthropic.claude-3-5-haiku-20241022-v1:0", 0.8, 0.08, 4),
+] {
+    let p = ClaudePricing.price(model: model, family: ModelFamily.of(model: model)!)
+    check(p.input == input && p.cacheRead == cacheRead && p.output == output, "\(model) 的价格：\(p)")
+}
+do {  // 日志里是老版本时，扫描出来的请求按老价格算
+    let scanner = ClaudeTranscriptScanner(root: tmp, retention: 365 * 86400)
+    scanner.ingest(line: Data(logLine("o5", "2026-09-25T02:00:00.000Z", "claude-opus-5", output: 10_000, cacheRead: 1_000_000).utf8), path: "x")
+    let r = scanner.refresh(now: at(25, 23)).first
+    check(r?.family == .opus && near(r?.usd, 0.75) && near(r?.cacheReadUSD, 0.5), "Opus 5：1 万输出 $0.25 + 100 万缓存读 $0.5：\(r?.usd ?? -1)")
+}
+
 check(ClaudeRates.starting.usdPerSessionPercent == 0.27 && ClaudeRates.starting.usdPerWeeklyPercent == 2.0,
       "起始换算率：5 小时 $0.27 / 1%，每周 $2.0 / 1%")
 /// 下面的估算测试用 $0.117 / 1%，数字好算
@@ -557,6 +586,9 @@ do {
           "区间里的花费、官方增量、按模型/思考程度分的花费")
     check(intervals.last?.sessionDelta == nil && intervals.last?.weeklyDelta == 0, "重置过的区间没有 5 小时增量")
     check(UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 16)).isEmpty, "刚结束 2 分钟内的区间先不记")
+    check(UsageInterval.extract(samples: samples, requests: reqs, since: at(25, 10, 10), now: at(25, 14)).map(\.start)
+              == [at(25, 10, 15), at(25, 10, 30)],
+          "本机日志还没覆盖到的区间不切，免得把本机花费记成 0")
 
     // opus：100 万缓存读 $0.2 + 1 万输出 $0.2 = $0.4，缓存读半价 → 额度加权 $0.3
     let cached = ClaudeRequest(id: "c", time: at(25, 10, 5), family: .opus, tokens: TokenCounts(cacheRead: 1_000_000, output: 10_000))

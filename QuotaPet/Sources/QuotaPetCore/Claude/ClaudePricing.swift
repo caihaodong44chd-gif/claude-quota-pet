@@ -3,9 +3,10 @@ import Foundation
 public enum ModelFamily: String, CaseIterable, Codable, Sendable {
     case fable, opus, sonnet, haiku
 
-    /// 和 usage_lab.py 的 family() 一样：模型名里包含哪个就算哪个
+    /// 和 usage_lab.py 的 family() 一样：模型名里包含哪个就算哪个。Mythos 和 Fable 同一档、同样的价格，算 Fable
     public static func of(model: String?) -> ModelFamily? {
         guard let model = model?.lowercased() else { return nil }
+        if model.contains("mythos") { return .fable }
         return allCases.first { model.contains($0.rawValue) }
     }
 
@@ -40,7 +41,7 @@ public struct TokenCounts: Equatable, Sendable {
 }
 
 /// 美元 / 百万 tokens
-public struct ModelPrice: Sendable {
+public struct ModelPrice: Equatable, Sendable {
     public var input: Double
     public var cacheWrite5m: Double
     public var cacheWrite1h: Double
@@ -49,22 +50,65 @@ public struct ModelPrice: Sendable {
 }
 
 public enum ClaudePricing {
-    /// 与 usage_lab.py 的 PRICES 保持一致。
-    /// 来源：platform.claude.com/docs/en/about-claude/pricing（2026-09）
-    public static let prices: [ModelFamily: ModelPrice] = [
-        .fable: ModelPrice(input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50),
-        .opus: ModelPrice(input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.20, output: 20),
-        .sonnet: ModelPrice(input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.20, output: 10),
-        .haiku: ModelPrice(input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.10, output: 5),
-    ]
+    /// 各模型族当前这一代的价格（Fable 5.1、Opus 5.5、Sonnet 5、Haiku 4.5），与 usage_lab.py 的 PRICES 保持一致。
+    /// 来源：platform.claude.com/docs/en/about-claude/pricing（2026-09）。用 switch 写：加了新的模型族忘了写价格会编译不过
+    public static func currentPrice(_ family: ModelFamily) -> ModelPrice {
+        switch family {
+        case .fable: return ModelPrice(input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50)
+        case .opus: return ModelPrice(input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.20, output: 20)
+        case .sonnet: return ModelPrice(input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.20, output: 10)
+        case .haiku: return ModelPrice(input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.10, output: 5)
+        }
+    }
 
     /// 缓存读在额度里大约只算 API 价格的一半。与 usage_lab.py 的 CACHE_READ_WEIGHT 保持一致。
     /// 长对话里缓存读占的成本很大，按原价算的话，换算率会随上下文变长一路漂高（产品规划第 7 节）。
     public static let cacheReadQuotaWeight = 0.5
 
+    /// 同一族里更老、价格不一样的版本：版本号低于 below 的按 price 算，从新到旧排。与 usage_lab.py 的 OLDER_PRICES 保持一致。
+    /// 模型名里读不出版本号的（或者是还没收录的新版本）按 currentPrice 算
+    static let olderPrices: [ModelFamily: [(below: (Int, Int), price: ModelPrice)]] = [
+        // Fable 5、Mythos 5：缓存读 $1（5.1 起是 $0.25）
+        .fable: [((5, 1), ModelPrice(input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50))],
+        .opus: [
+            ((5, 5), ModelPrice(input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25)),    // Opus 4.5～5
+            ((4, 5), ModelPrice(input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75)),  // Opus 4、4.1
+        ],
+        .sonnet: [((5, 0), ModelPrice(input: 3, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3, output: 15))],  // Sonnet 4.6 及更早
+        .haiku: [((4, 5), ModelPrice(input: 0.8, cacheWrite5m: 1, cacheWrite1h: 1.6, cacheRead: 0.08, output: 4))],  // Haiku 3.5（Bedrock 等还能用）
+    ]
+
+    /// 某个模型的价格：先按族取当前这一代的，模型名里的版本号更老时换成那一代的
+    public static func price(model: String?, family: ModelFamily) -> ModelPrice {
+        var price = currentPrice(family)
+        guard let version = version(of: model, family: family) else { return price }
+        for older in olderPrices[family] ?? [] where version < older.below { price = older.price }
+        return price
+    }
+
+    /// 模型名里的版本号，和 usage_lab.py 的 version() 一样：claude-opus-4-8 → (4, 8)、claude-opus-4-20250514 → (4, 0)、
+    /// 老命名 claude-3-7-sonnet → (3, 7)。族名后面（或者前面）紧跟的一两位数字才算，日期那种长数字不算；读不出来是 nil
+    static func version(of model: String?, family: ModelFamily) -> (Int, Int)? {
+        guard let model = model?.lowercased() else { return nil }
+        let parts = model.split { !($0.isASCII && ($0.isLetter || $0.isNumber)) }.map(String.init)
+        let names: Set<String> = family == .fable ? ["fable", "mythos"] : [family.rawValue]
+        guard let i = parts.firstIndex(where: names.contains) else { return nil }
+        func numbers(_ tokens: [String]) -> [Int] {
+            var result: [Int] = []
+            for token in tokens {
+                guard result.count < 2, token.count <= 2, let n = Int(token) else { break }
+                result.append(n)
+            }
+            return result
+        }
+        let after = numbers(Array(parts[(i + 1)...]))
+        let found = after.isEmpty ? Array(numbers(Array(parts[..<i].reversed())).reversed()) : after
+        guard let major = found.first else { return nil }
+        return (major, found.count > 1 ? found[1] : 0)
+    }
+
     /// API 等价花费（美元）
-    public static func cost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
-        guard let p = prices[family] else { return 0 }
+    public static func cost(_ p: ModelPrice, _ t: TokenCounts) -> Double {
         let sum = Double(t.input) * p.input
             + Double(t.cacheWrite5m) * p.cacheWrite5m
             + Double(t.cacheWrite1h) * p.cacheWrite1h
@@ -74,13 +118,13 @@ public enum ClaudePricing {
     }
 
     /// 其中缓存读的部分（美元）
-    public static func cacheReadCost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
-        Double(t.cacheRead) * (prices[family]?.cacheRead ?? 0) / 1e6
+    public static func cacheReadCost(_ p: ModelPrice, _ t: TokenCounts) -> Double {
+        Double(t.cacheRead) * p.cacheRead / 1e6
     }
 
     /// 额度加权花费：API 等价花费，但缓存读打折。实时估算和学习换算率都用它
-    public static func quotaCost(_ family: ModelFamily, _ t: TokenCounts) -> Double {
-        quotaCost(usd: cost(family, t), cacheReadUSD: cacheReadCost(family, t))
+    public static func quotaCost(_ p: ModelPrice, _ t: TokenCounts) -> Double {
+        quotaCost(usd: cost(p, t), cacheReadUSD: cacheReadCost(p, t))
     }
 
     /// 已经知道 API 等价花费和其中缓存读的部分时（比如区间记录）

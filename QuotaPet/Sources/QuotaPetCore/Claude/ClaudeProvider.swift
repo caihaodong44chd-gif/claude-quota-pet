@@ -89,7 +89,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         lastSamples = samples
 
         // 每来一次官方读数就多一个完整区间：存进记录，再从全部记录里学换算率
-        var recorded = UsageInterval.extract(samples: samples, requests: requests, now: now)
+        var recorded = UsageInterval.extract(samples: samples, requests: requests, since: now.addingTimeInterval(-scanner.retention),
+                                             now: now)
         if let archive {
             archive.merge(recorded)
             recorded = archive.intervals
