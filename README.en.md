@@ -82,7 +82,7 @@ cd claude-quota-pet/QuotaPet
 make install    # build, install to ~/Applications and turn on launch at login
 ```
 
-Official usage readings are recorded by the [Claude desktop app](https://claude.ai/download), so install it and sign in. After that, the pet shows up on the right side of the menu bar whenever Claude is open. On first launch macOS asks whether QuotaPet may send notifications; allow it to get usage alerts.
+Official usage readings are recorded by the [Claude desktop app](https://claude.ai/download), so install it and sign in. After that, the pet shows up on the right side of the menu bar whenever Claude is open. On first launch macOS asks whether QuotaPet may send notifications; allow it to get usage alerts. If you declined, Settings shows a note with a button that takes you to System Settings to turn them on.
 
 Just want a look first? `make demo` runs one cycle with fake data and shows every mood in 75 seconds.
 

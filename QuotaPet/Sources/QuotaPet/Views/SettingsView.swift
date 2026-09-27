@@ -100,6 +100,18 @@ struct SettingsView: View {
                       isOn: $settings.notifyRunningOut)
                 .disabled(!settings.notificationsEnabled)
             SwitchRow(tr("额度恢复时提醒", "Notify when quota resets"), isOn: $settings.notifyOnReset)
+            if settings.notificationsDenied, settings.notificationsEnabled || settings.notifyOnReset {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tr("系统设置里没允许 QuotaPet 发通知，上面的提醒都弹不出来。",
+                            "QuotaPet isn't allowed to send notifications in System Settings, so these alerts won't appear."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(tr("打开通知设置", "Open Notification Settings"), action: openNotificationSettings)
+                        .buttonStyle(.link)
+                        .font(.system(size: 11))
+                }
+            }
         }
 
         SettingsGroup(tr("其他", "Other")) {
@@ -219,6 +231,14 @@ struct SettingsView: View {
         let learned = estimation.learnedIntervals, clock = Fmt.clock(until, now: Date())
         return tr("从 \(learned) 段有 Claude Code 用量的记录里学到，数据截至 \(clock)。",
                   "Learned from \(plural(learned, "interval")) with Claude Code usage, up to \(clock). ") + recorded
+    }
+
+    /// 系统设置 → 通知 → QuotaPet
+    private func openNotificationSettings() {
+        let id = Bundle.main.bundleIdentifier ?? "dev.quotapet.app"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func thresholdBinding(_ threshold: Int) -> Binding<Bool> {

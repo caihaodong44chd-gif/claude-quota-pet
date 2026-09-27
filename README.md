@@ -80,7 +80,7 @@ cd claude-quota-pet/QuotaPet
 make install    # 编译，装到 ~/Applications，并打开开机自启
 ```
 
-官方额度读数是 [Claude 桌面端](https://claude.ai/download)记录的，所以要装好并登录它。之后一打开 Claude，宠物就会出现在菜单栏右边。第一次启动时 macOS 会问要不要允许通知，选允许才能收到用量提醒。
+官方额度读数是 [Claude 桌面端](https://claude.ai/download)记录的，所以要装好并登录它。之后一打开 Claude，宠物就会出现在菜单栏右边。第一次启动时 macOS 会问要不要允许通知，选允许才能收到用量提醒；选了不允许的话，设置页会提示并带你去系统设置里打开。
 
 只想先看看效果的话，`make demo` 会用假数据跑一轮，75 秒看完宠物的所有状态。
 
