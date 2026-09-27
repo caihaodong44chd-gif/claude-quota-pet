@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                 keepVisible: demo)
 
         if !demo {  // 演示模式的数据一直在变，不发通知
-            notifier.requestAuthorizationIfNeeded()
+            notifier.start()
             store.onUpdate = { [weak self] old, new in self?.notifier.process(old: old, new: new) }
         }
         store.start()

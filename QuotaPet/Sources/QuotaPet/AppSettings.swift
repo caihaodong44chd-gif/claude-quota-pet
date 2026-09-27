@@ -67,6 +67,8 @@ final class AppSettings: ObservableObject {
     }
     /// 开机自启设置失败时系统给的原因（界面上再套一句提示，跟着界面语言走）
     @Published private(set) var launchAtLoginError: String?
+    /// 系统设置里没允许 QuotaPet 发通知（NotificationManager 更新，不存）：提醒开着也弹不出来，设置页要说一声
+    @Published var notificationsDenied = false
 
     init() {
         defaults.register(defaults: [

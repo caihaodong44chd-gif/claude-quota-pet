@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import Combine
 import UserNotifications
 import QuotaPetCore
 
@@ -8,6 +9,7 @@ import QuotaPetCore
 final class NotificationManager {
     private let settings: AppSettings
     private let defaults = UserDefaults.standard
+    private var cancellables: Set<AnyCancellable> = []
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -18,9 +20,34 @@ final class NotificationManager {
         Bundle.main.bundleURL.pathExtension == "app" ? UNUserNotificationCenter.current() : nil
     }
 
-    func requestAuthorizationIfNeeded() {
-        guard settings.notificationsEnabled || settings.notifyOnReset, let center else { return }
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    /// 提醒开着时向系统要通知权限（第一次会弹窗问用户）：启动时要一次，之后在设置里重新打开提醒时再要一次。
+    /// 用户可能在系统设置里改了权限，每次打开面板（面板窗口变成 key；App 被激活不一定有通知）时重新看一下，被拒绝了设置页要说一声
+    func start() {
+        guard center != nil else { return }
+        Publishers.CombineLatest(settings.$notificationsEnabled, settings.$notifyOnReset)
+            .map { $0 || $1 }
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in self?.requestAuthorization() }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
+            .sink { [weak self] _ in Task { await self?.refreshAuthorization() } }
+            .store(in: &cancellables)
+    }
+
+    private func requestAuthorization() {
+        guard let center else { return }
+        Task {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            await refreshAuthorization()
+        }
+    }
+
+    private func refreshAuthorization() async {
+        guard let center else { return }
+        let denied = await center.notificationSettings().authorizationStatus == .denied
+        if settings.notificationsDenied != denied { settings.notificationsDenied = denied }
     }
 
     func process(old: UsageSnapshot?, new: UsageSnapshot) {
