@@ -22,6 +22,7 @@ import datetime as dt
 import glob
 import json
 import os
+import re
 import sys
 
 HOME = os.path.expanduser("~")
@@ -31,11 +32,21 @@ LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots.jsonl"
 
 # 官方 API 价格，$/百万 tokens：输入, 5分钟缓存写, 1小时缓存写, 缓存读, 输出
 # 来源：platform.claude.com/docs/en/about-claude/pricing（2026-09）
+# 各模型族当前这一代（Fable 5.1、Opus 5.5、Sonnet 5、Haiku 4.5），与 ClaudePricing.currentPrice 一致
 PRICES = {
     "fable": (10, 12.5, 20, 0.25, 50),
     "opus": (4, 5, 8, 0.20, 20),
     "sonnet": (2, 2.5, 4, 0.20, 10),
     "haiku": (1, 1.25, 2, 0.10, 5),
+}
+# 同一族里更老、价格不一样的版本：版本号低于第一项的按第二项算，从新到旧排（与 ClaudePricing.olderPrices 一致）。
+# 模型名里读不出版本号的（或者是还没收录的新版本）按 PRICES 算
+OLDER_PRICES = {
+    "fable": [((5, 1), (10, 12.5, 20, 1.0, 50))],       # Fable 5、Mythos 5：缓存读 $1
+    "opus": [((5, 5), (5, 6.25, 10, 0.50, 25)),          # Opus 4.5～5
+             ((4, 5), (15, 18.75, 30, 1.50, 75))],       # Opus 4、4.1
+    "sonnet": [((5, 0), (3, 3.75, 6, 0.30, 15))],        # Sonnet 4.6 及更早
+    "haiku": [((4, 5), (0.8, 1, 1.6, 0.08, 4))],         # Haiku 3.5（Bedrock 等还能用）
 }
 # 缓存读在额度里大约只算 API 价格的一半（与 ClaudePricing.cacheReadQuotaWeight 一致）
 CACHE_READ_WEIGHT = 0.5
@@ -48,20 +59,49 @@ FIELD_NAMES = {"inp": "输入", "cw5": "缓存写5m", "cw1h": "缓存写1h", "cr
 
 
 def family(model):
+    """模型名里包含哪个族就算哪个（和 ModelFamily.of 一样）。Mythos 和 Fable 同一档、同样的价格，算 Fable"""
+    model = (model or "").lower()
+    if "mythos" in model:
+        return "fable"
     for f in PRICES:
-        if f in (model or ""):
+        if f in model:
             return f
     return None
 
 
-def cost(fam, tok):
-    p = PRICES[fam]
+def version(model, fam):
+    """模型名里的版本号（和 ClaudePricing.version 一样）：claude-opus-4-8 → (4, 8)、claude-opus-4-20250514 → (4, 0)、
+    老命名 claude-3-7-sonnet → (3, 7)。族名后面（或者前面）紧跟的一两位数字才算，日期那种长数字不算；读不出来是 None"""
+    parts = re.split(r"[^a-z0-9]+", (model or "").lower())
+    names = {"fable", "mythos"} if fam == "fable" else {fam}
+    i = next((i for i, p in enumerate(parts) if p in names), None)
+    if i is None:
+        return None
+
+    def numbers(tokens):
+        out = []
+        for t in tokens:
+            if len(out) == 2 or not (t.isdigit() and len(t) <= 2):
+                break
+            out.append(int(t))
+        return out
+
+    found = numbers(parts[i + 1:]) or numbers(parts[:i][::-1])[::-1]
+    return (found[0], found[1] if len(found) > 1 else 0) if found else None
+
+
+def price(model, fam):
+    """某个模型的价格：先按族取当前这一代的，模型名里的版本号更老时换成那一代的"""
+    p, v = PRICES[fam], version(model, fam)
+    for below, older in OLDER_PRICES.get(fam, []) if v else []:
+        if v < below:
+            p = older
+    return p
+
+
+def cost(p, tok):
+    """API 等价花费，p 是 price() 给的价格"""
     return sum(tok[k] * p[i] for i, k in enumerate(FIELDS)) / 1e6
-
-
-def quota_cost(fam, tok, weight=CACHE_READ_WEIGHT):
-    """额度加权花费：缓存读打折，和 App 的实时估算一样"""
-    return cost(fam, tok) - (1 - weight) * tok["cr"] * PRICES[fam][3] / 1e6
 
 
 def parse_ts(s):
@@ -103,20 +143,26 @@ def load_requests():
                         prev["tok"][k] = max(prev["tok"][k], tok[k])
                     prev["t"] = max(prev["t"], parse_ts(d["timestamp"]))
                 else:
-                    reqs[key] = {"t": parse_ts(d["timestamp"]), "fam": fam, "tok": tok,
+                    reqs[key] = {"t": parse_ts(d["timestamp"]), "fam": fam, "price": price(m.get("model"), fam), "tok": tok,
                                  "sub": "/subagents/" in path or bool(d.get("isSidechain"))}
     return sorted(reqs.values(), key=lambda r: r["t"])
 
 
 def load_snapshots():
-    """合并桌面端历史 + 手动快照，返回 [(t秒, fh, sd, 来源)]。"""
+    """合并桌面端历史 + 手动快照，返回 [(t秒, fh, sd, 来源)]。
+    桌面端切换过账号时只用最近那个组织的读数，和 App（ClaudeDesktopHistory.parse）一样。"""
     snaps = []
     try:
         with open(HISTORY, encoding="utf-8") as fh:
-            for s in json.load(fh).get("samples", []):
-                u = s.get("u") or {}
-                if "fh" in u and "sd" in u:
-                    snaps.append((s["t"] / 1000, u["fh"], u["sd"], "desktop"))
+            # 和 App 一样只看至少有一个数字读数的样本（JSON 的 true/false 在 App 里也算数字）
+            samples = sorted((s for s in json.load(fh).get("samples", [])
+                              if "t" in s and any(isinstance(v, (int, float)) for v in (s.get("u") or {}).values())),
+                             key=lambda s: s["t"])
+        org = samples[-1].get("org") if samples else None
+        for s in samples:
+            u = s["u"]
+            if (org is None or s.get("org") == org) and "fh" in u and "sd" in u:
+                snaps.append((s["t"] / 1000, u["fh"], u["sd"], "desktop"))
     except (OSError, ValueError):
         pass
     if os.path.exists(LOG):
@@ -129,15 +175,24 @@ def load_snapshots():
 
 
 def bucket(reqs, t0, t1):
-    """(t0, t1] 区间内各模型的 token 和 API 等价成本。"""
-    tok = collections.defaultdict(lambda: dict.fromkeys(FIELDS, 0))
-    n = collections.Counter()
+    """(t0, t1] 区间内按模型族汇总：请求数 n、token、API 等价成本 usd、其中缓存读的成本 cr_usd、最近一个请求的价格 price。
+    每个请求按它自己的模型版本定价，同一族里新老版本混着用也对。"""
+    out = collections.defaultdict(lambda: {"n": 0, "tok": dict.fromkeys(FIELDS, 0), "usd": 0.0, "cr_usd": 0.0, "price": None})
     for r in reqs:
         if t0 < r["t"] <= t1:
-            n[r["fam"]] += 1
+            x = out[r["fam"]]
+            x["n"] += 1
             for k in FIELDS:
-                tok[r["fam"]][k] += r["tok"][k]
-    return tok, n
+                x["tok"][k] += r["tok"][k]
+            x["usd"] += cost(r["price"], r["tok"])
+            x["cr_usd"] += r["tok"]["cr"] * r["price"][3] / 1e6
+            x["price"] = r["price"]
+    return out
+
+
+def quota_cost(x, weight=CACHE_READ_WEIGHT):
+    """额度加权花费：缓存读打折，和 App 的实时估算一样。x 是 bucket() 里一个模型族的汇总"""
+    return x["usd"] - (1 - weight) * x["cr_usd"]
 
 
 def solve(a, b):
@@ -168,11 +223,10 @@ def lstsq(rows, ys):
 def cmd_summary(args):
     reqs = load_requests()
     t0 = dt.datetime.now().timestamp() - args.hours * 3600
-    tok, n = bucket(reqs, t0, float("inf"))
     print(f"最近 {args.hours} 小时，本机 Claude Code 请求（不含网页/手机端）：\n")
     print(f"{'模型':<8}{'请求数':>7}" + "".join(f"{FIELD_NAMES[k]:>11}" for k in FIELDS) + f"{'API等价$':>10}")
-    for fam in tok:
-        print(f"{fam:<8}{n[fam]:>8}" + "".join(f"{tok[fam][k]:>13,}" for k in FIELDS) + f"{cost(fam, tok[fam]):>11.2f}")
+    for fam, x in bucket(reqs, t0, float("inf")).items():
+        print(f"{fam:<8}{x['n']:>8}" + "".join(f"{x['tok'][k]:>13,}" for k in FIELDS) + f"{x['usd']:>11.2f}")
 
 
 def cmd_snap(args):
@@ -225,10 +279,10 @@ def cmd_calibrate(args):
     rows, ys = [], []
     print(f"{'快照时间':<16}{'5h%':>5}{'周%':>5}  " + "".join(f"{f + '$':>9}" for f in fams) + "   备注")
     for s in snaps:
-        tok, _ = bucket(reqs, base_t, s[0])
-        x = [quota_cost(f, tok[f]) for f in fams]
+        spent = bucket(reqs, base_t, s[0])
+        x = [quota_cost(spent[f]) for f in fams]
         rows.append(x + [1.0])  # 截距吸收起始点的取整误差
-        ys.append(s[1] - sum(quota_cost(f, tok[f]) / per for f, per in known.items()))
+        ys.append(s[1] - sum(quota_cost(spent[f]) / per for f, per in known.items()))
         print(f"{fmt_ts(s[0]):<16}{s[1]:>5}{s[2]:>5}  " + "".join(f"{v:>9.3f}" for v in x) + f"   {s[3]}")
     coef = lstsq(rows, ys)
     resid = [y - sum(c * v for c, v in zip(coef, r)) for r, y in zip(rows, ys)]
@@ -236,7 +290,7 @@ def cmd_calibrate(args):
     ratio, _, _ = weekly_ratio(load_snapshots())
     if args.weekly_ratio:
         ratio = args.weekly_ratio
-    tok_all, _ = bucket(reqs, base_t, snaps[-1][0])
+    spent_all = bucket(reqs, base_t, snaps[-1][0])
 
     print(f"\n回归残差 RMS = {rms:.2f} 个百分点（百分比是整数，<0.5 算拟合良好）")
     print(f"每周/5小时 换算比 = {ratio:.3f}\n")
@@ -247,10 +301,9 @@ def cmd_calibrate(args):
         per_pct = 1 / k                      # 1% 5小时额度 ≈ $
         window = 100 / k                     # 满 5 小时窗口 ≈ $
         week = window / (100 * ratio) * 100  # 满周额度 ≈ $
-        p = PRICES[f]
-        t = tok_all[f]
-        mix_cost = quota_cost(f, t)
-        mix_tok = sum(t.values())
+        p = spent_all[f]["price"] or PRICES[f]  # 换算成 token 时按这一族最近用的那个版本的价格
+        mix_cost = quota_cost(spent_all[f])
+        mix_tok = sum(spent_all[f]["tok"].values())
         print(f"【{f}】 1% 5小时额度 ≈ ${per_pct:.3f}   满 5 小时窗口 ≈ ${window:.1f}   满周 ≈ ${week:.0f}（缓存读按 {CACHE_READ_WEIGHT:g} 倍算）")
         print(f"   换成纯输出 tokens：5小时 ≈ {window / p[4] * 1e6:,.0f}   每周 ≈ {week / p[4] * 1e6:,.0f}")
         print(f"   换成纯新输入 tokens：5小时 ≈ {window / p[0] * 1e6:,.0f}   每周 ≈ {week / p[0] * 1e6:,.0f}")
@@ -307,10 +360,10 @@ def cmd_backtest(args):
         for a, b in zip(snaps, snaps[1:]):
             if b[0] - a[0] > 20 * 60 or b[col] < a[col]:  # 桌面端没开 / 窗口重置了
                 continue
-            tok, _ = bucket(reqs, a[0], b[0])
-            if sum(cost(f, t) for f, t in tok.items()) < 0.02:  # 本机没在用
+            spent = bucket(reqs, a[0], b[0]).values()
+            if sum(x["usd"] for x in spent) < 0.02:  # 本机没在用
                 continue
-            usd = sum(quota_cost(f, t, args.cache_weight) for f, t in tok.items())
+            usd = sum(quota_cost(x, args.cache_weight) for x in spent)
             rate = learn(done, prior, args.half_life * 3600)
             est, actual = usd / rate, b[col] - a[col]
             errs.append(abs(est - actual))

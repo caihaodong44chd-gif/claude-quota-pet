@@ -5,27 +5,32 @@ public struct ClaudeRequest: Equatable, Sendable {
     public var id: String
     public var time: Date
     public var family: ModelFamily
+    /// 按模型版本定的价格（见 ClaudePricing.price）
+    public var price: ModelPrice
     public var tokens: TokenCounts
     /// 思考程度（high / xhigh / max…），日志里没有就是 nil
     public var effort: String?
     /// 输出 token 里有多少是思考（已经包含在 tokens.output 里）
     public var thinkingTokens: Int
 
-    public init(id: String, time: Date, family: ModelFamily, tokens: TokenCounts, effort: String? = nil, thinkingTokens: Int = 0) {
+    /// model：日志里的模型名，按它的版本定价；nil 时按这个族当前这一代的价格
+    public init(id: String, time: Date, family: ModelFamily, model: String? = nil, tokens: TokenCounts, effort: String? = nil,
+                thinkingTokens: Int = 0) {
         self.id = id
         self.time = time
         self.family = family
+        self.price = ClaudePricing.price(model: model, family: family)
         self.tokens = tokens
         self.effort = effort
         self.thinkingTokens = thinkingTokens
     }
 
     /// API 等价花费（美元）
-    public var usd: Double { ClaudePricing.cost(family, tokens) }
+    public var usd: Double { ClaudePricing.cost(price, tokens) }
     /// 其中缓存读的部分
-    public var cacheReadUSD: Double { ClaudePricing.cacheReadCost(family, tokens) }
+    public var cacheReadUSD: Double { ClaudePricing.cacheReadCost(price, tokens) }
     /// 额度加权花费（缓存读打折），换算成百分比用它
-    public var quotaUSD: Double { ClaudePricing.quotaCost(family, tokens) }
+    public var quotaUSD: Double { ClaudePricing.quotaCost(price, tokens) }
 
     /// 「模型/思考程度」，比如 "opus/max"
     public var group: String { "\(family.rawValue)/\(effort ?? "-")" }
@@ -119,9 +124,9 @@ public final class ClaudeTranscriptScanner {
             if limits[key].map({ $0.time > limit.time }) ?? true { limits[key] = limit }
         }
         guard let message = obj["message"] as? [String: Any],
-              let usage = message["usage"] as? [String: Any], !usage.isEmpty,
-              let family = ModelFamily.of(model: message["model"] as? String)  // 例如 <synthetic> 占位消息会被跳过
-        else { return }
+              let usage = message["usage"] as? [String: Any], !usage.isEmpty else { return }
+        let model = message["model"] as? String
+        guard let family = ModelFamily.of(model: model) else { return }  // 例如 <synthetic> 占位消息会被跳过
 
         func int(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
         let cacheCreation = usage["cache_creation"] as? [String: Any] ?? [:]
@@ -145,7 +150,7 @@ public final class ClaudeTranscriptScanner {
             previous.time = max(previous.time, time)
             records[key] = previous
         } else {
-            records[key] = ClaudeRequest(id: key, time: time, family: family, tokens: tokens,
+            records[key] = ClaudeRequest(id: key, time: time, family: family, model: model, tokens: tokens,
                                          effort: obj["effort"] as? String, thinkingTokens: thinking)
         }
     }
