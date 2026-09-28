@@ -129,6 +129,10 @@ docs/PRODUCT_PLAN.md  产品规划和实测记录
 - 官方读数来自 Claude 桌面端的内部文件和 Codex 的对话日志，格式随时可能变。读不了的时候宠物会显示「有点懵」，面板里会说明原因。
 - 除了官方读数，其他数字都是估算，可能差几个百分点。
 
+## 反馈
+
+用完感觉怎么样、有没有遇到问题，欢迎[提个 issue](https://github.com/caihaodong44chd-gif/claude-quota-pet/issues/new?template=feedback.yml)。
+
 ## 许可证
 
 [MIT](LICENSE)

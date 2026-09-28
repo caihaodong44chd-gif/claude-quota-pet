@@ -158,6 +158,10 @@ Code structure, adding support for other AI tools, and redrawing the pet are cov
 - Official readings come from an internal file of the Claude desktop app and from Codex's conversation logs, and their formats may change at any time. If they can't be read, the pet looks confused and the popover explains why.
 - Apart from the official readings, all numbers are estimates and may be off by a few percentage points.
 
+## Feedback
+
+Used it? Like it, hate it, hit a bug — [open an issue](https://github.com/caihaodong44chd-gif/claude-quota-pet/issues/new?template=feedback.yml).
+
 ## License
 
 [MIT](LICENSE)

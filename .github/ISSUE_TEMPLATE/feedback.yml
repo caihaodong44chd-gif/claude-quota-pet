@@ -1,0 +1,28 @@
+name: 使用反馈 / Feedback
+description: 用了 QuotaPet？说说好用还是不好用，或者报个 bug
+title: "[反馈] "
+labels: ["feedback"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: 反馈类型
+      options:
+        - 用得不错，想提个建议
+        - 遇到了 bug / 数据不对
+        - 装不上 / 用不了
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: macOS 版本
+      placeholder: 例如 macOS 15.1
+  - type: textarea
+    id: details
+    attributes:
+      label: 具体说说
+      description: 发生了什么？期望是什么？能贴张截图更好
+    validations:
+      required: true
