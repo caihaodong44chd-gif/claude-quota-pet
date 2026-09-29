@@ -38,8 +38,10 @@ install: app
 
 # 发 GitHub Release 用：Apple 芯片 + Intel 通用版，压成 build/QuotaPet-<版本>.zip（版本号取 Info.plist）
 VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+# 打完包先查一遍：包里不能有本机绝对路径（仓库是公开的，Release 谁都能下载）
 release:
 	UNIVERSAL=1 ./scripts/build-app.sh
+	@if grep -r -a -l "/Users/" $(APP); then echo "❌ 包里有本机绝对路径（上面列出的文件），不能发布"; exit 1; fi
 	rm -f build/QuotaPet-$(VERSION).zip
 	ditto -c -k --norsrc --noextattr --keepParent $(APP) build/QuotaPet-$(VERSION).zip
 	shasum -a 256 build/QuotaPet-$(VERSION).zip

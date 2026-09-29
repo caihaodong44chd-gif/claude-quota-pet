@@ -22,6 +22,8 @@ if [[ "${UNIVERSAL:-}" == 1 ]]; then
 else
     cp "$BIN" "$APP/Contents/MacOS/QuotaPet"
 fi
+# 去掉调试符号：链接器会把编译时每个 .o 的本机绝对路径（带用户名）记在里面，发出去的包不能带
+strip -S "$APP/Contents/MacOS/QuotaPet"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"  # 各语言的 App 名字（访达、通知里显示的）
 
