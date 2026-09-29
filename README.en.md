@@ -74,13 +74,26 @@ If you use Codex (CLI or desktop app) on this Mac, QuotaPet picks up its usage a
 
 ## Install
 
-Requires macOS 14 or later and Swift 6. The Command Line Tools (`xcode-select --install`) are enough; you don't need Xcode.
+Requires macOS 14 or later, on Apple silicon or Intel.
+
+### Download
+
+1. Download `QuotaPet-<version>.zip` from [Releases](https://github.com/caihaodong44chd-gif/claude-quota-pet/releases/latest), unzip it and drag QuotaPet into your Applications folder.
+2. Double-click to open. QuotaPet isn't signed with a paid Apple Developer ID, so the first time macOS blocks it because it can't verify the developer: click Done, go to System Settings → Privacy & Security, scroll to the bottom and click Open Anyway. You only need to do this once.
+   Or run `xattr -dr com.apple.quarantine /Applications/QuotaPet.app` in Terminal.
+3. On first launch the pet appears in the menu bar and opens its popover to show what data it found. If it's in the Applications folder, launch at login is turned on too.
+
+### Build from source
+
+The Command Line Tools (`xcode-select --install`) are enough; you don't need Xcode.
 
 ```bash
 git clone https://github.com/caihaodong44chd-gif/claude-quota-pet.git
 cd claude-quota-pet/QuotaPet
 make install    # build, install to ~/Applications and turn on launch at login
 ```
+
+### After installing
 
 Official usage readings are recorded by the [Claude desktop app](https://claude.ai/download), so install it and sign in. After that, the pet shows up on the right side of the menu bar whenever Claude is open. On first launch macOS asks whether QuotaPet may send notifications; allow it to get usage alerts. If you declined, Settings shows a note with a button that takes you to System Settings to turn them on.
 
@@ -90,6 +103,7 @@ Other commands, run in `QuotaPet/`:
 
 ```bash
 make run        # build QuotaPet.app into build/ and launch it
+make release    # universal build (Apple silicon + Intel) zipped for a GitHub Release
 make check      # run the self-checks
 make previews   # render the pet, menu bar and popover to PNGs in build/previews
 ```
@@ -99,7 +113,7 @@ make previews   # render the pet, menu bar and popover to PNGs in build/previews
 - **Left-click** the pet to open the popover; **right-click** for Refresh, Settings and Quit.
 - By default the pet **follows the Claude desktop app**: it appears when Claude opens and hides when Claude quits (reset notifications still arrive in the background). If you use Codex, the Codex desktop app counts too. If the pet is hidden and you want to check your usage, open QuotaPet again from Spotlight and the popover pops up.
 - In the popover, the weekly bar has a small tick where you'd be at an even pace. The line below says how many points you're over or under it and how much you can use per day until the reset (orange when you're 10 or more points over). For Claude it appears once the weekly reset time is known: after QuotaPet has seen one reset, or when you set the reset time manually in Settings.
-- To appear automatically with Claude, QuotaPet has to launch at login (`make install` turns this on). To turn it off: QuotaPet Settings → General, or System Settings → General → Login Items.
+- To appear automatically with Claude, QuotaPet has to launch at login (`make install` and the first launch from Applications turn this on). To turn it off: QuotaPet Settings → General, or System Settings → General → Login Items.
 
 Settings (right-click → Settings…) has a page per topic:
 

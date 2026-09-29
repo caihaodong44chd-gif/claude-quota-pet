@@ -72,13 +72,26 @@
 
 ## 安装
 
-需要 macOS 14 以上和 Swift 6。装命令行工具（`xcode-select --install`）就够，不需要 Xcode。
+需要 macOS 14 以上，Apple 芯片和 Intel 都能用。
+
+### 直接下载
+
+1. 在 [Releases](https://github.com/caihaodong44chd-gif/claude-quota-pet/releases/latest) 下载 `QuotaPet-版本号.zip`，解压后把「额度宠物」拖进「应用程序」文件夹。
+2. 双击打开。QuotaPet 没有花钱买苹果的开发者签名，第一次打开 macOS 会拦下来，说无法验证开发者：点「完成」，到「系统设置 → 隐私与安全性」拉到最下面，点「仍要打开」。只需要这一次。
+   也可以在终端里执行 `xattr -dr com.apple.quarantine /Applications/QuotaPet.app` 解除拦截。
+3. 第一次打开时宠物会出现在菜单栏，并弹出面板说明读到了哪些数据；放在「应用程序」文件夹里的话，会顺便打开开机自启。
+
+### 从源码编译
+
+装命令行工具（`xcode-select --install`）就够，不需要 Xcode。
 
 ```bash
 git clone https://github.com/caihaodong44chd-gif/claude-quota-pet.git
 cd claude-quota-pet/QuotaPet
 make install    # 编译，装到 ~/Applications，并打开开机自启
 ```
+
+### 装好以后
 
 官方额度读数是 [Claude 桌面端](https://claude.ai/download)记录的，所以要装好并登录它。之后一打开 Claude，宠物就会出现在菜单栏右边。第一次启动时 macOS 会问要不要允许通知，选允许才能收到用量提醒；选了不允许的话，设置页会提示并带你去系统设置里打开。
 

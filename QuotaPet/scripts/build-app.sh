@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 把 SwiftPM 编译出来的可执行文件打包成 build/QuotaPet.app（ad-hoc 签名，本机自用）
+# 把 SwiftPM 编译出来的可执行文件打包成 build/QuotaPet.app（ad-hoc 签名）
+# UNIVERSAL=1 时 Apple 芯片和 Intel 各编一份再合成一个（make release 用）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -9,7 +10,18 @@ APP=build/QuotaPet.app
 
 rm -rf "$APP" build/AppIcon.iconset
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/QuotaPet"
+if [[ "${UNIVERSAL:-}" == 1 ]]; then
+    # 命令行工具里没有 XCBuild，--arch 两个一起编不了，只能按 triple 各编一次再用 lipo 合并
+    bins=()
+    for arch in arm64 x86_64; do
+        triple="$arch-apple-macosx14.0"
+        swift build -c release --product QuotaPet --triple "$triple"
+        bins+=("$(swift build -c release --triple "$triple" --show-bin-path)/QuotaPet")
+    done
+    lipo -create "${bins[@]}" -output "$APP/Contents/MacOS/QuotaPet"
+else
+    cp "$BIN" "$APP/Contents/MacOS/QuotaPet"
+fi
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"  # 各语言的 App 名字（访达、通知里显示的）
 

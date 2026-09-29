@@ -15,6 +15,7 @@ swift build     # 只编译
 make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套）；改界面后用它验证，不用启动 App
 make dump       # 在终端打印当前额度推算（读真实数据）
 make run / make demo / make install
+make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.zip），版本号取 Resources/Info.plist
 ```
 
 - 自检是 `Sources/QuotaPetChecks/main.swift` 里的一串顶层 `check(...)`，按 `// MARK:` 分组，**不能单独跑某一项**，失败时会打印行号。它用了 `@testable import`，只能 debug 构建，不要加 `-c release`。

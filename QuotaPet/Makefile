@@ -1,4 +1,4 @@
-.PHONY: app run demo dump check previews install clean
+.PHONY: app run demo dump check previews install release clean
 
 APP := build/QuotaPet.app
 
@@ -35,6 +35,14 @@ install: app
 	rm -rf ~/Applications/QuotaPet.app
 	cp -R $(APP) ~/Applications/
 	open ~/Applications/QuotaPet.app --args --enable-login-item
+
+# 发 GitHub Release 用：Apple 芯片 + Intel 通用版，压成 build/QuotaPet-<版本>.zip（版本号取 Info.plist）
+VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+release:
+	UNIVERSAL=1 ./scripts/build-app.sh
+	rm -f build/QuotaPet-$(VERSION).zip
+	ditto -c -k --norsrc --noextattr --keepParent $(APP) build/QuotaPet-$(VERSION).zip
+	shasum -a 256 build/QuotaPet-$(VERSION).zip
 
 clean:
 	rm -rf .build build
