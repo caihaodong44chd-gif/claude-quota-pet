@@ -4,22 +4,25 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --product QuotaPet
-BIN="$(swift build -c release --show-bin-path)/QuotaPet"
 APP=build/QuotaPet.app
 
 rm -rf "$APP" build/AppIcon.iconset
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 if [[ "${UNIVERSAL:-}" == 1 ]]; then
-    # 命令行工具里没有 XCBuild，--arch 两个一起编不了，只能按 triple 各编一次再用 lipo 合并
+    # 命令行工具里没有 XCBuild，--arch 两个一起编不了，只能按 triple 各编一次再用 lipo 合并。
+    # 下面渲染图标用本机架构的那份（BIN），不用再单独编一次本机的
     bins=()
     for arch in arm64 x86_64; do
         triple="$arch-apple-macosx14.0"
         swift build -c release --product QuotaPet --triple "$triple"
-        bins+=("$(swift build -c release --triple "$triple" --show-bin-path)/QuotaPet")
+        bin="$(swift build -c release --triple "$triple" --show-bin-path)/QuotaPet"
+        bins+=("$bin")
+        if [[ "$arch" == "$(uname -m)" ]]; then BIN="$bin"; fi
     done
     lipo -create "${bins[@]}" -output "$APP/Contents/MacOS/QuotaPet"
 else
+    swift build -c release --product QuotaPet
+    BIN="$(swift build -c release --show-bin-path)/QuotaPet"
     cp "$BIN" "$APP/Contents/MacOS/QuotaPet"
 fi
 # 去掉调试符号：链接器会把编译时每个 .o 的本机绝对路径（带用户名）记在里面，发出去的包不能带

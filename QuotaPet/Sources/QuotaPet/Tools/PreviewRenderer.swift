@@ -66,7 +66,7 @@ enum PreviewRenderer {
             // 设置页三个分页：settings（通用）、settings-claude、settings-codex
             for (name, page) in [("", SettingsView.Page.general), ("-claude", .claude), ("-codex", .codex)] {
                 let view = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, hasCodex: true,
-                                        codexReadingAt: now.addingTimeInterval(-12 * 60), onBack: {}, page: page)
+                                        codexReadingAt: now.addingTimeInterval(-12 * 60), watchesCodex: true, onBack: {}, page: page)
                 write(renderInWindow(view, dark: false), to: dir.appendingPathComponent("settings\(name)\(lang).png"))
                 if page == .general {
                     write(renderInWindow(view, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
@@ -74,7 +74,8 @@ enum PreviewRenderer {
             }
             // 没装桌面端：「什么时候出现」下面说明为什么一直显示
             let noDesktop = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, hasCodex: true,
-                                         codexReadingAt: now.addingTimeInterval(-12 * 60), canFollowApp: false, onBack: {})
+                                         codexReadingAt: now.addingTimeInterval(-12 * 60), watchesCodex: true,
+                                         canFollowApp: false, onBack: {})
             write(renderInWindow(noDesktop, dark: false), to: dir.appendingPathComponent("settings-nodesktop\(lang).png"))
         }
         print("预览图已写入 \(dir.path)")

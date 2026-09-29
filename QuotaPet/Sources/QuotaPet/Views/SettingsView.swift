@@ -14,6 +14,8 @@ struct SettingsView: View {
     var hasCodex = false
     /// Codex 最近一次读数的时间，Codex 分页里说明用
     var codexReadingAt: Date?
+    /// 在用 Codex（有数据、没在设置里关掉）：「打开时出现」「什么时候藏起来」要把 Codex 也算上
+    var watchesCodex = false
     /// 有桌面端可以跟（见 MenuBarVisibility.shouldShow）；没有时「打开时出现」按一直显示算，说明里要讲
     var canFollowApp = true
     var onBack: () -> Void
@@ -51,8 +53,6 @@ struct SettingsView: View {
         .padding(14)
     }
 
-    /// Claude 和 Codex 都显示时，「打开时出现」「什么时候藏起来」要把 Codex 也算上
-    private var watchesCodex: Bool { hasCodex && settings.showCodex }
 
     @ViewBuilder private var general: some View {
         SettingsGroup(tr("菜单栏", "Menu Bar")) {

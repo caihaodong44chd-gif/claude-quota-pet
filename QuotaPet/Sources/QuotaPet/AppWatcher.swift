@@ -36,12 +36,15 @@ final class AppWatcher: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] in self?.codexRunning = $0 }
             .store(in: &cancellables)
-        // 装没装没有通知可听，有 App 开关时顺便重新看一遍：刚装好的桌面端第一次打开时就算上了
-        running.map { _ in Self.isInstalled(claudeBundleID) }
+        // 装没装没有通知可听：桌面端开关时（刚装好第一次打开）和每分钟（删到废纸篓）各重新看一遍。
+        // 不跟着每个 App 的开关都查：runningApplications 连后台小进程的开关都算，在主线程上查得太勤
+        let recheck = Timer.publish(every: 60, on: .main, in: .common).autoconnect().map { _ in }
+            .merge(with: $claudeRunning.map { _ in }, $codexRunning.map { _ in })
+        recheck.map { Self.isInstalled(claudeBundleID) }
             .removeDuplicates()
             .sink { [weak self] in self?.claudeInstalled = $0 }
             .store(in: &cancellables)
-        running.map { _ in Self.isInstalled(codexBundleID) }
+        recheck.map { Self.isInstalled(codexBundleID) }
             .removeDuplicates()
             .sink { [weak self] in self?.codexInstalled = $0 }
             .store(in: &cancellables)

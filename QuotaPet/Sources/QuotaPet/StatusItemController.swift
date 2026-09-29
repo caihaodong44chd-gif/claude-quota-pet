@@ -30,7 +30,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     // 决定显不显示的几个条件
     private var visibility: MenuBarVisibility = .withClaude
     private var appRunning = false
-    private var canFollowApp = true
     private var keepVisible: Bool   // 演示模式、第一次启动时一直显示（到退出为止）
     private var pinned: Bool        // 用户临时叫出来了（再次打开 QuotaPet）
 
@@ -100,20 +99,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         Publishers.CombineLatest4(settings.$visibility, running, installed, shown.combineLatest(codexPending))
             .sink { [weak self] visibility, running, installed, shownAndPending in
                 let (shown, codexPending) = shownAndPending
+                guard let self else { return }
                 let usesCodex = shown.contains { $0.provider == .codex }
-                let canFollow = installed.0 || (installed.1 && (usesCodex || codexPending))
-                self?.visibility = visibility
-                self?.appRunning = running.0 || (running.1 && usesCodex)
-                self?.canFollowApp = canFollow
-                self?.popoverState.canFollowApp = canFollow
-                self?.updateVisibility()
+                self.visibility = visibility
+                self.appRunning = running.0 || (running.1 && usesCodex)
+                self.popoverState.usesCodex = usesCodex
+                self.popoverState.canFollowApp = installed.0 || (installed.1 && (usesCodex || codexPending))
+                self.updateVisibility()
             }
             .store(in: &cancellables)
     }
 
     /// Claude（在用 Codex 时还有 Codex）开着，或设置成一直显示，或者根本没装桌面端，才出现；藏起来时动画也停掉，只在后台等着发提醒
     private func updateVisibility() {
-        let show = visibility.shouldShow(appRunning: appRunning, canFollow: canFollowApp, pinned: pinned || popover.isShown)
+        let show = visibility.shouldShow(appRunning: appRunning, canFollow: popoverState.canFollowApp, pinned: pinned || popover.isShown)
         if statusItem.isVisible != show {
             if show { Self.restorePosition() } else { Self.rememberPosition() }
             statusItem.isVisible = show
