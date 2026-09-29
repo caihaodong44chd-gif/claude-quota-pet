@@ -134,8 +134,8 @@ struct OverviewView<Pet: View>: View {
                      "No official reading from the desktop app: “used up” came from Claude Code, the rest is a local estimate")
                 : tr("暂无官方读数，数值全部是本机估算", "No official reading yet, so all numbers are local estimates")
         }
-        return tr("Claude 桌面端每 15 分钟记一次官方读数，\(nextOfficialText(now: now))",
-                  "The Claude desktop app records an official reading every 15 min; \(nextOfficialText(now: now))")
+        return tr("聊天、网页、手机的用量要等官方读数（每 15 分钟一次），\(nextOfficialText(now: now))",
+                  "Chat, web and mobile usage shows up with the official reading (every 15 min); \(nextOfficialText(now: now))")
     }
 
     private func refreshedText(now: Date) -> String {
@@ -229,8 +229,8 @@ struct WindowCard: View {
                 .padding(.bottom, 1)
             legend
             if window.otherPercent >= 1 {
-                Text(tr("其中约 \(Int(window.otherPercent.rounded()))% 是网页、手机等其他端用的",
-                        "About \(Int(window.otherPercent.rounded()))% came from the web, mobile or other apps"))
+                Text(tr("其中约 \(Int(window.otherPercent.rounded()))% 是 Claude Code 以外（聊天、网页、手机）用的",
+                        "About \(Int(window.otherPercent.rounded()))% came from outside Claude Code (chat, web, mobile)"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
@@ -269,7 +269,7 @@ struct WindowCard: View {
     /// 消耗速度里有其他端的部分时，补一句「，其中其他端约 6%」
     private var otherBurnText: String {
         guard let other = window.otherBurnPerHour, window.perUnit(other) >= 1 else { return "" }
-        return tr("，其中其他端约 \(rateValue(other))%", ", ~\(rateValue(other))% from other apps")
+        return tr("，其中聊天、网页等约 \(rateValue(other))%", ", ~\(rateValue(other))% from chat, web, etc.")
     }
 
     private var lookbackText: String {
