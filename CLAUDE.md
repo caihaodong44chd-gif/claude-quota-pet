@@ -59,6 +59,7 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - 两家各有一组形象，互不重叠：Claude 是 `PetStyle.claudeChoices`（经典、猫耳、青春、魔女），Codex 是 `codexChoices`（龙娘 `dragon`、汉服 `hanfu`、极客 `geek`）。`PetStyle.of(_:claudeStyle:codexStyle:)` 决定每家用哪个，存的形象不在那组里就用那组第一款。加一款时要放进其中一组。
   - 新部件的开关都在 `STYLES` 里：`accessory`（`horns` 龙角，形状在 `HORN`，画在头发上、自己带描边 / `hairpin` 步摇 / `headphones` 耳机）、`knot`（鬓角的中国结）、`buns`（丸子头）、`collar`（`knot` 立领 / `cross` 交领 / `hoodie` 连帽衫）、`wings`（小龙翼，现在没有款式用）、`elf`（尖耳）。中国结、盘扣太小，用形状画会糊成一团，是在 `decorate` 里缩成像素之后手画盖上去的（`KNOTS`、`BUTTONS`）。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
+- 第一次启动（`QuotaPetCore/FirstLaunch.swift`，设置里只有 NS 开头的 AppKit 键才算）时宠物一直显示到退出，并弹出面板；开机自启先挂起（`loginItemPending`），等 App 在「应用程序」文件夹里运行时才打开（下载版第一次常在「下载」里被 macOS 挪到临时目录运行），用户自己开关过就不再管。
 - 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：
   - 每句界面文字都写成 `tr("中文", "English")`，两种语言写在一起；新加或改界面文字时两种都要写。英文里的数量用 `plural(n, "day")` 分单复数。
   - 当前语言在 `L10n.language`，由 `AppSettings.language` 在 willSet 里同步（订阅者要读到新语言）。快照里的窗口名、说明文字是后台按当前语言算的，换语言时 `UsageStore` 会重算，面板用 `.id(settings.language)` 整个重建。

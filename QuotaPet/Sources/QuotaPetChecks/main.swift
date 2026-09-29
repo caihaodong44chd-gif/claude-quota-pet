@@ -572,6 +572,20 @@ check(MenuBarVisibility.withClaude.note(codex: false, canFollow: false).contains
 check(MenuBarVisibility.withClaude.label == "Claude 打开时" && MenuBarVisibility.withClaude.label(codex: true) == "Claude/Codex 打开时",
       "在用 Codex 时选项里写上 Codex")
 
+// MARK: - 第一次启动
+
+check(FirstLaunch.isFirst(storedKeys: []), "什么设置都没有：第一次启动")
+check(FirstLaunch.isFirst(storedKeys: ["NSStatusItem Preferred Position QuotaPet"]),
+      "只有 AppKit 自己记的（跑过演示模式留下的图标位置）也算第一次")
+check(!FirstLaunch.isFirst(storedKeys: ["NSStatusItem Preferred Position QuotaPet", "notify.claude.five_hour.last"]),
+      "老版本升级上来（有提醒记录、没有 launchedBefore）不算第一次")
+check(!FirstLaunch.isFirst(storedKeys: [FirstLaunch.launchedKey]), "启动过")
+check(FirstLaunch.isInApplicationsFolder("/Applications/QuotaPet.app")
+      && FirstLaunch.isInApplicationsFolder("/Users/someone/Applications/QuotaPet.app"), "应用程序文件夹（系统的和自己的）")
+check(!FirstLaunch.isInApplicationsFolder("/Users/someone/Downloads/QuotaPet.app")
+      && !FirstLaunch.isInApplicationsFolder("/private/var/folders/xy/T/AppTranslocation/1234/d/QuotaPet.app"),
+      "下载文件夹、被 macOS 挪到临时目录运行时不开开机自启")
+
 // MARK: - 区间记录 & 学习换算率
 
 do {

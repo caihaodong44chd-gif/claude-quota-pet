@@ -120,11 +120,12 @@ final class AppSettings: ObservableObject {
         return config
     }
 
-    /// 开机自启（SMAppService，macOS 13+）
+    /// 开机自启（SMAppService，macOS 13+）。开关过一次就不再替用户自动打开（FirstLaunch.loginItemPendingKey）
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
         set {
             objectWillChange.send()
+            defaults.removeObject(forKey: FirstLaunch.loginItemPendingKey)
             do {
                 if newValue {
                     try SMAppService.mainApp.register()

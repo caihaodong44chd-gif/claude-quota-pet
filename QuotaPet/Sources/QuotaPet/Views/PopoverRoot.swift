@@ -7,6 +7,8 @@ final class PopoverState: ObservableObject {
     @Published var page: Page = .overview
     /// 同时有几家时，面板上看的是哪家；每次打开面板先看宠物跟着的那家
     @Published var selected: ProviderID = .claude
+    /// 这次打开后用户自己点过切换条：之后不再跟着宠物换
+    @Published var picked = false
     @Published var isShown = false
     /// 面板最高多高：菜单栏所在的屏幕放得下多少。小屏幕上设置页放不下，超出的部分滚动
     @Published var maxHeight: CGFloat = .infinity
@@ -50,7 +52,7 @@ struct PopoverRoot: View {
                     pet: LivePet(animator: selected == focus ? animator : headerAnimator),
                     tabs: shown.count > 1 ? shown : [],
                     focus: focus,
-                    onSelect: { state.selected = $0 },
+                    onSelect: { state.selected = $0; state.picked = true },
                     onRefresh: { store.refresh() },
                     onSettings: { state.page = .settings },
                     onQuit: onQuit)

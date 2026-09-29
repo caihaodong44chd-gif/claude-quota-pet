@@ -31,7 +31,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var visibility: MenuBarVisibility = .withClaude
     private var appRunning = false
     private var canFollowApp = true
-    private let keepVisible: Bool   // 演示模式一直显示
+    private var keepVisible: Bool   // 演示模式、第一次启动时一直显示（到退出为止）
     private var pinned: Bool        // 用户临时叫出来了（再次打开 QuotaPet）
 
     private struct ImageKey: Hashable {
@@ -76,6 +76,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 let focus = UsageSnapshot.focus(of: shown)
                 animator?.show(mood: PetMood.of(focus, failed: !errors.isEmpty),
                                style: PetStyle.of(focus?.provider ?? .claude, claudeStyle: claudeStyle, codexStyle: codexStyle))
+            }
+            .store(in: &cancellables)
+        // 面板开着、用户还没自己点过切换条时，跟着宠物换：第一次打开时数据还没读完，读完后最紧张的那家可能换了
+        shown
+            .sink { [weak self] shown in
+                guard let self, self.popoverState.isShown, !self.popoverState.picked,
+                      let focus = UsageSnapshot.focus(of: shown)?.provider, focus != self.popoverState.selected else { return }
+                self.popoverState.selected = focus
             }
             .store(in: &cancellables)
         // 面板开着、看的又不是菜单栏上那家时，面板上的宠物才要单独播
@@ -125,8 +133,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// 宠物藏起来的时候，再次打开 QuotaPet（Spotlight / 启动台）就把它叫出来，并打开面板
-    func reveal() {
+    /// 宠物藏起来的时候，再次打开 QuotaPet（Spotlight / 启动台）就把它叫出来，并打开面板。
+    /// untilQuit：第一次启动时用，面板关了也一直显示到退出（不然点一下通知授权的弹窗，面板一关宠物就又藏起来了）
+    func reveal(untilQuit: Bool = false) {
+        if untilQuit { keepVisible = true }
         pinned = true
         updateVisibility()
         // 图标刚出现时位置还没排好，等一下再弹面板
@@ -238,6 +248,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         popoverState.page = page
         popoverState.selected = store.focus?.provider ?? .claude  // 每次打开先看宠物跟着的那家
+        popoverState.picked = false
         if let screen = button.window?.screen ?? NSScreen.main {
             popoverState.maxHeight = screen.visibleFrame.height - 30  // 留出面板的小箭头和一点边距
         }
