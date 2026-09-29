@@ -565,6 +565,13 @@ check(MenuBarVisibility.withClaude.shouldShow(appRunning: false, pinned: true), 
 check(MenuBarVisibility.always.shouldShow(appRunning: false, pinned: false), "一直显示")
 check(MenuBarVisibility.withClaude.shouldShow(appRunning: false, canFollow: false, pinned: false),
       "没装桌面端（只用命令行）时按一直显示算，不然永远看不到宠物")
+check(MenuBarVisibility.countsAsInstalled(appPath: "/Applications/Claude.app", home: "/Users/a")
+      && MenuBarVisibility.countsAsInstalled(appPath: "/Users/a/Applications/Claude.app", home: "/Users/a"), "装在应用程序文件夹里的算")
+check(!MenuBarVisibility.countsAsInstalled(appPath: "/Users/a/.Trash/Claude.app", home: "/Users/a")
+      && !MenuBarVisibility.countsAsInstalled(appPath: "/Volumes/Claude/Claude.app", home: "/Users/a")
+      && !MenuBarVisibility.countsAsInstalled(appPath: "/Users/a/Downloads/Claude.app", home: "/Users/a")
+      && !MenuBarVisibility.countsAsInstalled(appPath: "/private/var/folders/x/T/AppTranslocation/1/d/Claude.app", home: "/Users/a"),
+      "废纸篓、安装盘、下载文件夹、临时目录里的副本不算装了，不然删了桌面端的人宠物会一直藏着")
 check(MenuBarVisibility.withClaude.note(codex: false, canFollow: false).contains("没装 Claude 桌面端")
       && MenuBarVisibility.withClaude.note(codex: false, canFollow: true).contains("关掉后就藏起来")
       && MenuBarVisibility.always.note(codex: false, canFollow: false) == "一直待在菜单栏里",

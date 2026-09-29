@@ -94,10 +94,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             .store(in: &cancellables)
         let running = appWatcher.$claudeRunning.combineLatest(appWatcher.$codexRunning)
         let installed = appWatcher.$claudeInstalled.combineLatest(appWatcher.$codexInstalled)
-        Publishers.CombineLatest4(settings.$visibility, running, installed, shown)
-            .sink { [weak self] visibility, running, installed, shown in
+        // Codex 还没算出来（刚启动时第一次扫描要一会儿）：先当作在用，不然只装了 Codex 桌面端的人开机时宠物会先出现再藏起来
+        let codexPending = Publishers.CombineLatest(store.$snapshots, store.$errors)
+            .map { snapshots, errors in !snapshots.contains { $0.provider == .codex } && errors[.codex] == nil }
+        Publishers.CombineLatest4(settings.$visibility, running, installed, shown.combineLatest(codexPending))
+            .sink { [weak self] visibility, running, installed, shownAndPending in
+                let (shown, codexPending) = shownAndPending
                 let usesCodex = shown.contains { $0.provider == .codex }
-                let canFollow = installed.0 || (installed.1 && usesCodex)
+                let canFollow = installed.0 || (installed.1 && (usesCodex || codexPending))
                 self?.visibility = visibility
                 self?.appRunning = running.0 || (running.1 && usesCodex)
                 self?.canFollowApp = canFollow

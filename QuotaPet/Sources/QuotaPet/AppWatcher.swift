@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuotaPetCore
 
 /// 盯着 Claude 和 Codex 桌面端有没有在运行、装没装。
 /// 用 runningApplications 的 KVO，不用 didLaunch / didTerminate 通知：
@@ -46,8 +47,11 @@ final class AppWatcher: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// 看所有副本，不只看 LaunchServices 挑的那一个：它挑中的可能正好是废纸篓里的
     private nonisolated static func isInstalled(_ bundleID: String) -> Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return NSWorkspace.shared.urlsForApplications(withBundleIdentifier: bundleID)
+            .contains { MenuBarVisibility.countsAsInstalled(appPath: $0.path, home: home) }
     }
 
     private nonisolated static func isRunning(_ bundleID: String, in apps: [NSRunningApplication]) -> Bool {

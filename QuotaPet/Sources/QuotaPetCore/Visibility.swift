@@ -27,6 +27,13 @@ public enum MenuBarVisibility: String, CaseIterable, Identifiable, Sendable {
         self == .always || !canFollow || appRunning || pinned
     }
 
+    /// 桌面端的这个副本算不算「装了」：废纸篓里的、挂着的安装盘（/Volumes）里的、「下载」里的、
+    /// 被 macOS 挪到临时目录运行的都不算，不然删了桌面端、只用命令行的人宠物又会一直藏着。home 是用户主目录
+    public static func countsAsInstalled(appPath: String, home: String) -> Bool {
+        !(appPath.contains("/.Trash/") || appPath.hasPrefix("/Volumes/") || appPath.contains("/AppTranslocation/")
+          || appPath.hasPrefix(home + "/Downloads/"))
+    }
+
     /// 设置页选项下面的说明，参数同 label(codex:) 和 shouldShow
     public func note(codex: Bool, canFollow: Bool) -> String {
         switch self {
