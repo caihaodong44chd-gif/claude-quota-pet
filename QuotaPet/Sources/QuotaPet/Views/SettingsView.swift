@@ -14,6 +14,8 @@ struct SettingsView: View {
     var hasCodex = false
     /// Codex 最近一次读数的时间，Codex 分页里说明用
     var codexReadingAt: Date?
+    /// 有桌面端可以跟（见 MenuBarVisibility.shouldShow）；没有时「打开时出现」按一直显示算，说明里要讲
+    var canFollowApp = true
     var onBack: () -> Void
     /// 打开时在哪一页（渲染预览图时也用它指定）
     @State var page: Page = .general
@@ -61,11 +63,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                Text(settings.visibility == .always
-                     ? tr("一直待在菜单栏里", "Always stays in the menu bar")
-                     : watchesCodex
-                     ? tr("Claude 和 Codex 都关掉后就藏起来，额度恢复提醒照常发", "Hides when both Claude and Codex quit; reset notifications still arrive")
-                     : tr("Claude 关掉后就藏起来，额度恢复提醒照常发", "Hides when Claude quits; reset notifications still arrive"))
+                Text(settings.visibility.note(codex: watchesCodex, canFollow: canFollowApp))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }

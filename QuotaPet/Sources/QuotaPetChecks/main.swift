@@ -563,6 +563,12 @@ check(MenuBarVisibility.withClaude.shouldShow(appRunning: true, pinned: false), 
 check(!MenuBarVisibility.withClaude.shouldShow(appRunning: false, pinned: false), "Claude 关了就藏起来")
 check(MenuBarVisibility.withClaude.shouldShow(appRunning: false, pinned: true), "用户临时叫出来时显示")
 check(MenuBarVisibility.always.shouldShow(appRunning: false, pinned: false), "一直显示")
+check(MenuBarVisibility.withClaude.shouldShow(appRunning: false, canFollow: false, pinned: false),
+      "没装桌面端（只用命令行）时按一直显示算，不然永远看不到宠物")
+check(MenuBarVisibility.withClaude.note(codex: false, canFollow: false).contains("没装 Claude 桌面端")
+      && MenuBarVisibility.withClaude.note(codex: false, canFollow: true).contains("关掉后就藏起来")
+      && MenuBarVisibility.always.note(codex: false, canFollow: false) == "一直待在菜单栏里",
+      "设置页的说明跟着有没有桌面端变")
 check(MenuBarVisibility.withClaude.label == "Claude 打开时" && MenuBarVisibility.withClaude.label(codex: true) == "Claude/Codex 打开时",
       "在用 Codex 时选项里写上 Codex")
 
@@ -831,6 +837,7 @@ do {
     var english: [String] = PetMood.allCases.flatMap { [$0.title, $0.line] }
     english += PetStyle.allCases.map(\.label) + MenuBarTextMode.allCases.map(\.label) + MenuBarVisibility.allCases.map(\.label)
     english += MenuBarVisibility.allCases.map { $0.label(codex: true) }
+    english += MenuBarVisibility.allCases.flatMap { v in [true, false].flatMap { c in [v.note(codex: c, canFollow: true), v.note(codex: c, canFollow: false)] } }
     english += (stale.windows + demo.windows + codex.windows).map(\.title) + stale.notes + missing.notes + demo.notes + codex.notes
     english += [CodexProvider.missingNote, UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
     english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,

@@ -30,6 +30,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     // 决定显不显示的几个条件
     private var visibility: MenuBarVisibility = .withClaude
     private var appRunning = false
+    private var canFollowApp = true
     private let keepVisible: Bool   // 演示模式一直显示
     private var pinned: Bool        // 用户临时叫出来了（再次打开 QuotaPet）
 
@@ -83,19 +84,24 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 headerAnimator?.isVisible = isShown && selected != UsageSnapshot.focus(of: shown)?.provider
             }
             .store(in: &cancellables)
-        Publishers.CombineLatest4(settings.$visibility, appWatcher.$claudeRunning, appWatcher.$codexRunning, shown)
-            .sink { [weak self] visibility, claude, codex, shown in
+        let running = appWatcher.$claudeRunning.combineLatest(appWatcher.$codexRunning)
+        let installed = appWatcher.$claudeInstalled.combineLatest(appWatcher.$codexInstalled)
+        Publishers.CombineLatest4(settings.$visibility, running, installed, shown)
+            .sink { [weak self] visibility, running, installed, shown in
                 let usesCodex = shown.contains { $0.provider == .codex }
+                let canFollow = installed.0 || (installed.1 && usesCodex)
                 self?.visibility = visibility
-                self?.appRunning = claude || (codex && usesCodex)
+                self?.appRunning = running.0 || (running.1 && usesCodex)
+                self?.canFollowApp = canFollow
+                self?.popoverState.canFollowApp = canFollow
                 self?.updateVisibility()
             }
             .store(in: &cancellables)
     }
 
-    /// Claude（在用 Codex 时还有 Codex）开着，或设置成一直显示，才出现；藏起来时动画也停掉，只在后台等着发提醒
+    /// Claude（在用 Codex 时还有 Codex）开着，或设置成一直显示，或者根本没装桌面端，才出现；藏起来时动画也停掉，只在后台等着发提醒
     private func updateVisibility() {
-        let show = visibility.shouldShow(appRunning: appRunning, pinned: pinned || popover.isShown)
+        let show = visibility.shouldShow(appRunning: appRunning, canFollow: canFollowApp, pinned: pinned || popover.isShown)
         if statusItem.isVisible != show {
             if show { Self.restorePosition() } else { Self.rememberPosition() }
             statusItem.isVisible = show

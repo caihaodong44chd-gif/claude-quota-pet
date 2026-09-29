@@ -10,6 +10,8 @@ final class PopoverState: ObservableObject {
     @Published var isShown = false
     /// 面板最高多高：菜单栏所在的屏幕放得下多少。小屏幕上设置页放不下，超出的部分滚动
     @Published var maxHeight: CGFloat = .infinity
+    /// 有桌面端可以跟（StatusItemController 算好填进来），设置页说明用
+    @Published var canFollowApp = true
 }
 
 struct PopoverRoot: View {
@@ -60,6 +62,7 @@ struct PopoverRoot: View {
                              estimation: claude?.estimation,
                              hasCodex: store.snapshot(for: .codex)?.hasData == true,
                              codexReadingAt: store.snapshot(for: .codex)?.officialAt,
+                             canFollowApp: state.canFollowApp,
                              onBack: { state.page = .overview })
             }
         }

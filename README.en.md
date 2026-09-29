@@ -111,7 +111,7 @@ make previews   # render the pet, menu bar and popover to PNGs in build/previews
 ## Using it
 
 - **Left-click** the pet to open the popover; **right-click** for Refresh, Settings and Quit.
-- By default the pet **follows the Claude desktop app**: it appears when Claude opens and hides when Claude quits (reset notifications still arrive in the background). If you use Codex, the Codex desktop app counts too. If the pet is hidden and you want to check your usage, open QuotaPet again from Spotlight and the popover pops up.
+- By default the pet **follows the Claude desktop app**: it appears when Claude opens and hides when Claude quits (reset notifications still arrive in the background). If you use Codex, the Codex desktop app counts too. If you only use the command line and haven't installed a desktop app, the pet always shows. If the pet is hidden and you want to check your usage, open QuotaPet again from Spotlight and the popover pops up.
 - In the popover, the weekly bar has a small tick where you'd be at an even pace. The line below says how many points you're over or under it and how much you can use per day until the reset (orange when you're 10 or more points over). For Claude it appears once the weekly reset time is known: after QuotaPet has seen one reset, or when you set the reset time manually in Settings.
 - To appear automatically with Claude, QuotaPet has to launch at login (`make install` and the first launch from Applications turn this on). To turn it off: QuotaPet Settings → General, or System Settings → General → Login Items.
 

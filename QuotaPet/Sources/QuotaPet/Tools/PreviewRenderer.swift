@@ -72,6 +72,10 @@ enum PreviewRenderer {
                     write(renderInWindow(view, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
                 }
             }
+            // 没装桌面端：「什么时候出现」下面说明为什么一直显示
+            let noDesktop = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, hasCodex: true,
+                                         codexReadingAt: now.addingTimeInterval(-12 * 60), canFollowApp: false, onBack: {})
+            write(renderInWindow(noDesktop, dark: false), to: dir.appendingPathComponent("settings-nodesktop\(lang).png"))
         }
         print("预览图已写入 \(dir.path)")
     }
