@@ -1,8 +1,46 @@
 import AppKit
 import QuotaPetCore
 
-/// 把像素画渲染成 NSImage
+/// 把宠物画成 NSImage：像素画在这里画，精绘交给 PaintedRenderer
 enum PetRenderer {
+    /// 画成 picture.points 大小的图。template = 单色模板图，由系统按菜单栏配色着色（只对有单色版的像素画有效）
+    static func image(_ picture: PetPicture, template: Bool) -> NSImage {
+        switch picture.content {
+        case .pixel(let grid): return image(grid, pixel: picture.points / Double(grid.width), template: template)
+        case .painted(let painted): return PaintedRenderer.image(painted, points: picture.points)
+        }
+    }
+
+    /// 设置页的缩略图：会被平滑缩小，像素画先画成位图（直接缩 image(...) 格子之间会露缝）
+    static func thumbnail(_ picture: PetPicture) -> NSImage {
+        if let grid = picture.grid { return bitmap(grid, scale: 2) }
+        return image(picture, template: false)
+    }
+
+    /// 画到当前（y 轴朝下的）上下文里的 rect 中；template 时像素画用 templateColor 画剪影。抗锯齿在这里按需要设好再恢复
+    static func draw(_ picture: PetPicture, in rect: NSRect, template: Bool, templateColor: NSColor) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        switch picture.content {
+        case .pixel(let grid):
+            let pixel = rect.width / CGFloat(grid.width)
+            antialiasUnlessCrisp(pixel)
+            draw(grid, pixel: pixel, origin: rect.origin, template: template, templateColor: templateColor)
+        case .painted(let painted):
+            NSGraphicsContext.current?.shouldAntialias = true
+            PaintedRenderer.image(painted, points: rect.width).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1,
+                                                                   respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
+        }
+    }
+
+    /// 一格正好落在整数个物理像素上时关掉抗锯齿，像素边缘才锐利；
+    /// 外接的 1 倍屏上半个点画不出来，要靠抗锯齿混色，不然会丢像素
+    private static func antialiasUnlessCrisp(_ pixel: CGFloat) {
+        let deviceScale = NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform.a ?? 2
+        let devicePixels = pixel * deviceScale
+        NSGraphicsContext.current?.shouldAntialias = abs(devicePixels - devicePixels.rounded()) > 0.01
+    }
+
     /// 按这款形象的调色板查颜色（和 design/ 里的 Python 原型一致）；没定义的字符画成洋红，一眼看得出
     static func color(for code: UInt8, in palette: PetPalette) -> NSColor {
         guard let hex = palette[code] else { return .magenta }
@@ -20,11 +58,7 @@ enum PetRenderer {
     static func image(_ grid: PixelGrid, pixel: CGFloat, template: Bool) -> NSImage {
         let size = NSSize(width: CGFloat(grid.width) * pixel, height: CGFloat(grid.height) * pixel)
         let image = NSImage(size: size, flipped: true) { _ in
-            // 一格正好落在整数个物理像素上时关掉抗锯齿，像素边缘才锐利；
-            // 外接的 1 倍屏上半个点画不出来，要靠抗锯齿混色，不然会丢像素
-            let deviceScale = NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform.a ?? 2
-            let devicePixels = pixel * deviceScale
-            NSGraphicsContext.current?.shouldAntialias = abs(devicePixels - devicePixels.rounded()) > 0.01
+            antialiasUnlessCrisp(pixel)
             draw(grid, pixel: pixel, origin: .zero, template: template, templateColor: .black)
             return true
         }

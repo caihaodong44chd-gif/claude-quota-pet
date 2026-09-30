@@ -26,19 +26,17 @@ enum IconRenderer {
 
             NSGraphicsContext.saveGraphicsState()
             tile.addClip()
-            let frame = PetSprites.frames(for: .normal)[0]
-            if size >= 128 {
+            let frame = PetSprites.frames(for: .normal)[0]  // 经典款，像素画
+            if size >= 128, let portrait = frame.portrait.grid {
                 // 大图标：半身像按整数倍放大（像素画保持锐利），贴着底边
                 let pixel = (rect.width / CGFloat(PetSprites.portraitSize)).rounded(.down)
                 let width = pixel * CGFloat(PetSprites.portraitSize)
                 NSGraphicsContext.current?.shouldAntialias = false
-                PetRenderer.draw(frame.portrait, pixel: pixel, origin: CGPoint(x: ((size - width) / 2).rounded(), y: rect.maxY - width),
+                PetRenderer.draw(portrait, pixel: pixel, origin: CGPoint(x: ((size - width) / 2).rounded(), y: rect.maxY - width),
                                  template: false, templateColor: .black)
             } else {
                 // 小图标：头像缩放到铺满
-                NSGraphicsContext.current?.shouldAntialias = true
-                PetRenderer.draw(frame.icon, pixel: rect.width / CGFloat(PetSprites.iconSize), origin: rect.origin,
-                                 template: false, templateColor: .black)
+                PetRenderer.draw(frame.icon, in: rect, template: false, templateColor: .black)
             }
             NSGraphicsContext.restoreGraphicsState()
         }

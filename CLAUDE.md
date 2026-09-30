@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make check      # = swift run QuotaPetChecks，唯一的测试
 swift build     # 只编译
-make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套）；改界面后用它验证，不用启动 App
+make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套；精绘形象另有 popover-<形象>）；改界面后用它验证，不用启动 App
 make dump       # 在终端打印当前额度推算（读真实数据）
 make run / make demo / make install
 make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.zip），版本号取 Resources/Info.plist
@@ -53,11 +53,18 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - `ClaudePricing.version` / `price(model:family:)` 对应 `version()` / `price()`：每个请求按模型名里的版本号定价（`claude-opus-5` 按 Opus 5 的价格，不是 Opus 5.5 的）。出了新一代、价格变了时，把旧的当前价挪进老版本表，再改当前价
   - `ClaudeTranscripts` 的解析规则：按 `message.id` 去重、同一个响应的各字段取最大值、跳过 synthetic 和写到一半的行（限流消息只有 App 读，usage_lab 不需要）
 - 改换算相关的逻辑之前，先看 `docs/PRODUCT_PLAN.md` 第 7 节的回归结论：所有模型用一个系数，思考程度（effort）不单独算，缓存读按半价。改完用 `python3 usage_lab.py backtest` 回测，和改之前比一比。
-- `QuotaPetCore/Pet/PetArt.swift` 是 `design/export_swift.py` 生成的，**不要手改**。改宠物的流程：改 `design/pet_pixel.py` → 运行它出预览图 → 运行 `export_swift.py` 导出（要装 Pillow 和 NumPy）。
+- 宠物有两种画法，`PetFrame` 里的图是 `PetPicture`：像素画（`PixelGrid`）或精绘（`PaintedPicture`）。`PetStyle.art` / `isPainted` 区分。
+- `QuotaPetCore/Pet/PetArt.swift` 是 `design/export_swift.py` 生成的，**不要手改**。改像素宠物的流程：改 `design/pet_pixel.py` → 运行它出预览图 → 运行 `export_swift.py` 导出（要装 Pillow 和 NumPy）。
   - 可选的形象（经典、猫耳、青春、魔女）在 `design/chibi4.py` 的 `STYLES` 里：可以换发型、饰品、配色、眼睛（`pet_pixel.EYE_SETS`）、嘴和腮红，`SsPW` 的颜色不能改（单色模式靠它们挖空脸）。标了 `draft` 的是设计稿，不导出。加一款要同时在 `PetSprites.swift` 的 `PetStyle` 里加 case。`python3 design/pet_pixel.py styles` 会把各款并排出一张对比图。
   - 每款形象各带一张调色板（`PetPalette`，挂在 `PixelGrid.palette` 上）：导出时不再给改了颜色的字符换字符，同一个字符在不同形象里是不同的颜色，形象再多也不会不够用。
-  - 两家各有一组形象，互不重叠：Claude 是 `PetStyle.claudeChoices`（经典、猫耳、青春、魔女），Codex 是 `codexChoices`（龙娘 `dragon`、汉服 `hanfu`、极客 `geek`）。`PetStyle.of(_:claudeStyle:codexStyle:)` 决定每家用哪个，存的形象不在那组里就用那组第一款。加一款时要放进其中一组。
+  - 两家各有一组形象，互不重叠：Claude 是 `PetStyle.claudeChoices`（经典、猫耳、青春、魔女、精绘的墨镜 `shades`），Codex 是 `codexChoices`（龙娘 `dragon`、汉服 `hanfu`、极客 `geek`）。`PetStyle.of(_:claudeStyle:codexStyle:)` 决定每家用哪个，存的形象不在那组里就用那组第一款。加一款时要放进其中一组。
   - 新部件的开关都在 `STYLES` 里：`accessory`（`horns` 龙角，形状在 `HORN`，画在头发上、自己带描边 / `hairpin` 步摇 / `headphones` 耳机）、`knot`（鬓角的中国结）、`buns`（丸子头）、`collar`（`knot` 立领 / `cross` 交领 / `hoodie` 连帽衫）、`wings`（小龙翼，现在没有款式用）、`elf`（尖耳）。中国结、盘扣太小，用形状画会糊成一团，是在 `decorate` 里缩成像素之后手画盖上去的（`KNOTS`、`BUTTONS`）。
+- 精绘形象（现在只有墨镜 `shades`）：GPT 出图，`design/painted/export_painted.py` 按 `design/painted/<形象>.json` 切成 `Resources/Pets/<形象>/{portrait,icon}-<表情>.png`（192 / 44 像素的 2 倍图，面板 96pt、菜单栏 22pt，像素款的菜单栏头像是 16pt），同时生成 `QuotaPetCore/Pet/PaintedArt.swift`（**不要手改**）。流程见 `QuotaPet/README.md`「精绘形象」。
+  - 原图在 `anime-sheet/精绘出图/GPT出图/`，出图说明在同目录的 `提示词.md`。`anime-sheet/` 是本机的素材文件夹，只写在 `.git/info/exclude` 里，里面的东西不能挪进会被跟踪的地方。
+  - 表情图先对齐到底图，只取脸的椭圆盖上去，头发、衣服各表情一样；脸以外的小块（太阳穴的汗珠）用配置里的 `patches` 从一张复制到几张。
+  - 不叠小道具：汗珠、眼泪画在表情里，睡着（`sleep`）、疑惑（`puzzled`）是单独的表情，动画帧是 `PetSprites.paintedFrames`（和像素款帧数不同）。没有单色版：`MenuBarIcon`、`PetRenderer` 遇到精绘一律画彩色，设置页的单色开关下面会说明。
+  - 找图（`PaintedArt.root`，在 Core 里，App 和自检共用）：打包后在 `Contents/Resources/Pets`（`build-app.sh` 拷进去）；开发时从可执行文件往上找 `Resources/Pets`。不能用 `#filePath` 或 `Bundle.module`，它们会把本机绝对路径编进发布包。
+  - 配置文件名就是 `PetStyle` 的 rawValue，图片尺寸是 `PetSprites.paintedIconPoints` / `portraitPoints` 的 2 倍，自检拿导出的图核对。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
 - 第一次启动（`QuotaPetCore/FirstLaunch.swift`，设置里只有 NS 开头的 AppKit 键才算）时宠物一直显示到退出，并弹出面板；开机自启先挂起（`loginItemPending`），等 App 在「应用程序」文件夹里运行时才打开（下载版第一次常在「下载」里被 macOS 挪到临时目录运行），用户自己开关过就不再管。
 - 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：

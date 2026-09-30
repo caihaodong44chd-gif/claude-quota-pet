@@ -34,7 +34,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var pinned: Bool        // 用户临时叫出来了（再次打开 QuotaPet）
 
     private struct ImageKey: Hashable {
-        let grid: PixelGrid
+        let picture: PetPicture
         let template: Bool
         let glyph: String?
     }
@@ -163,8 +163,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     /// glyph：数字前面的小图标，见 glyph(_:mode:)
-    private func showPet(_ frame: PixelGrid, template: Bool, glyph: String?) {
-        let key = ImageKey(grid: frame, template: template, glyph: glyph)
+    private func showPet(_ frame: PetPicture, template: Bool, glyph: String?) {
+        let template = MenuBarIcon.isTemplate(frame, monochrome: template)  // 没有单色版时开关单色是同一张图，别缓存两份
+        let key = ImageKey(picture: frame, template: template, glyph: glyph)
         let image = imageCache[key] ?? MenuBarIcon.image(frame, template: template, glyph: glyph)
         imageCache[key] = image
         statusItem.button?.image = image

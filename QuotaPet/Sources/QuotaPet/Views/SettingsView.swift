@@ -76,8 +76,7 @@ struct SettingsView: View {
                 .labelsHidden()
             }
             SwitchRow(tr("宠物动画", "Animate pet"), isOn: $settings.animatePet)
-            SwitchRow(tr("单色宠物", "Monochrome pet"), subtitle: tr("跟随菜单栏的黑白配色", "Matches the black-and-white menu bar"),
-                      isOn: $settings.monochromePet)
+            SwitchRow(tr("单色宠物", "Monochrome pet"), subtitle: monochromeNote, isOn: $settings.monochromePet)
         }
 
         SettingsGroup(tr("提醒", "Notifications")) {
@@ -134,6 +133,15 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+
+    /// Claude 选了精绘形象时说一声：它没有单色版，开了单色也还是彩色的（Codex 的像素宠物照常变单色）
+    private var monochromeNote: String {
+        let note = tr("跟随菜单栏的黑白配色", "Matches the black-and-white menu bar")
+        let style = settings.petStyle
+        guard style.isPainted else { return note }
+        return note + tr("。「\(style.label)」没有单色版，一直是彩色的",
+                         ". \u{201C}\(style.label)\u{201D} has no monochrome version and stays in color")
     }
 
     @ViewBuilder private var claude: some View {
@@ -298,9 +306,9 @@ struct StyleOption: View {
     let isSelected: Bool
     let action: () -> Void
 
-    /// 缩略图只在第一次用到时画一次：先画成位图，再平滑缩到 48pt（0.75pt 一格画不出整像素）
+    /// 缩略图只在第一次用到时画一次，再平滑缩到 48pt（像素画 0.75pt 一格画不出整像素，所以先画成位图）
     private static let thumbnails = Dictionary(uniqueKeysWithValues: PetStyle.allCases.map {
-        ($0, PetRenderer.bitmap(PetSprites.frames(for: .normal, style: $0)[0].portrait, scale: 2))
+        ($0, PetRenderer.thumbnail(PetSprites.frames(for: .normal, style: $0)[0].portrait))
     })
 
     var body: some View {

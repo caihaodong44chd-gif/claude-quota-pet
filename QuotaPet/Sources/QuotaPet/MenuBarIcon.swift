@@ -11,8 +11,12 @@ enum MenuBarIcon {
         }
     }
 
-    static func image(_ pet: PixelGrid, template: Bool, glyph: String?) -> NSImage {
-        let petImage = PetRenderer.image(pet, pixel: 0.5, template: template)
+    /// 开了「单色宠物」时这张图画不画成模板图：没有单色版的宠物（精绘）整张图（连小图标）都按彩色画
+    static func isTemplate(_ pet: PetPicture, monochrome: Bool) -> Bool { monochrome && pet.hasMonochrome }
+
+    static func image(_ pet: PetPicture, template monochrome: Bool, glyph: String?) -> NSImage {
+        let template = isTemplate(pet, monochrome: monochrome)
+        let petImage = PetRenderer.image(pet, template: template)
         let shape = NSImage.SymbolConfiguration(pointSize: 10, weight: .heavy)
         guard let glyph, let base = NSImage(systemSymbolName: glyph, accessibilityDescription: nil),
               let symbol = base.withSymbolConfiguration(shape) else { return petImage }

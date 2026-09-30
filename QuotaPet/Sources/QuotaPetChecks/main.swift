@@ -1,6 +1,7 @@
 // 自检：swift run QuotaPetChecks
 // 命令行工具（CLT）里没有 XCTest / swift-testing，所以用一个小可执行文件代替。
 import Foundation
+import ImageIO
 @testable import QuotaPetCore
 
 var passed = 0
@@ -49,33 +50,70 @@ check(Fmt.fromNow(30) == "不到 1 分钟后", "fromNow 不到 1 分钟时不说
 
 // MARK: - 宠物
 
+/// 图片的像素宽高；读不出来时是 nil
+func pixelSize(_ url: URL) -> (Int, Int)? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int
+    else { return nil }
+    return (width, height)
+}
+
 for style in PetStyle.allCases {
-    for (name, art, size) in [("头像", style.art.icon, PetSprites.iconSize), ("半身像", style.art.portrait, PetSprites.portraitSize)] {
-        let name = "\(style.label)\(name)"
-        check(art.base.count == size && art.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
-        for (kind, patches) in [("眼睛", art.eyes), ("嘴", art.mouths), ("小道具", art.extras)] {
-            for (key, patch) in patches {
-                let width = patch.rows.first?.utf8.count ?? 0
-                let inside = patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
-                check(inside && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
+    switch style.art {
+    case .pixel(let art):
+        for (name, layers, size) in [("头像", art.icon, PetSprites.iconSize), ("半身像", art.portrait, PetSprites.portraitSize)] {
+            let name = "\(style.label)\(name)"
+            check(layers.base.count == size && layers.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
+            let groups: [(String, [String: PetArt.Patch])] = [("眼睛", layers.eyes), ("嘴", layers.mouths), ("小道具", layers.extras)]
+            for (kind, patches) in groups {
+                for (key, patch) in patches {
+                    let width = patch.rows.first?.utf8.count ?? 0
+                    let inside = patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
+                    check(inside && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
+                }
+            }
+        }
+        // 单色模式靠皮肤挖空脸，每款都得有
+        let icon = PetSprites.frames(for: .normal, style: style)[0].icon.grid
+        check(icon?.cells.contains(UInt8(ascii: "S")) == true, "\(style.label)的头像有皮肤色")
+        check(icon != PixelGrid(rows: art.icon.base, palette: art.palette), "\(style.label)画上了眼睛")
+        for mood in PetMood.allCases {
+            check(PetSprites.frames(for: mood, style: style).count == PetSprites.frames(for: mood).count, "\(style.label) \(mood) 的帧数和经典款一样")
+        }
+    case .painted:
+        // 导出的表情都用上了、用到的都导出过（精绘款的动画和像素画不一样，帧数也不一样）
+        let used = Set(PetMood.allCases.flatMap { PetSprites.frames(for: $0, style: style) }.compactMap { frame -> String? in
+            if case .painted(let painted) = frame.portrait.content { return painted.face }
+            return nil
+        })
+        check(used == Set(PaintedArt.faces), "\(style.label)导出的表情正好都用上")
+        // 每张图都在（和 App 用同一套办法找 Resources/Pets），而且是显示尺寸的 2 倍
+        for face in PaintedArt.faces {
+            for (part, points) in [(PaintedPicture.Part.icon, PetSprites.paintedIconPoints), (.portrait, PetSprites.portraitPoints)] {
+                let picture = PaintedPicture(style: style, part: part, face: face)
+                let pixels = Int(points * 2)
+                check(picture.url.flatMap(pixelSize).map { $0 == (pixels, pixels) } == true,
+                      "Resources/Pets/\(picture.file) 存在，\(pixels)×\(pixels)")
             }
         }
     }
     for mood in PetMood.allCases {
         let frames = PetSprites.frames(for: mood, style: style)
-        check(frames.count == PetSprites.frames(for: mood).count, "\(style.label) \(mood) 的帧数和经典款一样")
+        check(!frames.isEmpty, "\(style.label) \(mood) 至少一帧")
         for frame in frames {
             check(frame.duration > 0, "\(style.label) \(mood) 帧时长 > 0")
-            check(frame.icon.width == 32 && frame.icon.height == 32 && frame.portrait.width == 64 && frame.portrait.height == 64,
-                  "\(style.label) \(mood) 头像 32×32、半身像 64×64")
-            check([frame.icon, frame.portrait].allSatisfy { grid in grid.cells.allSatisfy { $0 == 0 || grid.palette[$0] != nil } },
-                  "\(style.label) \(mood) 只能用这款调色板里的颜色")
+            check(frame.portrait.points == 96, "\(style.label) \(mood) 半身像显示成 96pt")
+            for (picture, isIcon) in [(frame.icon, true), (frame.portrait, false)] {
+                guard let grid = picture.grid else { continue }  // 精绘的图在上面按表情查过了
+                let size = isIcon ? PetSprites.iconSize : PetSprites.portraitSize
+                let points = isIcon ? PetSprites.pixelIconPoints : PetSprites.portraitPoints
+                check(grid.width == size && grid.height == size && picture.points == points,
+                      "\(style.label) \(mood) 像素头像 32×32 显示成 16pt、半身像 64×64 显示成 96pt")
+                check(grid.cells.allSatisfy { $0 == 0 || grid.palette[$0] != nil }, "\(style.label) \(mood) 只能用这款调色板里的颜色")
+            }
         }
     }
-    // 单色模式靠皮肤挖空脸，每款都得有
-    check(PetSprites.frames(for: .normal, style: style)[0].icon.cells.contains(UInt8(ascii: "S")), "\(style.label)的头像有皮肤色")
-    check(PetSprites.frames(for: .normal, style: style)[0].icon != PixelGrid(rows: style.art.icon.base, palette: style.art.palette),
-          "\(style.label)画上了眼睛")
 }
 check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
 check(PetSprites.frames(for: .normal, style: .neko)[0] != PetSprites.frames(for: .normal)[0], "不同形象画出来不一样")
@@ -87,7 +125,11 @@ check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .neko) == .dragon && P
       "选到别家那组的形象时退回自己那组的第一款")
 check(PetSprites.frames(for: .normal, style: .dragon)[0] != PetSprites.frames(for: .normal, style: .neko)[0], "龙娘和猫耳画出来不一样")
 // 每款各有调色板：同一个字符在不同形象里颜色不同（头发 H）
-check(PetStyle.hanfu.art.palette[UInt8(ascii: "H")] != PetStyle.geek.art.palette[UInt8(ascii: "H")], "汉服和极客的发色不一样")
+if case .pixel(let hanfu) = PetStyle.hanfu.art, case .pixel(let geek) = PetStyle.geek.art {
+    check(hanfu.palette[UInt8(ascii: "H")] != geek.palette[UInt8(ascii: "H")], "汉服和极客的发色不一样")
+} else {
+    check(false, "汉服和极客是像素画（发色那条检查才有意义）")
+}
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")

@@ -40,8 +40,8 @@ make previews   # 把宠物、菜单栏、面板渲染成 PNG，放到 build/pre
 
 | 分页 | 设置项 |
 |---|---|
-| 通用 | 菜单栏：什么时候出现（Claude 打开时，在用 Codex 时也看 Codex / 一直显示）、宠物旁边显示什么、宠物动画、单色宠物。提醒：用量提醒和阈值（50 / 75 / 90 / 100%，默认 75 / 90 / 100）、快用完时提前提醒、额度恢复时提醒。其他：语言（跟随系统 / 简体中文 / English）、开机自动启动 |
-| Claude | 宠物形象（经典 / 猫耳 / 青春 / 魔女）。实时估算：用本机日志实时估算、自动学习换算率（能看到当前学到的值）、手动指定每周重置时间 |
+| 通用 | 菜单栏：什么时候出现（Claude 打开时，在用 Codex 时也看 Codex / 一直显示）、宠物旁边显示什么、宠物动画、单色宠物（「墨镜」没有单色版）。提醒：用量提醒和阈值（50 / 75 / 90 / 100%，默认 75 / 90 / 100）、快用完时提前提醒、额度恢复时提醒。其他：语言（跟随系统 / 简体中文 / English）、开机自动启动 |
+| Claude | 宠物形象（经典 / 猫耳 / 青春 / 魔女 / 墨镜）。实时估算：用本机日志实时估算、自动学习换算率（能看到当前学到的值）、手动指定每周重置时间 |
 | Codex（本机有记录时才有这页） | 显示 Codex 的额度、宠物形象（龙娘 / 汉服 / 极客）、数据从哪来和最近一次读数的时间 |
 
 ## 菜单栏里看不到宠物？
@@ -92,7 +92,7 @@ Sources/
     Codex/
       CodexLogs                 增量读取 Codex 对话日志里的额度读数
       CodexProvider             把读数组合成快照（窗口、消耗速度）
-    Pet/                        宠物心情和形象；PetArt.swift 是像素数据（由 design/ 导出，别手改）
+    Pet/                        宠物心情和形象；PetArt.swift 是像素数据、PaintedArt.swift 是精绘形象的表情清单（都是导出的，别手改）
     DemoProvider.swift          演示数据（Claude 和 Codex）
   QuotaPet/                     菜单栏 App
     StatusItemController        菜单栏上的宠物、文字和弹出面板
@@ -100,7 +100,7 @@ Sources/
     AppWatcher                  盯着 Claude / Codex 桌面端有没有开
     UsageStore                  几家数据源一起算；FSEvents + 每分钟兜底的刷新调度
     NotificationManager         发通知、存每个窗口的提醒记录（判断在 UsageAlerts）
-    Pet/                        动画播放、像素画渲染
+    Pet/                        动画播放、像素画和精绘图的渲染（精绘图在 Resources/Pets）
     Views/                      SwiftUI 面板和设置页
     Tools/                      --dump、--render-previews、--render-icon
   QuotaPetChecks/               自检（命令行工具里没有 XCTest，用可执行文件代替）
@@ -120,6 +120,27 @@ make install
 
 形象都在 `design/chibi4.py` 的 `STYLES` 里，每款各带一张调色板（同一个字符在不同形象里是不同的颜色）。Claude 和 Codex 各有一组（`PetStyle.claudeChoices` / `codexChoices`），互不重叠。
 Codex 的三款：龙娘（`dragon`，龙角的形状在 `HORN` 里）、汉服（`hanfu`，丸子头 + 交领）、极客（`geek`，耳机 + 连帽衫）。中国结、盘扣太小，用形状画会糊，是缩成像素后手画盖上去的（`KNOTS`、`BUTTONS`）。
+
+### 精绘形象
+
+「墨镜」这样的精绘形象是用 GPT 出图，再用脚本切成 App 用的图：
+
+1. 先出一张底图：正方形，纯绿背景（`#00FF00`）或透明背景，画到胸口，头顶和两侧的头发不要被画面切掉。
+2. 让 GPT 在底图上只改表情，每个表情一张，文件名见 `design/painted/export_painted.py` 里的 `FACES`（`open-small` 是底图）。每次都在底图上改，不要在上一张表情图上接着改。汗珠、眼泪直接让它画在表情里。
+3. 原图放在不进 git 的地方。在 `design/painted/<形象>.json` 里写原图目录、脸的椭圆、面板和菜单栏头像的取景。
+4. 导出，先看对比图 `design/out/painted-<形象>.png`，再 `make previews` 看 `pet-sheet-<形象>`、`menubar-<形象>`、`popover-<形象>`：
+
+```bash
+python3 design/painted/export_painted.py  # → Resources/Pets/<形象>/ 和 Sources/QuotaPetCore/Pet/PaintedArt.swift
+```
+
+缺表情图、或者用 `--src <目录>` 试别的原图时，只出对比图，不动 `Resources/Pets` 里已经提交的图；确定要写进 App 就加 `--write`（缺的表情先用底图代替）。
+
+脚本先拿头发和衣服把每张表情图对齐到底图，再只取脸那一块（边缘羽化）盖上去，所以各个表情的头发、衣服完全一样，切换时不会抖。
+脸以外的小块（比如太阳穴上的汗珠）写在配置的 `patches` 里：只让 GPT 画一次，脚本复制到别的表情上，位置一模一样。
+
+精绘形象不叠小道具（漫画符号浮在精绘的脸上很突兀），用自己的一套动画帧（`PetSprites.paintedFrames`）；也没有单色版，开了「单色宠物」照样是彩色的。
+加一款：配置文件名用新形象的 rawValue，在 `PetStyle` 里加 case、`art` 返回 `.painted`，再放进 `claudeChoices` 或 `codexChoices`。
 
 ## 接入别的 AI
 

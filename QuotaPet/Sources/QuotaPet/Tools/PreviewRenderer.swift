@@ -15,7 +15,9 @@ enum PreviewRenderer {
         for style in PetStyle.allCases {
             let suffix = style == .classic ? "" : "-\(style.rawValue)"
             write(spriteSheet(template: false, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix).png"))
-            write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
+            if !style.isPainted {  // 精绘没有单色版，单色的动画表和彩色的一样
+                write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
+            }
             write(menuBarStrip(style: style), to: dir.appendingPathComponent("menubar\(suffix).png"))
         }
         write(menuBarGlyphStrip(), to: dir.appendingPathComponent("menubar-codex.png"))
@@ -29,7 +31,7 @@ enum PreviewRenderer {
             let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle)
             for dark in [false, true] {
                 let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood,
-                                        pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                        pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
                                         tabs: live.count > 1 ? live : [], focus: focus.provider, fixedNow: now)
                 write(render(view, dark: dark), to: dir.appendingPathComponent("popover-live\(dark ? "-dark" : "").png"))
             }
@@ -43,10 +45,14 @@ enum PreviewRenderer {
             }
             for (name, snapshot) in sampleSnapshots(now: now) {
                 let mood = PetMood.from(snapshot: snapshot)
-                for dark in [false, true] {
-                    let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
-                                            pet: PetImage(grid: PetSprites.frames(for: mood)[0].portrait), fixedNow: now)
-                    write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
+                // busy 的数据再给每款精绘形象各出一张（popover-<形象>），看半身像在面板里的样子
+                let painted = name == "busy" ? PetStyle.allCases.filter(\.isPainted) : []
+                for (file, style) in [(name, PetStyle.classic)] + painted.map({ ($0.rawValue, $0) }) {
+                    for dark in [false, true] {
+                        let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
+                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait), fixedNow: now)
+                        write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(file)\(lang)\(dark ? "-dark" : "").png"))
+                    }
                 }
             }
             // 同时有 Codex：看 Claude（宠物跟着 Claude），和看 Codex（宠物跟着 Codex，换成龙娘）
@@ -56,7 +62,7 @@ enum PreviewRenderer {
                 let style = PetStyle.of(selected, claudeStyle: .classic, codexStyle: .dragon)
                 for dark in [false, true] {
                     let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
-                                            pet: PetImage(grid: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                            pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
                                             tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, fixedNow: now)
                     write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
                 }
@@ -85,8 +91,8 @@ enum PreviewRenderer {
 
     static func spriteSheet(template: Bool, style: PetStyle) -> Data? {
         let moods = PetMood.allCases
-        let pixel: CGFloat = 3                                  // 32×32 的头像放大 3 倍
-        let cell = CGFloat(PetSprites.iconSize) * pixel + 16
+        let side: CGFloat = 96                                  // 头像放大到 96 点（像素画一格 3 点）
+        let cell = side + 16
         let labelWidth: CGFloat = 104
         let columns = moods.map { PetSprites.frames(for: $0, style: style).count }.max() ?? 1
         let width = labelWidth + CGFloat(columns) * cell + 8
@@ -104,7 +110,8 @@ enum PreviewRenderer {
                     let origin = CGPoint(x: labelWidth + CGFloat(col) * cell + 8, y: y + 8)
                     (template ? NSColor(white: 0.24, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
                     NSRect(x: origin.x - 4, y: origin.y - 4, width: cell - 8, height: cell - 8).fill()
-                    PetRenderer.draw(frame.icon, pixel: pixel, origin: origin, template: template, templateColor: .white)
+                    PetRenderer.draw(frame.icon, in: NSRect(origin: origin, size: NSSize(width: side, height: side)),
+                                     template: template, templateColor: .white)
                 }
             }
         }
@@ -128,12 +135,11 @@ enum PreviewRenderer {
                 let ink: NSColor = row.dark ? .white : .black
                 for (i, item) in items.enumerated() {
                     let x = 10 + CGFloat(i) * itemWidth
-                    NSGraphicsContext.current?.shouldAntialias = false
-                    PetRenderer.draw(PetSprites.frames(for: item.0, style: style)[0].icon, pixel: 0.5, origin: CGPoint(x: x, y: y + 4),
+                    let icon = PetSprites.frames(for: item.0, style: style)[0].icon
+                    PetRenderer.draw(icon, in: NSRect(x: x, y: y + (barHeight - icon.points) / 2, width: icon.points, height: icon.points),
                                      template: row.mono, templateColor: ink)
-                    NSGraphicsContext.current?.shouldAntialias = true
                     (item.1 as NSString).draw(
-                        at: CGPoint(x: x + 19, y: y + 4.5),
+                        at: CGPoint(x: x + icon.points + 3, y: y + 4.5),
                         withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
                                          .foregroundColor: item.2 ?? ink])
                 }

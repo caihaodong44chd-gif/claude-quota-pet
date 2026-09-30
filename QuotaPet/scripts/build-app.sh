@@ -29,6 +29,7 @@ fi
 strip -S "$APP/Contents/MacOS/QuotaPet"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"  # 各语言的 App 名字（访达、通知里显示的）
+cp -R Resources/Pets "$APP/Contents/Resources/"     # 精绘宠物的图（design/painted/export_painted.py 导出）
 
 # 用宠物的像素画生成 App 图标
 "$BIN" --render-icon build/AppIcon.iconset

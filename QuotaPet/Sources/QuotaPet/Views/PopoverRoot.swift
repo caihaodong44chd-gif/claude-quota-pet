@@ -93,17 +93,16 @@ extension PetMood {
 struct LivePet: View {
     @ObservedObject var animator: PetAnimator
 
-    var body: some View { PetImage(grid: animator.frame.portrait) }
+    var body: some View { PetImage(picture: animator.frame.portrait) }
 }
 
-/// 面板里的半身像：64×64，每格 1.5pt，显示成 96pt
+/// 面板里的半身像，显示成 96pt（像素画 64×64 每格 1.5pt；精绘是 2 倍图）
 struct PetImage: View {
-    var grid: PixelGrid
-    var pixel: CGFloat = 1.5
+    var picture: PetPicture
 
     var body: some View {
-        Image(nsImage: PetRenderer.image(grid, pixel: pixel, template: false))
-            .frame(width: CGFloat(grid.width) * pixel, height: CGFloat(grid.height) * pixel)
+        Image(nsImage: PetRenderer.image(picture, template: false))
+            .frame(width: picture.points, height: picture.points)
             .accessibilityHidden(true)
     }
 }

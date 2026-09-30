@@ -52,13 +52,24 @@
 
 <img src="docs/images/pet-sheet.png" width="392" alt="宠物的全部动画帧，每行一种心情">
 
+Claude 有五款形象，在「设置 → Claude」里选：经典、猫耳、青春、魔女四款像素画，和一款精绘的「墨镜」。Codex 有自己的三款：龙娘、汉服、极客。
+
+「墨镜」是精绘的，不叠上面这些小道具：汗珠、眼泪直接画在表情里，睡着和有点懵是单独的表情。她在菜单栏上的头像大一点（22pt），也没有单色版。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-shades-dark.png">
+    <img src="docs/images/popover-shades.png" width="320" alt="面板：选了「墨镜」，5 小时额度 86%，她有点累了，太阳穴在冒汗">
+  </picture>
+</p>
+
 ## 同时看 Codex
 
 在这台 Mac 上用过 Codex（命令行或桌面端）的话，QuotaPet 会自动把它的额度也接进来，不用设置：
 
 - 面板顶部多一个 Claude / Codex 切换条，上面带着两家的百分比；每次点开先看更紧张的那家
 - 宠物和菜单栏上的数字跟着两家里更紧张的那个，数字前面的小图标告诉你是哪家：星号是 Claude，终端是 Codex
-- Codex 有自己的一组宠物：龙娘、汉服、极客，在「设置 → Codex」里选；和 Claude 的四款互不重叠，一眼就能分开
+- Codex 有自己的一组宠物：龙娘、汉服、极客，在「设置 → Codex」里选；和 Claude 的五款互不重叠，一眼就能分开
 - 不想看 Codex 的话，在「设置 → Codex」里关掉，面板、菜单栏和提醒就只管 Claude
 
 <p align="center">
@@ -131,7 +142,7 @@ python3 usage_lab.py backtest                       # 按 App 的学习方式逐
 ```
 QuotaPet/             菜单栏 App（Swift + SwiftUI，SwiftPM 构建）
   Sources/            QuotaPetCore 纯逻辑 / QuotaPet App 本体 / QuotaPetChecks 自检
-  design/             宠物像素画的 Python 原型
+  design/             宠物像素画的 Python 原型；painted/ 是把 GPT 出的图切成精绘形象的脚本
 usage_lab.py          额度实验室
 docs/PRODUCT_PLAN.md  产品规划和实测记录
 ```

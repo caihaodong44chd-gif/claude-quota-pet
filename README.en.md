@@ -52,7 +52,16 @@ Her mood follows whichever usage window is tightest:
 
 <img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet, one mood per row">
 
-Claude has four looks to choose from in Settings: Classic, Cat ears, Youthful and Witch. Codex has three of its own: Dragon girl, Hanfu and Geek.
+Claude has five looks to choose from in Settings → Claude: four pixel-art ones (Classic, Cat ears, Youthful and Witch) and a painted one, Shades. Codex has three of its own: Dragon girl, Hanfu and Geek.
+
+Shades is painted rather than pixel art, so she skips the little props above: the sweat and tears are painted into her expressions, and asleep and confused each get an expression of their own. Her menu bar icon is a bit bigger (22pt) and has no monochrome version.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-shades-en-dark.png">
+    <img src="docs/images/popover-shades-en.png" width="320" alt="Panel with Shades: 5-hour usage at 86%, she's tired and sweating at the temple">
+  </picture>
+</p>
 
 ## Codex too
 
@@ -60,7 +69,7 @@ If you use Codex (CLI or desktop app) on this Mac, QuotaPet picks up its usage a
 
 - A Claude / Codex switcher appears at the top of the popover, showing both percentages. The popover always opens on whichever is tighter
 - The pet and the menu bar number follow whichever of the two is tighter, and a small icon in front of the number tells you which one it is: the asterisk is Claude, the terminal is Codex
-- Codex has its own set of pets (Dragon girl, Hanfu and Geek; pick one in Settings → Codex), separate from Claude's four, so you can tell the two apart at a glance
+- Codex has its own set of pets (Dragon girl, Hanfu and Geek; pick one in Settings → Codex), separate from Claude's five, so you can tell the two apart at a glance
 - Don't want Codex? Turn it off in Settings → Codex, and the popover, menu bar and alerts only cover Claude
 
 <p align="center">
@@ -119,8 +128,8 @@ Settings (right-click → Settings…) has a page per topic:
 
 | Page | Options |
 |---|---|
-| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet. Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
-| Claude | Pet style (Classic / Cat ears / Youthful / Witch). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
+| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet (not available for Shades). Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
+| Claude | Pet style (Classic / Cat ears / Youthful / Witch / Shades). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
 | Codex (only if you use it) | Show Codex usage, pet style (Dragon girl / Hanfu / Geek), where the data comes from and when the last reading arrived |
 
 **Can't see the pet?** On MacBooks with a notch, menu bar icons that don't fit are hidden behind the notch. QuotaPet places itself on the far right, next to the clock, the first time it runs. If it's still hidden: hold ⌘ and drag menu bar icons to reorder them, hide icons you don't need in System Settings → Menu Bar, or switch QuotaPet to "Pet only" to save half the width.
@@ -159,7 +168,7 @@ Current conclusions: a single rate for all models fits best, thinking effort nee
 ```
 QuotaPet/             menu bar app (Swift + SwiftUI, built with SwiftPM)
   Sources/            QuotaPetCore (pure logic) / QuotaPet (the app) / QuotaPetChecks (self-checks)
-  design/             Python prototypes of the pixel art
+  design/             Python prototypes of the pixel art; painted/ cuts the painted pets out of images generated with GPT
 usage_lab.py          usage lab
 docs/PRODUCT_PLAN.md  product plan and measurements (in Chinese)
 ```

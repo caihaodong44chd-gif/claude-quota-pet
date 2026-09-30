@@ -42,7 +42,8 @@ make previews   # 输出到 build/previews/
 | `pet-sheet.png` / `pet-sheet-mono.png` | 每种心情一行、每帧一列（彩色 / 单色） |
 | `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色、各种百分比、限流倒计时 |
 | `menubar-codex.png` / `popover-codex{,-tab}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的） |
-| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的） |
+| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的；`shades` 是精绘的，没有 `-mono`） |
+| `popover-<精绘形象>.png` | 精绘形象在面板里的样子（和 `popover-busy` 同样的数据，中英、深浅色各一张） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
 | `settings.png` / `settings-claude.png` / `settings-codex.png` | 设置页的「通用 / Claude / Codex」三个分页 |
 | `popover-*-en.png` / `settings-en.png` / `pet-sheet-en.png` | 英文界面（面板、设置页各有 `-dark` 版）：改了界面文字要看，英文比中文长，容易折行、截断 |
@@ -50,7 +51,7 @@ make previews   # 输出到 build/previews/
 
 看的时候检查：文字有没有被截断、对齐和间距对不对、深浅色下是不是都看得清、宠物表情和心情对不对得上。
 
-如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`menubar-codex`、`pet-sheet`、`popover-busy`、`popover-limited`、`popover-codex-tab`（后三个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en`、`popover-codex-tab-en` 及 `-dark`），两张 `menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
+如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`menubar-codex`、`pet-sheet`、`popover-busy`、`popover-limited`、`popover-codex-tab`、`popover-shades`（后四个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en`、`popover-codex-tab-en`、`popover-shades-en` 及 `-dark`），两张 `menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
 
 ## 4. 用真实数据对账（改了数据逻辑时）
 
