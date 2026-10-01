@@ -2,19 +2,24 @@
 
 APP := build/QuotaPet.app
 
+# 关掉正在运行的 QuotaPet，并等它真正退出（最多 5 秒）：刚杀掉就 open，系统还没把旧进程清掉，open 会报 error -600
+QUIT = pkill -x QuotaPet; for i in $$(seq 25); do pgrep -x QuotaPet >/dev/null || break; sleep 0.2; done
+# 打开 App；刚换掉 App 文件时系统偶尔还没认出新的，失败了等一秒再试一次。用法：$(call OPEN,App 路径,参数)
+OPEN = open $(1) $(2) || { sleep 1; open $(1) $(2); }
+
 # 打包成 build/QuotaPet.app
 app:
 	./scripts/build-app.sh
 
 # 打包并启动（先关掉正在运行的）
 run: app
-	-pkill -x QuotaPet
-	open $(APP)
+	@$(QUIT)
+	$(call OPEN,$(APP))
 
 # 演示模式：假数据，75 秒看完宠物的所有状态
 demo: app
-	-pkill -x QuotaPet
-	open $(APP) --args --demo
+	@$(QUIT)
+	$(call OPEN,$(APP),--args --demo)
 
 # 在终端打印当前额度（和 usage_lab.py 对账用）
 dump:
@@ -30,11 +35,11 @@ previews:
 
 # 装到 ~/Applications 并打开「开机自动启动」：以后一打开 Claude 宠物就会出现
 install: app
-	-pkill -x QuotaPet
+	@$(QUIT)
 	mkdir -p ~/Applications
 	rm -rf ~/Applications/QuotaPet.app
 	cp -R $(APP) ~/Applications/
-	open ~/Applications/QuotaPet.app --args --enable-login-item
+	$(call OPEN,~/Applications/QuotaPet.app,--args --enable-login-item)
 
 # 发 GitHub Release 用：Apple 芯片 + Intel 通用版，压成 build/QuotaPet-<版本>.zip（版本号取 Info.plist）
 VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
