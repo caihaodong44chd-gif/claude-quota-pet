@@ -6,7 +6,9 @@ struct OverviewView<Pet: View>: View {
     /// 正在看的那家
     var snapshot: UsageSnapshot?
     var errorMessage: String?
+    /// 心情和她现在说的那句（PetStatus），调用方一次算好传进来
     var mood: PetMood
+    var line: String
     var pet: Pet
     /// 同时有几家时，头部下面显示切换条（只有一家时为空）
     var tabs: [UsageSnapshot] = []
@@ -16,22 +18,24 @@ struct OverviewView<Pet: View>: View {
     var onRefresh: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
-    /// 宠物这次说第几句等（见 PetTalk）；说的是哪种情况会通过 onSay 告诉外面
-    var talk = PetTalk.Options()
+    /// 这句话是哪种情况、第几句。变了（换了情况、面板又打开了一次）就通过 onSay 告诉外面：「这么晚还在忙」一晚只说一次要靠它记
+    struct Said: Equatable {
+        var situation: PetTalk.Situation
+        var pick: Int
+    }
+    var said: Said?
     var onSay: (PetTalk.Situation) -> Void = { _ in }
-    /// 点了一下宠物（外面让她做个反应、换下一句）；参数是她是不是被戳烦了
-    var onPoke: (Bool) -> Void = { _ in }
+    /// 点了一下宠物：外面让她做个反应，返回她回的那句（没反应时是 nil）
+    var onPoke: () -> String? = { nil }
     /// 渲染预览图时固定「现在」
     var fixedNow: Date?
 
     /// 点刷新后给个反馈：图标转一圈，底部说明刷新了什么
     @State private var refreshSpin = 0.0
     @State private var refreshedAt: Date?
-    /// 一共戳了宠物几下，和她被戳之后说的那句（过几秒就回到平时的话）
-    @State private var pokes = 0
+    /// 她被戳之后回的那句（过几秒就回到平时的话），和戳了几下（每戳一下重新计时）
     @State private var pokedLine: String?
-    /// 连着戳了几下：上一句还没说完又戳才算
-    @State private var pokeStreak = 0
+    @State private var pokes = 0
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -41,7 +45,7 @@ struct OverviewView<Pet: View>: View {
 
     private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            header(now: now)
+            header
             if tabs.count > 1, let selected = snapshot?.provider {
                 ProviderTabs(snapshots: tabs, selected: selected, focus: focus, onSelect: onSelect)
             }
@@ -66,16 +70,12 @@ struct OverviewView<Pet: View>: View {
         .padding(14)
     }
 
-    private func header(now: Date) -> some View {
-        let said = PetTalk.say(snapshot, mood: mood, now: now, options: talk)
-        return HStack(spacing: 12) {
+    private var header: some View {
+        HStack(spacing: 12) {
             Button {
-                let streak = pokedLine == nil ? 1 : pokeStreak + 1
-                guard let poke = PetTalk.poked(mood: mood, count: pokes + 1, streak: streak) else { return }
+                guard let reply = onPoke() else { return }
+                pokedLine = reply
                 pokes += 1
-                pokeStreak = streak
-                pokedLine = poke.line
-                onPoke(poke.annoyed)
             } label: {
                 pet
                     .frame(width: 96, height: 96)
@@ -88,7 +88,7 @@ struct OverviewView<Pet: View>: View {
             .accessibilityLabel(tr("戳一下宠物", "Poke the pet"))
             .task(id: pokes) {
                 guard pokes > 0 else { return }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(PetChat.pokeLineDuration * 1_000_000_000))
                 if !Task.isCancelled { pokedLine = nil }  // 又戳了一下时这个任务会被取消：别把新的那句清掉
             }
             .onChange(of: snapshot?.provider) { pokedLine = nil }  // 切到另一家：换了一只宠物
@@ -104,11 +104,13 @@ struct OverviewView<Pet: View>: View {
                         .background(Capsule().fill(Level.mood(mood).opacity(0.16)))
                         .foregroundStyle(Level.mood(mood))
                 }
-                Text(pokedLine ?? said.line)
+                Text(pokedLine ?? line)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)  // 英文比较长，折行而不是截断
-                    .onChange(of: said.situation, initial: true) { _, situation in onSay(situation) }
+                    .onChange(of: said, initial: true) { _, said in
+                        if let said { onSay(said.situation) }
+                    }
             }
             .padding(.leading, 4)
             Spacer(minLength: 0)

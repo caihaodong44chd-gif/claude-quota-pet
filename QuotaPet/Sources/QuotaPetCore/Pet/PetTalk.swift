@@ -1,8 +1,33 @@
 import Foundation
 
+/// 宠物现在的样子：心情，和她在面板上说的话。两样一次算出来，表情、标签和台词才对得上
+public struct PetStatus: Equatable, Sendable {
+    public let mood: PetMood
+    /// 说话的由头，和这种情况下轮着说的几句（至少一句）
+    public let situation: PetTalk.Situation
+    public let lines: [String]
+
+    /// 这次说第几句（取余数）
+    public func line(_ pick: Int) -> String { lines[abs(pick) % lines.count] }
+
+    /// snapshot 是 nil：还没算出来（failed 时是读取出错了，疑惑）。memory：这家的记忆（PetMemory）。
+    /// lateNight：能不能说「这么晚还在忙」（一晚只说一次，见 PetChat）
+    public static func of(_ snapshot: UsageSnapshot?, failed: Bool = false, memory: PetMemory = PetMemory(), now: Date,
+                          lateNight: Bool = true, calendar: Calendar = .current) -> PetStatus {
+        guard let snapshot else {
+            return failed ? PetStatus(mood: .confused, situation: .confused, lines: PetTalk.confusedLines)
+                          : PetStatus(mood: .loading, situation: .loading, lines: [PetMood.loading.line])
+        }
+        guard let trend = PetTrend(snapshot, now: now, memory: memory) else {
+            return PetStatus(mood: .confused, situation: .confused, lines: PetTalk.confusedLines)
+        }
+        let talk = PetTalk.lines(trend, snapshot: snapshot, now: now, lateNight: lateNight, calendar: calendar)
+        return PetStatus(mood: trend.mood, situation: talk.situation, lines: talk.lines)
+    }
+}
+
 /// 宠物在面板上说的话：看的是实际情况（快用完了、烧得快、刚恢复…），不只是用了多少。
-/// 从上往下找第一个符合的情况；同一种情况有几句，面板每打开一次换一句（Options.pick）。
-/// 趋势和心情看的是同一份（PetTrend），表情和台词对得上
+/// 从上往下找第一个符合的情况；同一种情况有几句，面板每打开一次换一句（PetChat.pick）
 public enum PetTalk {
     /// 说话的由头，按优先级从高到低
     public enum Situation: String, CaseIterable, Sendable {
@@ -34,35 +59,12 @@ public enum PetTalk {
         case ordinary
     }
 
-    public struct Options: Equatable, Sendable {
-        /// 同一种情况有几句时说第几句（取余数），面板每打开一次加一
-        public var pick: Int
-        /// 最近一次看到这家的额度恢复是什么时候（见 recovered(from:to:)）
-        public var recoveredAt: Date?
-        /// 能不能说「这么晚还在忙」：一晚只说一次，说过了由 App 关掉
-        public var lateNight: Bool
-
-        public init(pick: Int = 0, recoveredAt: Date? = nil, lateNight: Bool = true) {
-            self.pick = pick
-            self.recoveredAt = recoveredAt
-            self.lateNight = lateNight
-        }
-    }
-
     /// 深夜那句：最近这么久以内用过才说
     static let activeWithin: TimeInterval = 600
     /// 深夜是几点到几点
     static let lateHours = 0..<5
     /// 和平均节奏差多少个点才说（面板上多用这么多时标橙）
     static let paceGap = 10.0
-
-    /// 这次刷新看到额度恢复了：有窗口从六成以上掉到了 5% 以下（和「额度恢复」提醒同一个标准）
-    public static func recovered(from old: UsageSnapshot?, to new: UsageSnapshot) -> Bool {
-        guard let old else { return false }
-        return new.windows.contains { window in
-            old.window(window.id).map { UsageAlerts.recovered(from: $0.percent, to: window.percent) } ?? false
-        }
-    }
 
     /// 连着戳到第几下开始闹别扭
     static let annoyedAfter = 5
@@ -103,21 +105,11 @@ public enum PetTalk {
         return (lines[abs(count - 1) % lines.count], false)
     }
 
-    /// 现在是什么情况、她说哪一句
-    public static func say(_ snapshot: UsageSnapshot?, mood: PetMood, now: Date, options: Options = Options(),
-                           calendar: Calendar = .current) -> (situation: Situation, line: String) {
-        let found = lines(snapshot, mood: mood, now: now, options: options, calendar: calendar)
-        return (found.situation, found.lines[abs(options.pick) % found.lines.count])
-    }
+    static var confusedLines: [String] { [PetMood.confused.line, tr("咦，读数去哪了？", "Huh, where did the readings go?")] }
 
-    /// 现在是什么情况、这种情况下轮着说的几句（至少一句）。
-    /// mood 只用来认「还没算出来」和「读不到数据」（出错了、还没有快照时也是疑惑），别的都按快照算
-    static func lines(_ snapshot: UsageSnapshot?, mood: PetMood, now: Date, options: Options = Options(),
-                      calendar: Calendar = .current) -> (situation: Situation, lines: [String]) {
-        if mood == .loading { return (.loading, [mood.line]) }
-        guard mood != .confused, let snapshot, let trend = PetTrend(snapshot, now: now, recoveredAt: options.recoveredAt) else {
-            return (.confused, [PetMood.confused.line, tr("咦，读数去哪了？", "Huh, where did the readings go?")])
-        }
+    /// 有数据时是什么情况、这种情况下轮着说的几句（至少一句）
+    static func lines(_ trend: PetTrend, snapshot: UsageSnapshot, now: Date, lateNight: Bool,
+                      calendar: Calendar) -> (situation: Situation, lines: [String]) {
         let top = trend.top, level = trend.level
         let left = max(1, Int((100 - top.clampedPercent).rounded()))
         func clock(_ date: Date) -> String { Fmt.clock(date, now: now, calendar: calendar) }
@@ -165,7 +157,7 @@ public enum PetTalk {
         // 已经用到七成半、在冒汗了，就不另外说烧得快
         if level != .tired, let fast = trend.fast, let burn = fast.window.burnPerHour {
             var lines = [
-                tr("今天好拼啊，一小时烧了 \(Int(burn.rounded()))%…", "Going hard today: \(Int(burn.rounded()))% an hour…"),
+                tr("今天好拼啊，照这样一小时要烧 \(Int(burn.rounded()))%…", "Going hard today: \(Int(burn.rounded()))% an hour at this rate…"),
                 PetMood.nervous.line,
             ]
             if let back = fast.window.resetsAt {
@@ -218,7 +210,7 @@ public enum PetTalk {
         if trend.idle {
             return (.idle, [PetMood.resting.line, tr("好安静…我先发会儿呆", "So quiet… I'll just zone out for a bit")])
         }
-        if options.lateNight, let quiet = trend.quiet, quiet <= activeWithin, lateHours.contains(calendar.component(.hour, from: now)) {
+        if lateNight, let quiet = trend.quiet, quiet <= activeWithin, lateHours.contains(calendar.component(.hour, from: now)) {
             return (.lateNight, [
                 tr("这么晚还在忙？早点休息呀", "Still up this late? Get some rest soon"),
                 tr("夜深了，我陪你再撑一会儿", "It's late. I'll stay up with you a little longer"),

@@ -65,7 +65,7 @@ She only falls asleep when the quota is really used up (the official reading hit
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-rush-en-dark.png">
-    <img src="docs/images/popover-rush-en.png" width="320" alt="Popover: 5-hour usage is only at 58%, but 45% went in the last hour and she's already nervous">
+    <img src="docs/images/popover-rush-en.png" width="320" alt="Popover: 5-hour usage is only at 58%, but it's burning 45% an hour and she's already nervous">
   </picture>
   &nbsp;
   <picture>

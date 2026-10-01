@@ -93,7 +93,7 @@ Sources/
     Codex/
       CodexLogs                 增量读取 Codex 对话日志里的额度读数
       CodexProvider             把读数组合成快照（窗口、消耗速度）
-    Pet/                        宠物心情、形象和说的话（PetTalk）；PaintedArt.swift 是表情清单（导出的，别手改）
+    Pet/                        宠物心情、形象、说的话（PetTalk、PetStatus）、记忆和聊天状态；PaintedArt.swift 是表情清单（导出的，别手改）
     DemoProvider.swift          演示数据（Claude 和 Codex）
   QuotaPet/                     菜单栏 App
     StatusItemController        菜单栏上的宠物、文字和弹出面板
@@ -112,7 +112,7 @@ Sources/
 八款形象都是这样做的：用 GPT 出图，再用脚本切成 App 用的图。原图放在不进 git 的地方，`design/painted/<形象>.json` 是这一款的配置。
 脚本要用 Pillow 和 NumPy（`pip3 install pillow numpy`），对比图放在 `design/out/`，不进 git。
 
-1. 在配置里写 `source`（原图目录）和 `character`（角色描述：头发、眼睛、饰品、服装、表情），然后生成出图包：提示词，加上一张画风参考图（已经做好的那款的底图）。
+1. 在配置里写 `label`（中文名）、`source`（原图目录）和 `character`（角色描述：头发、眼睛、饰品、服装、表情），然后生成出图包：提示词，加上一张画风参考图（已经做好的那款的底图）。
 
 ```bash
 python3 design/painted/make_pack.py <形象>   # → 原图目录的上一级：提示词.md、参考图
@@ -136,7 +136,7 @@ python3 design/painted/pipeline.py <形象>    # → Resources/Pets/<形象>/ �
 脚本先拿头发和衣服把每张表情图对齐到底图，再只取脸那一块（边缘羽化）盖上去，所以各个表情的头发、衣服完全一样，切换时不会抖。
 脸以外的小块（比如太阳穴上的汗珠）写在配置的 `patches` 里：只让 GPT 画一次，脚本复制到别的表情上，位置一模一样。
 
-人物身上有绿色（薄荷绿的头发、绿眼睛、荧光绿的饰品）时，在配置里写 `"keepGreen": true`：默认的抠图按「绿不绿」整张抠，会把这些地方抠掉、变色。
+人物身上有绿色时在配置里写 `keepGreen`：默认的抠图按「绿不绿」整张抠，会把这些地方抠掉、变色。绿色只在里面（绿眼睛）写 `"inside"`；轮廓上也有绿（薄荷绿的头发、荧光绿的饰品）写 `true`。
 
 不往图上叠小道具（漫画符号浮在精绘的脸上很突兀），也没有单色版（缩成剪影很难看）。各种心情播哪几个表情在 `PetSprites.frames`，被戳的反应在 `PetSprites.reaction`。
 加一款：配置文件名用新形象的 rawValue，在 `PetStyle` 里加 case 和名字，再放进 `claudeChoices` 或 `codexChoices`。

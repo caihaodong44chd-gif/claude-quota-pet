@@ -25,10 +25,10 @@ enum PreviewRenderer {
         let live = UsageSnapshot.visible([try? ClaudeProvider().snapshot(now: now), try? CodexProvider().snapshot(now: now)].compactMap { $0 },
                                          hidden: settings.hiddenProviders)
         if let focus = UsageSnapshot.focus(of: live) {
-            let mood = PetMood.from(snapshot: focus, now: now)
+            let status = PetStatus.of(focus, now: now), mood = status.mood
             let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle)
             for dark in [false, true] {
-                let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood,
+                let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood, line: status.line(0),
                                         pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
                                         tabs: live.count > 1 ? live : [], focus: focus.provider, fixedNow: now)
                 write(render(view, dark: dark), to: dir.appendingPathComponent("popover-live\(dark ? "-dark" : "").png"))
@@ -45,14 +45,13 @@ enum PreviewRenderer {
                 write(spriteSheet(style: .classic), to: dir.appendingPathComponent("pet-sheet\(lang).png"))
             }
             for (name, snapshot) in sampleSnapshots(now: now) {
-                let mood = PetMood.from(snapshot: snapshot, now: now)
-                // busy 的数据再给每款形象各出一张（popover-<形象>），看半身像在面板里的样子
-                let styles = name == "busy" ? PetStyle.allCases : []
+                let status = sampleStatus(snapshot, now: now), mood = status.mood
+                // busy 的数据再给别的形象各出一张（popover-<形象>），看半身像在面板里的样子；经典就是 popover-busy 那张
+                let styles = name == "busy" ? PetStyle.allCases.filter { $0 != .classic } : []
                 for (file, style) in [(name, PetStyle.classic)] + styles.map({ ($0.rawValue, $0) }) {
                     for dark in [false, true] {
-                        let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
-                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
-                                                talk: sampleTalk, fixedNow: now)
+                        let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood, line: status.line(0),
+                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait), fixedNow: now)
                         write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(file)\(lang)\(dark ? "-dark" : "").png"))
                     }
                 }
@@ -60,12 +59,12 @@ enum PreviewRenderer {
             // 同时有 Codex：看 Claude（宠物跟着 Claude），和看 Codex（宠物跟着 Codex，换成龙娘）
             for (name, tabs, selected) in codexSamples(now: now) {
                 let snapshot = tabs.first { $0.provider == selected }
-                let mood = PetMood.from(snapshot: snapshot, now: now)
+                let status = sampleStatus(snapshot, now: now), mood = status.mood
                 let style = PetStyle.of(selected, claudeStyle: .classic, codexStyle: .dragon)
                 for dark in [false, true] {
-                    let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
+                    let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood, line: status.line(0),
                                             pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
-                                            tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, talk: sampleTalk, fixedNow: now)
+                                            tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, fixedNow: now)
                     write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
                 }
             }
@@ -90,7 +89,9 @@ enum PreviewRenderer {
     }
 
     /// 假数据的面板图不看是几点渲染的：半夜出图也不说「这么晚还在忙」
-    private static let sampleTalk = PetTalk.Options(lateNight: false)
+    private static func sampleStatus(_ snapshot: UsageSnapshot?, now: Date) -> PetStatus {
+        PetStatus.of(snapshot, now: now, lateNight: false)
+    }
 
     // MARK: - 宠物动画表：每行一种心情，每列一帧
 

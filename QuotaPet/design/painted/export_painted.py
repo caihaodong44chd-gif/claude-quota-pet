@@ -13,9 +13,11 @@
   patches   [{"from": 表情, "region": [cx, cy, rx, ry], "onto": [表情, ...]}]
             脸以外还要取的小块（比如太阳穴上的汗珠、流出脸的眼泪）：从 from 那张取 region 这块，盖到 onto 这几张上。
             一颗汗珠只让 GPT 画一次，别的表情复制同一颗，切换表情时汗珠不会跳
+  label     "猫耳"             这款的中文名，出图包的标题用（make_pack.py）
   outline   "#RRGGBB"         菜单栏头像外圈描边的颜色：浅金色头发在浅色菜单栏上会发白
-  keepGreen true              人物身上有绿色（薄荷绿的头发、荧光绿的饰品）：按「绿不绿」整张抠会把它们抠掉、变色，
-                              改成只认和背景几乎同色的地方，只在背景边上几个像素里算半透明
+  keepGreen true | "inside"   人物身上有绿色：按「绿不绿」整张抠会把它们抠掉、变色。
+                              "inside"：绿色只在里面（比如绿眼睛），离背景远的地方原样留着，轮廓照常抠；
+                              true：轮廓上也有绿（薄荷绿的头发、荧光绿的饰品），只认和背景几乎同色的地方，只在背景边上几个像素里算半透明
   appIcon   true              App 图标用这款：另外导出 Resources/AppIcon.png（底图的面板取景，1024×1024），只有一款能写
 
 原图：每个表情一张正方形图，透明背景或纯绿背景（#00FF00），文件名见 FACES，open-small 是底图。
@@ -55,22 +57,41 @@ def greenness(rgb):
     return rgb[..., 1] - np.maximum(rgb[..., 0], rgb[..., 2])
 
 
-def load(path, keep_green=False):
-    """读成 RGBA 的 float 数组（0~1，未预乘）。没有透明背景时按纯绿背景抠图。
-    只看上面两个角判断背景：画到胸口时，下面两个角常被人物盖住。
-    keep_green：人物身上有绿色（配置里的 keepGreen），见下面"""
-    im = Image.open(path)
-    rgba = np.asarray(im.convert("RGBA"), dtype=np.float32) / 255
-    corners = np.concatenate([rgba[:8, :8].reshape(-1, 4), rgba[:8, -8:].reshape(-1, 4)])
+def background_key(top, path):
+    """图上实际的背景绿（GPT 画的不一定正好是 #00FF00）；自带透明背景时是 None，两样都不是就退出。
+    top：图最上面的几行。只看上面两个角：画到胸口时，下面两个角常被人物盖住"""
+    corners = np.concatenate([top[:8, :8].reshape(-1, 4), top[:8, -8:].reshape(-1, 4)])
     if corners[:, 3].mean() < 0.5:
-        return rgba  # 自带透明背景
+        return None
     if np.median(greenness(corners)) < 0.4:
         sys.exit(f"✗ {os.path.basename(path)} 的背景既不是透明也不是纯绿，请让 GPT 按说明重出")
-    key = np.median(corners[:, :3], axis=0)  # 图上实际的背景绿（GPT 画的不一定正好是 #00FF00）
+    return np.median(corners[:, :3], axis=0)
+
+
+def inspect(path):
+    """只看背景能不能抠（不行就和 load 一样退出），返回 (高, 宽)。不真的抠图，流水线检查原图时用"""
+    im = Image.open(path)
+    background_key(np.asarray(im.convert("RGBA").crop((0, 0, im.width, 8)), dtype=np.float32) / 255, path)
+    return im.height, im.width
+
+
+def load(path, keep_green=False):
+    """读成 RGBA 的 float 数组（0~1，未预乘）。没有透明背景时按纯绿背景抠图。
+    keep_green：人物身上有绿色（配置里的 keepGreen：True 或 "inside"），见下面"""
+    im = Image.open(path)
+    rgba = np.asarray(im.convert("RGBA"), dtype=np.float32) / 255
+    key = background_key(rgba, path)
+    if key is None:
+        return rgba  # 自带透明背景
     rgb = rgba[..., :3]
     alpha = 1 - np.clip((greenness(rgb) - 0.08) / 0.3, 0, 1)
-    edge = spill = None  # 只在这些像素里去绿边；None = 整张
-    if keep_green:
+    edge = spill = inner = None  # 只在 edge、spill 里去绿边（None = 整张）；inner 里不动
+    if keep_green == "inside":
+        # 绿色只在人物里面（绿眼睛）：离背景 12 像素以上的地方原样留着，轮廓和发丝缝里透出来的背景照常抠
+        background = np.abs(rgb - key).max(axis=-1) < 0.12
+        inner = ~np.asarray(Image.fromarray(background).filter(ImageFilter.MaxFilter(25)))
+        alpha = np.where(inner, 1, alpha)
+    elif keep_green:
         # 薄荷绿的头发、荧光绿的饰品也「比红蓝更绿」，按上面那样整张抠会被抠掉一部分、颜色被去绿边改掉。
         # 背景是和 key 几乎同色的大片；只在背景边上几个像素里算半透明（红或蓝够多就不是背景），别处都不透明
         background = np.abs(rgb - key).max(axis=-1) < 0.12
@@ -86,12 +107,14 @@ def load(path, keep_green=False):
     premultiplied = np.clip(np.minimum(rgb - (1 - alpha) * key, alpha), 0, 1)
     color = np.where(alpha > 1e-4, premultiplied / np.maximum(alpha, 1e-4), 0)
     # 残留的绿边：绿不能比红蓝更多。人物身上有绿色时只管背景边上，而且留一点余量（薄荷绿本来就比红蓝绿一些）
-    limit = np.maximum(color[..., 0], color[..., 2]) + (0.15 if keep_green else 0)
-    if edge is None:
-        color[..., 1] = np.minimum(color[..., 1], limit)
+    limit = np.maximum(color[..., 0], color[..., 2])
+    if edge is not None:
+        color[..., 1] = np.where(edge, np.minimum(color[..., 1], limit + 0.15), color[..., 1])
+        color[..., 1] = np.where(spill, np.minimum(color[..., 1], limit), color[..., 1])
+    elif inner is not None:
+        color[..., 1] = np.where(inner, color[..., 1], np.minimum(color[..., 1], limit))
     else:
-        color[..., 1] = np.where(edge, np.minimum(color[..., 1], limit), color[..., 1])
-        color[..., 1] = np.where(spill, np.minimum(color[..., 1], np.maximum(color[..., 0], color[..., 2])), color[..., 1])
+        color[..., 1] = np.minimum(color[..., 1], limit)
     return np.concatenate([color, alpha], axis=-1).astype(np.float32)
 
 
@@ -274,12 +297,13 @@ def align_all(src, face, verbose=True, keep_green=False):
     return base, aligned, moves, missing
 
 
-def export(name, config, src, trial, force):
+def export(name, config, src, trial, force, aligned=None):
     """trial：原图不是配置里的那一套（用了 --src）。缺表情或 trial 时只出对比图，
-    免得试一张图就把仓库里已经提交的正式图换掉；force（--write）时照样写进 Resources/Pets"""
+    免得试一张图就把仓库里已经提交的正式图换掉；force（--write）时照样写进 Resources/Pets。
+    aligned：已经按这份配置的 face 对齐好的结果（align_all 的返回值），流水线传进来，免得再对齐一遍"""
     print(f"== {name}（原图：{os.path.relpath(src, REPO) if src.startswith(REPO) else src}）")
     face = config["face"]
-    base, aligned, _, missing = align_all(src, face, keep_green=config.get("keepGreen", False))
+    base, aligned, _, missing = aligned or align_all(src, face, keep_green=config.get("keepGreen", False))
     if missing:  # 先出底图看效果时，别的表情还没有：先用底图代替
         print(f"   ⚠ 还没有这些表情图，先用底图代替：{', '.join(missing)}")
     color = [int(config["outline"][i:i + 2], 16) / 255 for i in (1, 3, 5)]

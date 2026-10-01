@@ -97,8 +97,9 @@ check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")
 check(PetMood.from(percent: 95) == .exhausted, "95% 快撑不住")
 check(PetMood.from(percent: 100) == .sleeping, "100% 睡觉")
-check(PetMood.from(snapshot: nil, now: Date()) == .loading, "还没数据时在加载")
-check(PetMood.from(snapshot: UsageSnapshot(provider: .claude, windows: [], generatedAt: Date(), hasData: false), now: Date()) == .confused,
+check(PetStatus.of(nil, now: Date()).mood == .loading && PetStatus.of(nil, failed: true, now: Date()).mood == .confused,
+      "还没数据时在加载；还没数据又读取出错了是疑惑")
+check(PetStatus.of(UsageSnapshot(provider: .claude, windows: [], generatedAt: Date(), hasData: false), now: Date()).mood == .confused,
       "没数据时疑惑")
 
 // MARK: - 桌面端读数
@@ -699,7 +700,7 @@ do {
     limited.windows[0].percent = 100
     limited.windows[0].resetsAt = at(25, 13, 23)
     check(MenuBarText.make(limited, mode: .session, now: at(25, 12)).text == "1h23m", "限流时显示恢复倒计时")
-    check(PetMood.from(snapshot: limited, now: at(25, 12)) == .sleeping, "限流时宠物睡觉")
+    check(PetStatus.of(limited, now: at(25, 12)).mood == .sleeping, "限流时宠物睡觉")
 
     let fast = UsageWindow(id: "x", title: "", duration: fiveHours, percent: 60, resetsAt: at(25, 16), burnPerHour: 20)
     check(fast.projectedExhaustion(now: at(25, 12)) == at(25, 14), "60% + 20%/小时 → 2 小时后用完")
@@ -818,7 +819,7 @@ do {
 // MARK: - 宠物说的话 & 心情的趋势
 
 /// 下面试过的每一种输入，「多语言」一节拿它们再查一遍英文
-nonisolated(unsafe) var talkInputs: [(snapshot: UsageSnapshot?, mood: PetMood, now: Date, options: PetTalk.Options)] = []
+nonisolated(unsafe) var talkInputs: [(snapshot: UsageSnapshot?, failed: Bool, memory: PetMemory, now: Date, lateNight: Bool)] = []
 
 /// 一个 5 小时窗口（两小时前开始、三小时后重置），可以再加一个正好过了一半的每周窗口。quiet：多久没用了，nil = 不知道
 func talkSnapshot(_ session: Double, burn: Double? = nil, weekly: Double? = nil, weeklyBurn: Double? = nil, other: Double = 0,
@@ -833,19 +834,22 @@ func talkSnapshot(_ session: Double, burn: Double? = nil, weekly: Double? = nil,
                          lastActiveAt: quiet.map { now - $0 })
 }
 
-/// 心情按快照算（和面板一样），除非另外指定
-func talk(_ snapshot: UsageSnapshot?, now: Date, options: PetTalk.Options = .init(), mood: PetMood? = nil)
-    -> (situation: PetTalk.Situation, lines: [String]) {
-    let mood = mood ?? PetMood.from(snapshot: snapshot, now: now, recoveredAt: options.recoveredAt)
-    talkInputs.append((snapshot, mood, now, options))
-    return PetTalk.lines(snapshot, mood: mood, now: now, options: options)
+/// 记得「5 小时窗口在这个时候恢复过」
+func recalling(_ recoveredAt: Date?) -> PetMemory {
+    PetMemory(recovery: recoveredAt.map { .init(at: $0, window: "five_hour") })
+}
+
+/// 心情和台词一次算出来（和面板一样）。recovered：5 小时窗口什么时候恢复的
+func talk(_ snapshot: UsageSnapshot?, now: Date, recovered: Date? = nil, lateNight: Bool = true, failed: Bool = false) -> PetStatus {
+    talkInputs.append((snapshot, failed, recalling(recovered), now, lateNight))
+    return PetStatus.of(snapshot, failed: failed, memory: recalling(recovered), now: now, lateNight: lateNight)
 }
 
 do {
     let now = at(25, 12)  // 5 小时窗口 10:00 开始、15:00 重置
     var t = talk(nil, now: now)
     check(t.situation == .loading && t.lines == ["正在看额度…"], "还没算出来：\(t)")
-    t = talk(nil, now: now, mood: .confused)
+    t = talk(nil, now: now, failed: true)
     check(t.situation == .confused && t.lines.count == 2 && t.lines[0] == PetMood.confused.line, "读不到数据：\(t)")
 
     // 用完了
@@ -861,17 +865,22 @@ do {
 
     // 刚恢复
     let fresh = talkSnapshot(3, now: now)
-    t = talk(fresh, now: now, options: .init(recoveredAt: now - 300))
+    t = talk(fresh, now: now, recovered: now - 300)
     check(t.situation == .recovered && t.lines[0] == "满血复活！", "看到恢复 5 分钟：\(t)")
-    check(talk(fresh, now: now, options: .init(recoveredAt: now - 660)).situation == .ordinary, "恢复超过 10 分钟：照常说")
-    check(talk(talkSnapshot(25, now: now), now: now, options: .init(recoveredAt: now - 300)).situation == .ordinary,
+    check(talk(fresh, now: now, recovered: now - 660).situation == .ordinary, "恢复超过 10 分钟：照常说")
+    check(talk(talkSnapshot(25, now: now), now: now, recovered: now - 300).situation == .ordinary,
           "恢复后已经又用了不少：照常说")
-    check(talk(talkSnapshot(3, weekly: 92, now: now), now: now, options: .init(recoveredAt: now - 300)).situation == .almostOut,
+    check(talk(talkSnapshot(3, weekly: 92, now: now), now: now, recovered: now - 300).situation == .almostOut,
           "5 小时的恢复了，每周的还在九成：不说满血复活")
     let high = talkSnapshot(86, now: now)
-    check(PetTalk.recovered(from: high, to: fresh) && !PetTalk.recovered(from: talkSnapshot(40, now: now), to: fresh)
-          && !PetTalk.recovered(from: nil, to: fresh) && !PetTalk.recovered(from: high, to: talkSnapshot(20, now: now)),
-          "从六成以上掉到 5% 以下才算恢复")
+    func recovery(_ old: UsageSnapshot?, _ new: UsageSnapshot) -> PetMemory.Recovery? { PetMemory().updated(from: old, to: new, now: now).recovery }
+    check(recovery(high, fresh) == .init(at: now, window: "five_hour") && recovery(talkSnapshot(40, now: now), fresh) == nil
+          && recovery(nil, fresh) == nil && recovery(high, talkSnapshot(20, now: now)) == nil,
+          "从六成以上掉到 5% 以下才算恢复，记下是哪个窗口")
+    // 恢复的是 5 小时窗口：它又用回去了就不算刚恢复，哪怕每周的还很低
+    check(talk(talkSnapshot(40, weekly: 8, now: now), now: now, recovered: now - 300).situation != .recovered
+          && talk(talkSnapshot(3, weekly: 8, now: now), now: now, recovered: now - 300).situation == .recovered,
+          "刚恢复看的是恢复的那个窗口，不是随便哪个用得少的")
 
     // 眼看要用完：85%，每小时 60% → 12:15
     t = talk(talkSnapshot(85, burn: 60, now: now), now: now)
@@ -890,7 +899,7 @@ do {
 
     // 烧得快：40%，每小时 42% → 13:25 用完，撑不到 15:00
     t = talk(talkSnapshot(40, burn: 42, now: now), now: now)
-    check(t.situation == .burningFast && t.lines == ["今天好拼啊，一小时烧了 42%…", "这个速度撑不到 15:00 重置哦", "慢点慢点，我快跟不上了"],
+    check(t.situation == .burningFast && t.lines == ["今天好拼啊，照这样一小时要烧 42%…", "这个速度撑不到 15:00 重置哦", "慢点慢点，我快跟不上了"],
           "烧得快：\(t)")
     t = talk(talkSnapshot(20, weekly: 55, weeklyBurn: 1, now: now), now: now)
     check(t.situation == .ordinary && t.lines[1] == "过半啦，还剩 45%", "每周额度照这个速度撑不到重置：不算烧得快：\(t)")
@@ -924,7 +933,7 @@ do {
     check(talk(codex, now: now).situation == .idle, "只有每周额度的（比如 Codex）也看多久没用")
     let night = at(25, 2)
     check(talk(talkSnapshot(30, quiet: 120, now: night), now: night).situation == .lateNight, "凌晨两点还在用")
-    check(talk(talkSnapshot(30, quiet: 120, now: night), now: night, options: .init(lateNight: false)).situation == .ordinary,
+    check(talk(talkSnapshot(30, quiet: 120, now: night), now: night, lateNight: false).situation == .ordinary,
           "今晚说过了就不再说")
     check(talk(talkSnapshot(30, quiet: 900, now: night), now: night).situation == .ordinary, "凌晨两点，一刻钟没用了：不说")
     check(talk(talkSnapshot(30, quiet: 120, now: now), now: now).situation == .ordinary, "白天不说")
@@ -938,14 +947,16 @@ do {
 
     // 面板每打开一次换一句
     let calm = talkSnapshot(27, now: now)
-    let said = (0...3).map { PetTalk.say(calm, mood: .energetic, now: now, options: .init(pick: $0)).line }
+    let said = (0...3).map { PetStatus.of(calm, now: now).line($0) }
     check(said == ["额度多着呢，放心用！", "才用了 27%，随便造～", "状态满分！", "额度多着呢，放心用！"], "轮着说：\(said)")
-    check(Set(talkInputs.map { PetTalk.lines($0.snapshot, mood: $0.mood, now: $0.now, options: $0.options).situation })
-          == Set(PetTalk.Situation.allCases), "每种情况都试到了")
+    func status(_ input: (snapshot: UsageSnapshot?, failed: Bool, memory: PetMemory, now: Date, lateNight: Bool)) -> PetStatus {
+        PetStatus.of(input.snapshot, failed: input.failed, memory: input.memory, now: input.now, lateNight: input.lateNight)
+    }
+    check(Set(talkInputs.map { status($0).situation }) == Set(PetTalk.Situation.allCases), "每种情况都试到了")
 
     // 心情 = 档位 + 趋势
     func mood(_ snapshot: UsageSnapshot, recoveredAt: Date? = nil) -> PetMood {
-        PetMood.from(snapshot: snapshot, now: now, recoveredAt: recoveredAt)
+        PetStatus.of(snapshot, memory: recalling(recoveredAt), now: now).mood
     }
     check(mood(talkSnapshot(40, burn: 42, now: now)) == .nervous, "才 40%，但照这个速度撑不到重置：先慌")
     check(mood(talkSnapshot(76, burn: 20, now: now)) == .tired, "已经用到七成半：是累，不是慌")
@@ -970,10 +981,71 @@ do {
     let pairs: [PetTalk.Situation: PetMood] = [.usedUp: .sleeping, .recovered: .revived, .runningOut: .exhausted, .almostOut: .exhausted,
                                                .burningFast: .nervous, .tired: .tired, .idle: .resting]
     for input in talkInputs {
-        guard let snapshot = input.snapshot, snapshot.hasData else { continue }
-        let situation = PetTalk.lines(snapshot, mood: input.mood, now: input.now, options: input.options).situation
-        let mood = PetMood.from(snapshot: snapshot, now: input.now, recoveredAt: input.options.recoveredAt)
-        if let expected = pairs[situation] { check(mood == expected, "说的是 \(situation)，心情应该是 \(expected)，实际是 \(mood)") }
+        let status = status(input)
+        if let expected = pairs[status.situation] {
+            check(status.mood == expected, "说的是 \(status.situation)，心情应该是 \(expected)，实际是 \(status.mood)")
+        }
+    }
+
+    // 警报在门槛上一会儿有一会儿没有时，心情不来回跳：没再看到之后还留 3 分钟
+    do {
+        let fast = talkSnapshot(40, burn: 42, now: now), calm = talkSnapshot(40, burn: 10, now: now)
+        func look(_ snapshot: UsageSnapshot, _ memory: PetMemory, after seconds: TimeInterval) -> PetStatus {
+            PetStatus.of(snapshot, memory: memory, now: now + seconds)
+        }
+        var memory = PetMemory().updated(from: nil, to: fast, now: now)
+        check(look(fast, memory, after: 0).mood == .nervous, "烧得快：有点慌")
+        memory = memory.updated(from: fast, to: calm, now: now + 30)  // 半分钟后速度掉下来了
+        let held = look(calm, memory, after: 30)
+        check(held.mood == .nervous && held.situation == .burningFast && held.lines[0] == "今天好拼啊，照这样一小时要烧 42%…",
+              "刚才还烧得快：先留着，表情和台词都不变：\(held)")
+        check(look(calm, memory, after: 170).mood == .nervous && look(calm, memory, after: 190).mood == .energetic,
+              "3 分钟都没再看到才放下")
+        memory = memory.updated(from: calm, to: fast, now: now + 60)  // 又看到了：重新计时
+        memory = memory.updated(from: fast, to: calm, now: now + 90)
+        check(look(calm, memory, after: 230).mood == .nervous && look(calm, memory, after: 250).mood == .energetic, "又看到一次就从那时起再留 3 分钟")
+        let kept = memory.updated(from: calm, to: calm, now: now + 300)
+        check(look(calm, kept, after: 300).mood == .energetic && kept == PetMemory(), "过期的警报更新时清掉")
+        // 窗口重置了（用量掉回去）：警报马上作废，不留
+        let reset = PetMemory().updated(from: nil, to: fast, now: now).updated(from: fast, to: talkSnapshot(2, now: now), now: now + 30)
+        check(look(talkSnapshot(2, now: now), reset, after: 30).mood == .energetic, "窗口重置后不再留着刚才的警报")
+        // 快用完了也一样留着；当时预计的用完时间过了就不留
+        let soon = talkSnapshot(85, burn: 60, now: now), slow = talkSnapshot(86, burn: 5, now: now)  // 预计 12:15 用完
+        memory = PetMemory().updated(from: nil, to: soon, now: now).updated(from: soon, to: slow, now: now + 60)
+        check(look(slow, memory, after: 60).mood == .exhausted && look(slow, memory, after: 60).situation == .runningOut
+              && look(slow, memory, after: 200).mood == .tired, "快用完了的警报也留 3 分钟")
+        let past = PetMemory().updated(from: nil, to: talkSnapshot(98, burn: 60, now: now), now: now)  // 预计 2 分钟后用完
+        check(look(talkSnapshot(98, burn: 0.5, now: now), past, after: 100).situation == .runningOut
+              && look(talkSnapshot(98, burn: 0.5, now: now), past, after: 150).situation == .almostOut, "预计的用完时间已经过了：不再说那个时间")
+    }
+
+    // 和她聊天的状态：每打开一次换一句，深夜那句一晚只说一次，连着戳会闹别扭
+    do {
+        var chat = PetChat(pick: 3)
+        chat.opened(now: now)
+        check(chat.pick == 4 && chat.lateNight, "打开一次换一句；没说过深夜那句时可以说")
+        let first = at(25, 0, 30)
+        chat.opened(now: first)
+        chat.said(.lateNight, now: first)
+        chat.opened(now: first + 600)
+        check(!chat.lateNight, "十分钟后再打开：今晚说过了")
+        chat.said(.ordinary, now: first + 600)
+        // 第二晚 00:45 打开：可以说，说了就要重新记时间（哪怕两次打开之间情况一直是「深夜」），01:00 再打开不能再说
+        chat.opened(now: first + 86400 + 900)
+        check(chat.lateNight, "第二晚可以再说")
+        chat.said(.lateNight, now: first + 86400 + 900)
+        chat.opened(now: first + 86400 + 1800)
+        check(!chat.lateNight, "第二晚也只说一次")
+
+        var poking = PetChat()
+        let replies = (0..<6).map { poking.poke(mood: .normal, now: now + Double($0)) }  // 一秒戳一下
+        check(replies.map { $0?.annoyed } == [false, false, false, false, true, true] && replies[4]?.line == "哼，不理你了"
+              && poking.pick == 6, "一秒一下连着戳：第 5 下开始生气，每戳一下换下一句：\(replies)")
+        let later = poking.poke(mood: .normal, now: now + 20)
+        check(later?.annoyed == false && later?.line == "有什么要我盯着的吗？", "隔了一阵再戳：不算连着，接着轮下一句：\(String(describing: later))")
+        var idle = PetChat()
+        check(idle.poke(mood: .loading, now: now) == nil && idle == PetChat(), "还没算出来时戳了没反应，什么都不记")
+        check((0..<8).allSatisfy { _ in poking.poke(mood: .tired, now: now + 21)?.annoyed == false }, "累的时候连戳也不生气")
     }
     // 没开动画时停在第一帧：歇着是闭眼的，刚恢复是笑眯眼
     func face(_ frame: PetFrame?) -> String? { frame?.portrait.face }
@@ -1010,7 +1082,7 @@ do {
     let demo = DemoProvider(), began = Date()
     let seen = Set((0..<75).map { second -> PetMood in
         let t = began + Double(second)
-        return PetMood.from(snapshot: try! demo.snapshot(now: t), now: t, recoveredAt: began)
+        return PetStatus.of(try! demo.snapshot(now: t), memory: recalling(began), now: t).mood
     })
     check(seen == Set(PetMood.allCases).subtracting([.confused, .loading]), "演示模式看得到的心情：\(seen.map(\.rawValue).sorted())")
 }
@@ -1076,11 +1148,13 @@ do {
                                  UsageAlerts.body($0, window: alertWindow, now: at(25, 12, 30))] }
     check(UsageAlerts.body(.runningOut(at(25, 12, 45)), window: alertWindow, now: at(25, 12, 30))
           == "At the recent pace it runs out around 12:45 (in about 15 min), 2 hr 15 min before the reset.", "英文预警")
-    english += talkInputs.flatMap { PetTalk.lines($0.snapshot, mood: $0.mood, now: $0.now, options: $0.options).lines }
+    english += talkInputs.flatMap { PetStatus.of($0.snapshot, failed: $0.failed, memory: $0.memory, now: $0.now, lateNight: $0.lateNight).lines }
     english += PetMood.allCases.flatMap { mood in (1...8).compactMap { PetTalk.poked(mood: mood, count: $0, streak: $0)?.line } }
     english += PetMood.allCases.flatMap { mood in (1...4).compactMap { PetTalk.poked(mood: mood, count: $0)?.line } }
-    check(PetTalk.say(talkSnapshot(85, burn: 60, now: at(25, 12)), mood: .tired, now: at(25, 12)).line
+    check(PetStatus.of(talkSnapshot(85, burn: 60, now: at(25, 12)), now: at(25, 12)).line(0)
           == "At this rate we're out by 12:15. Slow down!", "英文台词")
+    check(PetStatus.of(talkSnapshot(40, burn: 42, now: at(25, 12)), now: at(25, 12)).line(0) == "Going hard today: 42% an hour at this rate…",
+          "英文的烧得快")
     check(!english.contains(where: hasChinese), "英文界面里有中文：\(english.filter(hasChinese))")
 
     // App 本体（面板、设置页、通知、菜单）的文字上面调不到：直接扫源码，每个 tr("中文", "English") 的英文参数里都不能有中文

@@ -65,7 +65,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-rush-dark.png">
-    <img src="docs/images/popover-rush.png" width="320" alt="面板：5 小时额度才 58%，但一小时烧了 45%，她已经有点慌了">
+    <img src="docs/images/popover-rush.png" width="320" alt="面板：5 小时额度才 58%，但照这个速度一小时要烧 45%，她已经有点慌了">
   </picture>
   &nbsp;
   <picture>

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 宠物的心情：先看最紧张的那个额度窗口用了多少（档位），再看趋势（PetTrend）
+/// 宠物的心情：先看最紧张的那个额度窗口用了多少（档位），再看趋势（PetTrend）。某一家现在是什么心情用 PetStatus.of 算
 public enum PetMood: String, CaseIterable, Sendable {
     /// 前五个是档位。revived（刚恢复）、resting（歇着）、nervous（烧得快，有点慌）只从趋势来
     case energetic, normal, tired, exhausted, sleeping, revived, resting, nervous, confused, loading
@@ -14,13 +14,6 @@ public enum PetMood: String, CaseIterable, Sendable {
         case ..<100: return .exhausted
         default: return .sleeping
         }
-    }
-
-    /// 档位 + 趋势：快用完了先哭、烧得快先慌、刚恢复开心一阵、闲着就歇着（规则见 PetTrend.mood）。
-    /// recoveredAt：最近一次看到这家额度恢复的时间
-    public static func from(snapshot: UsageSnapshot?, now: Date, recoveredAt: Date? = nil) -> PetMood {
-        guard let snapshot else { return .loading }
-        return PetTrend(snapshot, now: now, recoveredAt: recoveredAt)?.mood ?? .confused
     }
 
     public var title: String {

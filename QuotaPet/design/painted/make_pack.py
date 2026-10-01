@@ -3,7 +3,7 @@
 用法：python3 design/painted/make_pack.py classic
       python3 design/painted/make_pack.py --prompt drowsy nervous     只打印这几个表情的提示词（给已经做好的形象补表情，附上它的底图发）
 
-读 design/painted/<形象>.json 里的 character（角色描述）、label（名字，没写就用文件名）和 source（原图目录），
+读 design/painted/<形象>.json 里的 character（角色描述）、label（中文名，没写就用文件名）和 source（原图目录），
 在 source 的上一级目录里生成：
   提示词.md          底图和各个表情的提示词，按顺序一段段发给 GPT
   参考_画风.png       已经做好的形象（STYLE_REFERENCE）的底图：只参考画风，各款风格才统一

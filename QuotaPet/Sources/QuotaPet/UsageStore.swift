@@ -10,8 +10,11 @@ final class UsageStore: ObservableObject {
     @Published private(set) var snapshots: [UsageSnapshot] = []
     /// 算出错的原因，按数据源
     @Published private(set) var errors: [ProviderID: String] = [:]
-    /// 最近一次看到这家额度恢复的时间，宠物刚恢复时会说一声（只记在内存里，重启 App 就忘了）
-    private(set) var recoveredAt: [ProviderID: Date] = [:]
+    /// 宠物对每一家记得的事（刚恢复、刚才的警报），心情和台词要用。只记在内存里，重启 App 就忘了
+    private(set) var memory: [ProviderID: PetMemory] = [:]
+    /// 每次兜底刷新时走一下。宠物的心情和时间有关（刚恢复十分钟、闲了半小时），
+    /// 读取一直出错时快照和错误信息都不变，靠它让菜单栏和面板照样重算
+    @Published private(set) var tick = Date()
 
     /// 每次拿到某一家的新数据时回调（旧快照，新快照），用来发通知
     var onUpdate: ((UsageSnapshot?, UsageSnapshot) -> Void)?
@@ -54,6 +57,7 @@ final class UsageStore: ObservableObject {
             MainActor.assumeIsolated {
                 self?.updateWatcher()
                 self?.refresh()
+                self?.tick = Date()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -144,7 +148,8 @@ final class UsageStore: ObservableObject {
         switch result {
         case .success(let new):
             let old = snapshot(for: id)
-            if PetTalk.recovered(from: old, to: new) { recoveredAt[id] = new.generatedAt }
+            // 要在 snapshots 赋值之前记好：订阅者收到新快照时会来读
+            memory[id] = (memory[id] ?? PetMemory()).updated(from: old, to: new, now: new.generatedAt)
             let next = providers.compactMap { $0.id == id ? new : snapshot(for: $0.id) }
             if next != snapshots { snapshots = next }
             if errors[id] != nil { errors[id] = nil }

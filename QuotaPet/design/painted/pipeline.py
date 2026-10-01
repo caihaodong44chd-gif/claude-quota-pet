@@ -10,7 +10,7 @@
   face      大多数表情都会变的地方就是眼睛和嘴：各表情和底图的差别取中位数，框出来再放大一圈（眉毛、下巴）
   icon      菜单栏头像：以脸为中心的正方形，边长约为脸宽的 3 倍，偏上一点（多带额头、少带脖子）
   portrait  面板半身像：边长 0.8，水平以脸为中心，从头顶上面一点开始
-  patches   tired-wavy 的汗珠（蓝色像素）复制到 tired-wavy、closed-wavy 和 nervous；cry-o 流出脸外的眼泪补到 cry-o
+  patches   tired-wavy 的汗珠（浅蓝色像素里最大的一团）复制到 tired-wavy、closed-wavy 和 nervous；cry-o 流出脸外的眼泪补到 cry-o
 画在 design/out/painted-<形象>-locate.png 上，不准就改配置里的数字（坐标都是原图边长的比例），再跑一次。
 """
 import importlib.util, json, os, sys
@@ -37,8 +37,8 @@ def check(src):
             print(f"   ✗ 缺 {face}.png")
             continue
         try:
-            size = ep.load(path).shape[:2]
-        except SystemExit as e:  # load 发现背景不是透明也不是纯绿时会退出
+            size = ep.inspect(path)
+        except SystemExit as e:  # 背景不是透明也不是纯绿时会退出
             print(f"   ✗ {face}.png：{e}")
             continue
         ok.append(face)
@@ -79,10 +79,23 @@ def blue(a):
     return (a[..., 2] - a[..., 0] > 0.2) & (a[..., 2] > 0.6) & (a[..., 2] > a[..., 1]) & (a[..., 3] > 0.5)
 
 
-def solid(mask):
-    """去掉零星的点（发丝边缘、反光上的一点差别），只留成块的：汗珠、眼泪是一整块"""
-    core = Image.fromarray(mask).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(9))
-    return mask & np.asarray(core)
+def clusters(mask, reach=2):
+    """把为真的像素按挨不挨着（隔 reach 格以内算挨着）分成几团，每团是 (ys, xs)，大的在前。
+    发丝边缘、反光上零星的几个点自成小团，汗珠、眼泪是一大团。腐蚀的办法不行：细的汗珠会被一起腐蚀掉"""
+    points = set(zip(*np.nonzero(mask)))
+    found = []
+    while points:
+        todo, group = [points.pop()], []
+        while todo:
+            y, x = todo.pop()
+            group.append((y, x))
+            for dy in range(-reach, reach + 1):
+                for dx in range(-reach, reach + 1):
+                    if (y + dy, x + dx) in points:
+                        points.remove((y + dy, x + dx))
+                        todo.append((y + dy, x + dx))
+        found.append((np.array([p[0] for p in group]), np.array([p[1] for p in group])))
+    return sorted(found, key=lambda g: len(g[0]), reverse=True)
 
 
 def inside(ellipse, x, y):
@@ -116,30 +129,42 @@ def locate(base, aligned):
     portrait = [cx - 0.4, top - 0.02, 0.8]
     clamp = lambda c: [round(float(min(max(c[0], 0), 1 - c[2])), 3), round(float(min(max(c[1], 0), 1 - c[2])), 3), round(float(c[2]), 3)]
 
-    # 小块：汗珠（复制到闭眼那张）、流出脸外的眼泪。它们很小，在原图大小上找
+    return {"face": [round(float(v), 3) for v in face], "portrait": clamp(portrait), "icon": clamp(icon),
+            "patches": find_patches(base, aligned, face)}
+
+
+def find_patches(base, aligned, face):
+    """脸以外要另外取的小块：汗珠（复制到闭眼、紧张那两张）、流出脸外的眼泪。它们很小，在原图大小上找。
+    都是按浅蓝色找的：偏白、偏青的认不出来，要看脸部放大图，在配置里手动写"""
     full = lambda a: ep.unpremultiply(a)
+    plain = full(base)
+    size = plain.shape[0]
+    few = max(5, round(5 * (size / 1254) ** 2))  # 少于这么多像素不算（1254 的图上是 5 个）
     patches = []
     if "tired-wavy" in aligned:
-        sweat = box(solid(blue(full(aligned["tired-wavy"])) & ~blue(full(base))), 0, 100, least=5)
-        if sweat:
-            sx0, sy0, sx1, sy1 = sweat
+        drops = clusters(blue(full(aligned["tired-wavy"])) & ~blue(plain))
+        if drops and len(drops[0][0]) >= 4 * few:  # 汗珠只有一颗：最大的那一团，别处零星的浅蓝不管
+            ys, xs = drops[0]
+            sx0, sx1, sy0, sy1 = xs.min() / size, xs.max() / size, ys.min() / size, ys.max() / size
             patches.append({"from": "tired-wavy", "onto": ["tired-wavy", "closed-wavy", "nervous"],
                             "region": [(sx0 + sx1) / 2, (sy0 + sy1) / 2, (sx1 - sx0) + 0.01, (sy1 - sy0) + 0.014]})
+        else:
+            print("   ⚠ 没在 tired-wavy 里找到汗珠（按浅蓝色找的）：closed-wavy、nervous 不会有汗珠。"
+                  "有汗珠的话看脸部放大图，在配置的 patches 里手动写位置")
     if "cry-o" in aligned:
-        tears = solid(blue(full(aligned["cry-o"])) & ~blue(full(base)))
-        ys, xs = np.nonzero(tears)
-        size = tears.shape[0]
-        outside = ~inside(face, xs / size, ys / size)
-        for side in (xs < cx * size, xs >= cx * size):  # 左右两道眼泪各补各的，不要框成一大块
-            part = outside & side
-            if part.sum() >= 5:
-                tx0, tx1 = xs[part].min() / size, xs[part].max() / size
-                ty0, ty1 = ys[part].min() / size, ys[part].max() / size
+        # 眼泪往下流：只在脸的椭圆外面一圈、眼睛以下的地方找，别处零星的浅蓝（衣领、发梢的反光）不算
+        yy, xx = np.mgrid[0:size, 0:size] / size
+        below = inside([face[0], face[1], face[2] * 1.6, face[3] * 1.6], xx, yy) & ~inside(face, xx, yy) & (yy > face[1])
+        ys, xs = np.nonzero(blue(full(aligned["cry-o"])) & ~blue(plain) & below)
+        for side in (xs < face[0] * size, xs >= face[0] * size):  # 左右两道眼泪各补各的，不要框成一大块
+            if side.sum() >= few:
+                tx0, tx1 = xs[side].min() / size, xs[side].max() / size
+                ty0, ty1 = ys[side].min() / size, ys[side].max() / size
                 patches.append({"from": "cry-o", "onto": ["cry-o"],
                                 "region": [(tx0 + tx1) / 2, (ty0 + ty1) / 2, (tx1 - tx0) / 2 + 0.02, (ty1 - ty0) / 2 + 0.03]})
     for p in patches:
         p["region"] = [round(float(v), 3) for v in p["region"]]
-    return {"face": [round(float(v), 3) for v in face], "portrait": clamp(portrait), "icon": clamp(icon), "patches": patches}
+    return patches
 
 
 def draw_locate(name, base, found):
@@ -187,7 +212,11 @@ def main():
         sys.exit("✗ 底图不能用，先把底图弄好")
 
     print(f"== {name}：对齐和定位")
-    base, aligned, moves, _ = ep.align_all(src, None, verbose=False, keep_green=config.get("keepGreen", False))
+    # 配置里已经有脸的位置、又不重新定位：直接挖掉脸对齐（更准），导出时接着用这份结果，不用对齐两遍。
+    # 还不知道脸在哪时只能先整张对齐、定好位，导出时再挖掉脸对齐一遍
+    known = None if relocate else config.get("face")
+    result = ep.align_all(src, known, verbose=False, keep_green=config.get("keepGreen", False))
+    base, aligned, moves, _ = result
     report_moves(moves, base.shape[0])
     found = locate(base, aligned)
     draw_locate(name, base, found)
@@ -207,7 +236,7 @@ def main():
     else:
         print("   配置里已经有位置，按配置导出（要用上面的结果就加 --relocate）")
 
-    ep.export(name, config, src, trial=False, force=False)
+    ep.export(name, config, src, trial=False, force=False, aligned=result if known is not None else None)
     ep.write_swift()
 
 
