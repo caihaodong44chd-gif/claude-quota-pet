@@ -129,12 +129,8 @@ check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .geek) == .geek && Pet
 check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .neko) == .dragon && PetStyle.of(.claude, claudeStyle: .hanfu, codexStyle: .geek) == .classic,
       "选到别家那组的形象时退回自己那组的第一款")
 check(PetSprites.frames(for: .normal, style: .dragon)[0] != PetSprites.frames(for: .normal, style: .neko)[0], "龙娘和猫耳画出来不一样")
-// 每款各有调色板：同一个字符在不同形象里颜色不同（头发 H）
-if case .pixel(let hanfu) = PetStyle.hanfu.art, case .pixel(let geek) = PetStyle.geek.art {
-    check(hanfu.palette[UInt8(ascii: "H")] != geek.palette[UInt8(ascii: "H")], "汉服和极客的发色不一样")
-} else {
-    check(false, "汉服和极客是像素画（发色那条检查才有意义）")
-}
+// 像素画每款各有调色板：同一个字符在不同形象里颜色不同（头发 H）。直接查像素数据，换成精绘的形象数据也还在
+check(PetArt.hanfu.palette[UInt8(ascii: "H")] != PetArt.geek.palette[UInt8(ascii: "H")], "汉服和极客的像素画发色不一样")
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")

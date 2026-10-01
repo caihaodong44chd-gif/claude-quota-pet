@@ -15,7 +15,7 @@
 """
 import importlib.util, json, os, sys
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("export_painted", os.path.join(HERE, "export_painted.py"))
@@ -75,8 +75,14 @@ def box(mask, low=1, high=99, least=20):
 
 
 def blue(a):
-    """汗珠、眼泪的浅蓝色：蓝比红多很多（灰蓝的眼睛差得少，不算）"""
-    return (a[..., 2] - a[..., 0] > 0.2) & (a[..., 2] > 0.6) & (a[..., 3] > 0.5)
+    """汗珠、眼泪的浅蓝色：蓝比红多很多（灰蓝的眼睛差得少，不算），而且蓝比绿多（薄荷绿的头发蓝也不少，但绿更多）"""
+    return (a[..., 2] - a[..., 0] > 0.2) & (a[..., 2] > 0.6) & (a[..., 2] > a[..., 1]) & (a[..., 3] > 0.5)
+
+
+def solid(mask):
+    """去掉零星的点（发丝边缘、反光上的一点差别），只留成块的：汗珠、眼泪是一整块"""
+    core = Image.fromarray(mask).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(9))
+    return mask & np.asarray(core)
 
 
 def inside(ellipse, x, y):
@@ -114,13 +120,13 @@ def locate(base, aligned):
     full = lambda a: ep.unpremultiply(a)
     patches = []
     if "tired-wavy" in aligned:
-        sweat = box(blue(full(aligned["tired-wavy"])) & ~blue(full(base)), 0, 100, least=5)
+        sweat = box(solid(blue(full(aligned["tired-wavy"])) & ~blue(full(base))), 0, 100, least=5)
         if sweat:
             sx0, sy0, sx1, sy1 = sweat
             patches.append({"from": "tired-wavy", "onto": ["tired-wavy", "closed-wavy", "nervous"],
                             "region": [(sx0 + sx1) / 2, (sy0 + sy1) / 2, (sx1 - sx0) + 0.01, (sy1 - sy0) + 0.014]})
     if "cry-o" in aligned:
-        tears = blue(full(aligned["cry-o"])) & ~blue(full(base))
+        tears = solid(blue(full(aligned["cry-o"])) & ~blue(full(base)))
         ys, xs = np.nonzero(tears)
         size = tears.shape[0]
         outside = ~inside(face, xs / size, ys / size)
@@ -181,7 +187,7 @@ def main():
         sys.exit("✗ 底图不能用，先把底图弄好")
 
     print(f"== {name}：对齐和定位")
-    base, aligned, moves, _ = ep.align_all(src, None, verbose=False)
+    base, aligned, moves, _ = ep.align_all(src, None, verbose=False, keep_green=config.get("keepGreen", False))
     report_moves(moves, base.shape[0])
     found = locate(base, aligned)
     draw_locate(name, base, found)

@@ -14,6 +14,8 @@
             脸以外还要取的小块（比如太阳穴上的汗珠、流出脸的眼泪）：从 from 那张取 region 这块，盖到 onto 这几张上。
             一颗汗珠只让 GPT 画一次，别的表情复制同一颗，切换表情时汗珠不会跳
   outline   "#RRGGBB"         菜单栏头像外圈描边的颜色：浅金色头发在浅色菜单栏上会发白
+  keepGreen true              人物身上有绿色（薄荷绿的头发、荧光绿的饰品）：按「绿不绿」整张抠会把它们抠掉、变色，
+                              改成只认和背景几乎同色的地方，只在背景边上几个像素里算半透明
   appIcon   true              App 图标用这款：另外导出 Resources/AppIcon.png（底图的面板取景，1024×1024），只有一款能写
 
 原图：每个表情一张正方形图，透明背景或纯绿背景（#00FF00），文件名见 FACES，open-small 是底图。
@@ -53,9 +55,10 @@ def greenness(rgb):
     return rgb[..., 1] - np.maximum(rgb[..., 0], rgb[..., 2])
 
 
-def load(path):
+def load(path, keep_green=False):
     """读成 RGBA 的 float 数组（0~1，未预乘）。没有透明背景时按纯绿背景抠图。
-    只看上面两个角判断背景：画到胸口时，下面两个角常被人物盖住"""
+    只看上面两个角判断背景：画到胸口时，下面两个角常被人物盖住。
+    keep_green：人物身上有绿色（配置里的 keepGreen），见下面"""
     im = Image.open(path)
     rgba = np.asarray(im.convert("RGBA"), dtype=np.float32) / 255
     corners = np.concatenate([rgba[:8, :8].reshape(-1, 4), rgba[:8, -8:].reshape(-1, 4)])
@@ -65,12 +68,30 @@ def load(path):
         sys.exit(f"✗ {os.path.basename(path)} 的背景既不是透明也不是纯绿，请让 GPT 按说明重出")
     key = np.median(corners[:, :3], axis=0)  # 图上实际的背景绿（GPT 画的不一定正好是 #00FF00）
     rgb = rgba[..., :3]
-    alpha = (1 - np.clip((greenness(rgb) - 0.08) / 0.3, 0, 1))[..., None]
+    alpha = 1 - np.clip((greenness(rgb) - 0.08) / 0.3, 0, 1)
+    edge = spill = None  # 只在这些像素里去绿边；None = 整张
+    if keep_green:
+        # 薄荷绿的头发、荧光绿的饰品也「比红蓝更绿」，按上面那样整张抠会被抠掉一部分、颜色被去绿边改掉。
+        # 背景是和 key 几乎同色的大片；只在背景边上几个像素里算半透明（红或蓝够多就不是背景），别处都不透明
+        background = np.abs(rgb - key).max(axis=-1) < 0.12
+        edge = np.asarray(Image.fromarray(background).filter(ImageFilter.MaxFilter(7))) & ~background
+        other = np.maximum(rgb[..., 0], rgb[..., 2])
+        soft = np.maximum(alpha, np.clip(other / 0.6, 0, 1))
+        # 发丝缝里透出来的背景、溢到头发边上的绿：很绿而且红蓝都少（荧光绿的蓝不少，薄荷绿没这么绿），还按老办法抠
+        spill = (greenness(rgb) > 0.25) & (other < 0.45) & ~background & ~edge
+        alpha = np.where(background, 0, np.where(edge, soft, np.where(spill, alpha, 1)))
+    alpha = alpha.astype(np.float32)[..., None]
     # 边缘像素 = 前景 × 透明度 + 背景绿 × (1 − 透明度)：先减掉背景绿得到预乘的前景，再除回去。
     # 直接把观测色当前景色的话，合成时会再乘一次透明度，半透明的发丝边缘就发暗
     premultiplied = np.clip(np.minimum(rgb - (1 - alpha) * key, alpha), 0, 1)
     color = np.where(alpha > 1e-4, premultiplied / np.maximum(alpha, 1e-4), 0)
-    color[..., 1] = np.minimum(color[..., 1], np.maximum(color[..., 0], color[..., 2]))  # 残留的绿边
+    # 残留的绿边：绿不能比红蓝更多。人物身上有绿色时只管背景边上，而且留一点余量（薄荷绿本来就比红蓝绿一些）
+    limit = np.maximum(color[..., 0], color[..., 2]) + (0.15 if keep_green else 0)
+    if edge is None:
+        color[..., 1] = np.minimum(color[..., 1], limit)
+    else:
+        color[..., 1] = np.where(edge, np.minimum(color[..., 1], limit), color[..., 1])
+        color[..., 1] = np.where(spill, np.minimum(color[..., 1], np.maximum(color[..., 0], color[..., 2])), color[..., 1])
     return np.concatenate([color, alpha], axis=-1).astype(np.float32)
 
 
@@ -229,20 +250,20 @@ def outlined(p, color):
     return p + under * (1 - p[..., 3:4])
 
 
-def align_all(src, face, verbose=True):
+def align_all(src, face, verbose=True, keep_green=False):
     """读底图和已有的表情图，把表情图对齐到底图。face 是 None 时不挖脸对齐（定位时还不知道脸在哪）。
     返回 (底图, {表情: 对齐后的图}, {表情: (缩放, dx, dy)}, 缺的表情)，图都是预乘的"""
     missing = [f for f in FACES if not os.path.exists(os.path.join(src, f + ".png"))]
     if FACES[0] in missing:
         sys.exit(f"✗ 缺底图 {FACES[0]}.png")
-    base = premultiply(load(os.path.join(src, FACES[0] + ".png")))
+    base = premultiply(load(os.path.join(src, FACES[0] + ".png"), keep_green))
     if base.shape[0] != base.shape[1]:
         sys.exit("✗ 底图要是正方形")
     aligned, moves = {FACES[0]: base}, {}
     for key in FACES[1:]:
         if key in missing:
             continue
-        expr = premultiply(load(os.path.join(src, key + ".png")))
+        expr = premultiply(load(os.path.join(src, key + ".png"), keep_green))
         if expr.shape != base.shape:
             expr = per_channel(expr, lambda im: im.resize(base.shape[1::-1], Image.LANCZOS))
         moves[key] = align(base, expr, face)
@@ -258,7 +279,7 @@ def export(name, config, src, trial, force):
     免得试一张图就把仓库里已经提交的正式图换掉；force（--write）时照样写进 Resources/Pets"""
     print(f"== {name}（原图：{os.path.relpath(src, REPO) if src.startswith(REPO) else src}）")
     face = config["face"]
-    base, aligned, _, missing = align_all(src, face)
+    base, aligned, _, missing = align_all(src, face, keep_green=config.get("keepGreen", False))
     if missing:  # 先出底图看效果时，别的表情还没有：先用底图代替
         print(f"   ⚠ 还没有这些表情图，先用底图代替：{', '.join(missing)}")
     color = [int(config["outline"][i:i + 2], 16) / 255 for i in (1, 3, 5)]

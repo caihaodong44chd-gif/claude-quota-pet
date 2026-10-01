@@ -52,6 +52,8 @@ EXPRESSIONS = {
 }
 assert set(EXPRESSIONS) == set(ep.FACES[1:]), "EXPRESSIONS 要和 export_painted.FACES 对上"
 
+BATCH = 7  # 一次让 GPT 出几个表情：再多，后面几张容易走样或者被拼成一张
+
 EDIT_PREFIX = ("在这张图上只改脸部表情，其他全部保持不变：头发、饰品、衣服、姿势、头的角度、构图、人物大小和位置、"
                "绿色背景、画风和光影都不要动，不要移动或缩放人物，头也不要低下、歪或转动。"
                "除了下面写到的，不要画眼泪、汗珠、星星、zzz、问号等符号或文字。")
@@ -119,9 +121,13 @@ def pack_markdown(name, label, c, source, references):
         "## 第 2 步：表情（每次都附上底图 `open-small.png`，在底图上改）",
         "",
     ]
-    lines += ["### 一次发完（附上底图，粘贴这一段）", "",
-              "GPT 可能会拼成一张九宫格，或者一张接一张地改：出来的不是 9 张单独的图、或者越往后越走样时，改用下面一段一段发。", "",
-              "```", batch_prompt(), "```", "", "### 一段一段发", ""]
+    faces = list(EXPRESSIONS)
+    batches = [faces[i:i + BATCH] for i in range(0, len(faces), BATCH)]
+    lines += [f"### 分 {len(batches)} 批发（每批都附上底图，粘贴那一段）", "",
+              "GPT 可能会拼成一张大图，或者一张接一张地改：出来的不是一张张单独的图、或者越往后越走样时，改用下面一段一段发。", ""]
+    for n, batch in enumerate(batches, start=1):
+        lines += [f"**第 {n} 批（{len(batch)} 张）**", "", "```", batch_prompt(batch), "```", ""]
+    lines += ["### 一段一段发", ""]
     for i, (face, text) in enumerate(EXPRESSIONS.items(), start=1):
         lines += [f"**{i}. `{face}.png`**", "", "```", EDIT_PREFIX, "", f"表情：{text}", "```", ""]
     lines += [
