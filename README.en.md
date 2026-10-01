@@ -78,16 +78,16 @@ What she says in the popover follows the situation too: when you'll run out, whe
 
 <img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet (Classic), one mood per row">
 
-Claude has five looks to choose from in Settings → Claude: Classic and Shades are painted; Cat ears, Youthful and Witch are pixel art. Codex has three of its own: the painted Dragon girl, and Hanfu and Geek in pixel art.
-
-The three painted pets have the sweat and tears painted into their expressions, and asleep and confused each get an expression of their own. Their menu bar icons are a bit bigger (22pt) and have no monochrome version. The pixel-art pets show their mood with little props above the head (a star, a bead of sweat, Z's, a question mark) and can go monochrome to match the menu bar (Settings → General → Monochrome pet).
+There are eight looks. Claude has five to choose from in Settings → Claude, and Codex has three of its own:
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-shades-en-dark.png">
-    <img src="docs/images/popover-shades-en.png" width="320" alt="Panel with Shades: 5-hour usage at 86%, she's tired and sweating at the temple">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/styles-en-dark.png">
+    <img src="docs/images/styles-en.png" width="604" alt="The eight looks: Classic, Cat ears, Youthful, Witch and Shades for Claude; Dragon girl, Hanfu and Geek for Codex">
   </picture>
 </p>
+
+Each look has fourteen expressions. The sweat and tears are painted into the expressions, and asleep, confused and just-woken-up each get an expression of their own.
 
 ## Codex too
 
@@ -154,7 +154,7 @@ Settings (right-click → Settings…) has a page per topic:
 
 | Page | Options |
 |---|---|
-| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet (not available for the painted pets). Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
+| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation. Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
 | Claude | Pet style (Classic / Cat ears / Youthful / Witch / Shades). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
 | Codex (only if you use it) | Show Codex usage, pet style (Dragon girl / Hanfu / Geek), where the data comes from and when the last reading arrived |
 
@@ -194,7 +194,7 @@ Current conclusions: a single rate for all models fits best, thinking effort nee
 ```
 QuotaPet/             menu bar app (Swift + SwiftUI, built with SwiftPM)
   Sources/            QuotaPetCore (pure logic) / QuotaPet (the app) / QuotaPetChecks (self-checks)
-  design/             Python prototypes of the pixel art; painted/ builds the prompts for the painted pets and cuts them out of images generated with GPT
+  design/painted/     scripts for the pet art: build the prompts, then cut the images generated with GPT into what the app uses
 usage_lab.py          usage lab
 docs/PRODUCT_PLAN.md  product plan and measurements (in Chinese)
 ```

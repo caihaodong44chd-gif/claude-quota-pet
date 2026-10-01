@@ -60,66 +60,29 @@ func pixelSize(_ url: URL) -> (Int, Int)? {
 }
 
 for style in PetStyle.allCases {
-    switch style.art {
-    case .pixel(let art):
-        for (name, layers, size) in [("头像", art.icon, PetSprites.iconSize), ("半身像", art.portrait, PetSprites.portraitSize)] {
-            let name = "\(style.label)\(name)"
-            check(layers.base.count == size && layers.base.allSatisfy { $0.utf8.count == size }, "\(name)底图 \(size)×\(size)")
-            let groups: [(String, [String: PetArt.Patch])] = [("眼睛", layers.eyes), ("嘴", layers.mouths), ("小道具", layers.extras)]
-            for (kind, patches) in groups {
-                for (key, patch) in patches {
-                    let width = patch.rows.first?.utf8.count ?? 0
-                    let inside = patch.x >= 0 && patch.y >= 0 && patch.x + width <= size && patch.y + patch.rows.count <= size
-                    check(inside && patch.rows.allSatisfy { $0.utf8.count == width }, "\(name)的\(kind)「\(key)」要在画布里、每行一样宽")
-                }
-            }
-        }
-        // 单色模式靠皮肤挖空脸，每款都得有
-        let icon = PetSprites.frames(for: .normal, style: style)[0].icon.grid
-        check(icon?.cells.contains(UInt8(ascii: "S")) == true, "\(style.label)的头像有皮肤色")
-        check(icon != PixelGrid(rows: art.icon.base, palette: art.palette), "\(style.label)画上了眼睛")
-        for mood in PetMood.allCases {
-            let baseline = PetStyle.allCases.first { !$0.isPainted } ?? style  // 像素款的动画都一样长
-            check(PetSprites.frames(for: mood, style: style).count == PetSprites.frames(for: mood, style: baseline).count,
-                  "\(style.label) \(mood) 的帧数和其他像素款一样")
-        }
-    case .painted:
-        // 导出的表情都用上了、用到的都导出过（精绘款的动画和像素画不一样，帧数也不一样）。被戳的反应里用的也算
-        let shown = PetMood.allCases.flatMap { mood in
-            PetSprites.frames(for: mood, style: style) + [false, true].flatMap { PetSprites.reaction(for: mood, style: style, annoyed: $0) }
-        }
-        let used = Set(shown.compactMap { frame -> String? in
-            if case .painted(let painted) = frame.portrait.content { return painted.face }
-            return nil
-        })
-        check(used == Set(PaintedArt.faces), "\(style.label)导出的表情正好都用上")
-        // 每张图都在（和 App 用同一套办法找 Resources/Pets），而且是显示尺寸的 2 倍
-        for face in PaintedArt.faces {
-            for (part, points) in [(PaintedPicture.Part.icon, PetSprites.paintedIconPoints), (.portrait, PetSprites.portraitPoints)] {
-                let picture = PaintedPicture(style: style, part: part, face: face)
-                let pixels = Int(points * 2)
-                check(picture.url.flatMap(pixelSize).map { $0 == (pixels, pixels) } == true,
-                      "Resources/Pets/\(picture.file) 存在，\(pixels)×\(pixels)")
-            }
+    // 导出的表情都用上了、用到的都导出过。被戳的反应里用的也算
+    let shown = PetMood.allCases.flatMap { mood in
+        PetSprites.frames(for: mood, style: style) + [false, true].flatMap { PetSprites.reaction(for: mood, style: style, annoyed: $0) }
+    }
+    check(Set(shown.map(\.portrait.face)) == Set(PaintedArt.faces), "\(style.label)导出的表情正好都用上")
+    check(shown.allSatisfy { $0.icon.style == style && $0.portrait.style == style && $0.icon.face == $0.portrait.face
+              && $0.icon.part == .icon && $0.portrait.part == .portrait }, "\(style.label)每一帧的头像和半身像是同一款、同一个表情")
+    // 每张图都在（和 App 用同一套办法找 Resources/Pets），而且是显示尺寸的 2 倍
+    for face in PaintedArt.faces {
+        for part in [PetPicture.Part.icon, .portrait] {
+            let picture = PetPicture(style: style, part: part, face: face)
+            let pixels = Int(picture.points * 2)
+            check(picture.url.flatMap(pixelSize).map { $0 == (pixels, pixels) } == true,
+                  "Resources/Pets/\(picture.file) 存在，\(pixels)×\(pixels)")
         }
     }
     for mood in PetMood.allCases {
         let frames = PetSprites.frames(for: mood, style: style)
         check(!frames.isEmpty, "\(style.label) \(mood) 至少一帧")
-        for frame in frames {
-            check(frame.duration > 0, "\(style.label) \(mood) 帧时长 > 0")
-            check(frame.portrait.points == 96, "\(style.label) \(mood) 半身像显示成 96pt")
-            for (picture, isIcon) in [(frame.icon, true), (frame.portrait, false)] {
-                guard let grid = picture.grid else { continue }  // 精绘的图在上面按表情查过了
-                let size = isIcon ? PetSprites.iconSize : PetSprites.portraitSize
-                let points = isIcon ? PetSprites.pixelIconPoints : PetSprites.portraitPoints
-                check(grid.width == size && grid.height == size && picture.points == points,
-                      "\(style.label) \(mood) 像素头像 32×32 显示成 16pt、半身像 64×64 显示成 96pt")
-                check(grid.cells.allSatisfy { $0 == 0 || grid.palette[$0] != nil }, "\(style.label) \(mood) 只能用这款调色板里的颜色")
-            }
-        }
+        check(frames.allSatisfy { $0.duration > 0 }, "\(style.label) \(mood) 帧时长 > 0")
     }
 }
+check(PetSprites.iconPoints == 22 && PetSprites.portraitPoints == 96, "菜单栏头像 22pt，面板半身像 96pt")
 check(PetSprites.frames(for: .energetic)[0] != PetSprites.frames(for: .normal)[0], "不同心情的表情不一样")
 check(PetSprites.frames(for: .normal, style: .neko)[0] != PetSprites.frames(for: .normal)[0], "不同形象画出来不一样")
 check(Set(PetStyle.claudeChoices).isDisjoint(with: PetStyle.codexChoices)
@@ -129,8 +92,6 @@ check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .geek) == .geek && Pet
 check(PetStyle.of(.codex, claudeStyle: .neko, codexStyle: .neko) == .dragon && PetStyle.of(.claude, claudeStyle: .hanfu, codexStyle: .geek) == .classic,
       "选到别家那组的形象时退回自己那组的第一款")
 check(PetSprites.frames(for: .normal, style: .dragon)[0] != PetSprites.frames(for: .normal, style: .neko)[0], "龙娘和猫耳画出来不一样")
-// 像素画每款各有调色板：同一个字符在不同形象里颜色不同（头发 H）。直接查像素数据，换成精绘的形象数据也还在
-check(PetArt.hanfu.palette[UInt8(ascii: "H")] != PetArt.geek.palette[UInt8(ascii: "H")], "汉服和极客的像素画发色不一样")
 check(PetMood.from(percent: 10) == .energetic, "< 50% 元气满满")
 check(PetMood.from(percent: 50) == .normal, "50% 状态不错")
 check(PetMood.from(percent: 80) == .tired, "80% 累了")
@@ -1015,12 +976,9 @@ do {
         if let expected = pairs[situation] { check(mood == expected, "说的是 \(situation)，心情应该是 \(expected)，实际是 \(mood)") }
     }
     // 没开动画时停在第一帧：歇着是闭眼的，刚恢复是笑眯眼
-    func face(_ frame: PetFrame?) -> String? {
-        if case .painted(let painted) = frame?.portrait.content { return painted.face }
-        return nil
-    }
+    func face(_ frame: PetFrame?) -> String? { frame?.portrait.face }
     let faces = [PetMood.resting, .revived, .nervous, .loading].map { face(PetSprites.frames(for: $0, style: .classic)[0]) }
-    check(faces == ["closed-small", "happy-open", "nervous", "drowsy"], "精绘款歇着、刚恢复、有点慌、刚醒的第一帧：\(faces)")
+    check(faces == ["closed-small", "happy-open", "nervous", "drowsy"], "歇着、刚恢复、有点慌、刚醒的第一帧：\(faces)")
 
     // 戳一下：每种心情都有反应（还没算出来时除外），第一帧和平时不一样，说的话轮着来
     for style in PetStyle.allCases {
@@ -1030,11 +988,6 @@ do {
                   "\(style.label) \(mood) 被戳的反应，第一帧要和平时的第一帧不一样")
             check(!annoyed.isEmpty && annoyed.first?.portrait != PetSprites.frames(for: mood, style: style)[0].portrait,
                   "\(style.label) \(mood) 戳烦了的反应，第一帧也要和平时的第一帧不一样")
-            for frame in reaction + annoyed {
-                if case .painted(let painted) = frame.portrait.content {
-                    check(PaintedArt.faces.contains(painted.face), "\(style.label) \(mood) 的反应用了没导出的表情 \(painted.face)")
-                }
-            }
         }
         check(PetSprites.reaction(for: .loading, style: style).isEmpty, "\(style.label)还没算出来时戳了没反应")
     }
@@ -1051,7 +1004,7 @@ do {
           "累了、睡着了连戳也不生气")
     check(face(PetSprites.reaction(for: .normal, style: .classic, annoyed: true).first) == "pout"
           && face(PetSprites.reaction(for: .normal, style: .classic).first) == "surprised"
-          && face(PetSprites.reaction(for: .sleeping, style: .classic, annoyed: true).first) == "drowsy", "精绘款被戳：惊讶；戳烦了：生气；睡着时：迷糊")
+          && face(PetSprites.reaction(for: .sleeping, style: .classic, annoyed: true).first) == "drowsy", "被戳：惊讶；戳烦了：生气；睡着时：迷糊")
 
     // 演示模式一轮下来（第二轮起，开头是刚恢复），有数据时的心情都看得到
     let demo = DemoProvider(), began = Date()

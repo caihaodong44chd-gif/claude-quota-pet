@@ -76,7 +76,6 @@ struct SettingsView: View {
                 .labelsHidden()
             }
             SwitchRow(tr("宠物动画", "Animate pet"), isOn: $settings.animatePet)
-            SwitchRow(tr("单色宠物", "Monochrome pet"), subtitle: monochromeNote, isOn: $settings.monochromePet)
         }
 
         SettingsGroup(tr("提醒", "Notifications")) {
@@ -133,17 +132,6 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
             }
         }
-    }
-
-    /// 选了精绘形象时说一声：它没有单色版，开了单色也还是彩色的（像素宠物照常变单色）。Codex 的那只在本机有 Codex 的记录时才算
-    private var monochromeNote: String {
-        let note = tr("跟随菜单栏的黑白配色", "Matches the black-and-white menu bar")
-        let painted = ([settings.petStyle] + (hasCodex ? [settings.codexPetStyle] : [])).filter(\.isPainted)
-        guard !painted.isEmpty else { return note }
-        let names = painted.map { tr("「\($0.label)」", "\u{201C}\($0.label)\u{201D}") }.joined(separator: tr("", " and "))
-        return note + tr("。\(names)没有单色版，一直是彩色的",
-                         painted.count == 1 ? ". \(names) has no monochrome version and stays in color"
-                                            : ". \(names) have no monochrome version and stay in color")
     }
 
     @ViewBuilder private var claude: some View {
@@ -308,9 +296,9 @@ struct StyleOption: View {
     let isSelected: Bool
     let action: () -> Void
 
-    /// 缩略图只在第一次用到时画一次，再平滑缩到 48pt（像素画 0.75pt 一格画不出整像素，所以先画成位图）
+    /// 半身像平滑缩到 48pt
     private static let thumbnails = Dictionary(uniqueKeysWithValues: PetStyle.allCases.map {
-        ($0, PetRenderer.thumbnail(PetSprites.frames(for: .normal, style: $0)[0].portrait))
+        ($0, PetRenderer.image(PetSprites.frames(for: .normal, style: $0)[0].portrait))
     })
 
     var body: some View {

@@ -1,11 +1,11 @@
-"""把 GPT 出的精绘宠物图切成 App 用的图片，并生成 Sources/QuotaPetCore/Pet/PaintedArt.swift
+"""把 GPT 出的宠物图切成 App 用的图片，并生成 Sources/QuotaPetCore/Pet/PaintedArt.swift
 
 用法：python3 design/painted/export_painted.py            导出 design/painted/ 下所有 *.json
       python3 design/painted/export_painted.py shades     只导出一款（生成的 Swift 里仍然列出所有配置）
       python3 design/painted/export_painted.py shades --src <原图目录>   试别的原图：只出对比图
       加 --write：缺表情或用了 --src 时也写进 Resources/Pets（缺的表情先用底图代替）
 
-每款精绘形象一个配置 design/painted/<形象>.json，文件名就是 PetStyle 的 rawValue（比如 shades），坐标都是原图宽高的比例（0~1）：
+每款形象一个配置 design/painted/<形象>.json，文件名就是 PetStyle 的 rawValue（比如 shades），坐标都是原图宽高的比例（0~1）：
   source    原图目录，相对仓库根目录。原图和素材只留在本机，要放在不进 git 的地方
   face      [cx, cy, rx, ry]  脸的椭圆：表情图只取这一块盖到底图上
   portrait  [x, y, 边长]      面板半身像的取景
@@ -19,14 +19,14 @@
   appIcon   true              App 图标用这款：另外导出 Resources/AppIcon.png（底图的面板取景，1024×1024），只有一款能写
 
 原图：每个表情一张正方形图，透明背景或纯绿背景（#00FF00），文件名见 FACES，open-small 是底图。
-汗珠、眼泪直接让 GPT 画在表情图里，睡着、疑惑也是单独的表情：App 不再往精绘图上叠小道具（漫画符号浮在精绘的脸上很突兀）。
+汗珠、眼泪直接让 GPT 画在表情图里，睡着、疑惑也是单独的表情：App 不往图上叠小道具（漫画符号浮在精绘的脸上很突兀）。
 GPT 改表情时人物常会挪一点、缩放一点：先避开脸、拿头发和衣服把表情图和底图对齐，再只取脸那一块（椭圆，边缘羽化）盖到底图上，
 所以头发、衣服在各个表情里完全一样，切换表情时不会抖。
 
 输出：
   Resources/Pets/<形象>/portrait-<表情>.png    面板半身像，192×192（96pt 的 2 倍）
   Resources/Pets/<形象>/icon-<表情>.png        菜单栏头像，44×44（22pt 的 2 倍），带一圈描边
-  （没有单色版：精绘缩成剪影很难看，开了「单色宠物」也照样用彩色的）
+  （没有单色版：精绘缩成剪影很难看）
   design/out/painted-<形象>.png                对比图：导出完先看这张
 """
 import json, os, sys
@@ -40,11 +40,11 @@ PETS = os.path.join(PACKAGE, "Resources", "Pets")
 SWIFT = os.path.join(PACKAGE, "Sources", "QuotaPetCore", "Pet", "PaintedArt.swift")
 OUT = os.path.join(HERE, "..", "out")
 
-# PetSprites.paintedFrames 用到的表情（多数是 眼睛-嘴）；第一个是底图
+# PetSprites.frames / reaction 用到的表情（多数是 眼睛-嘴）；第一个是底图
 FACES = ["open-small", "sparkle-open", "happy-open", "closed-open", "closed-small", "tired-wavy", "closed-wavy", "cry-o",
          "sleep", "puzzled", "drowsy", "nervous", "surprised", "pout"]
 PORTRAIT = 192  # PetSprites.portraitPoints 的 2 倍（自检会拿导出的图核对）
-ICON = 44        # PetSprites.paintedIconPoints 的 2 倍
+ICON = 44        # PetSprites.iconPoints 的 2 倍
 APP_ICON = 1024  # App 图标（最大 1024 像素）用的半身像
 APP_ICON_PATH = os.path.join(PACKAGE, "Resources", "AppIcon.png")
 
@@ -361,9 +361,9 @@ def contact_sheet(name, sheet):
 def write_swift():
     lines = [
         "// 由 design/painted/export_painted.py 生成，不要手改。",
-        "// 想改精绘宠物：换 GPT 原图或改 design/painted/<形象>.json，再运行 python3 design/painted/export_painted.py。",
+        "// 想改宠物的图：换 GPT 原图或改 design/painted/<形象>.json，再运行 python3 design/painted/export_painted.py。",
         "",
-        "/// 精绘宠物：图片在 Resources/Pets/<形象>/ 里（见 PaintedPicture），这里只记每款都有哪些表情",
+        "/// 宠物的图在 Resources/Pets/<形象>/ 里（见 PetPicture），这里只记每款都有哪些表情",
         "public enum PaintedArt {",
         f"    static let faces: [String] = [{', '.join(json.dumps(f) for f in FACES)}]",
         "}",

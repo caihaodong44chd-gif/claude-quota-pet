@@ -8,7 +8,7 @@ let package = Package(
         .executable(name: "QuotaPet", targets: ["QuotaPet"]),
     ],
     targets: [
-        // 纯逻辑：数据解析、窗口推算、宠物像素画。不依赖 AppKit，方便自检。
+        // 纯逻辑：数据解析、窗口推算、宠物的心情和表情。不依赖 AppKit，方便自检。
         .target(name: "QuotaPetCore"),
         // 菜单栏 App 本体
         .executableTarget(name: "QuotaPet", dependencies: ["QuotaPetCore"]),

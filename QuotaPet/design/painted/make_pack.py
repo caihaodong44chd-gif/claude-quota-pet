@@ -1,13 +1,13 @@
-"""精绘流水线第 1 步：给一款形象生成出图包（提示词 + 参考图），放进本机不进 git 的素材文件夹。
+"""出图流水线第 1 步：给一款形象生成出图包（提示词 + 参考图），放进本机不进 git 的素材文件夹。
 
 用法：python3 design/painted/make_pack.py classic
       python3 design/painted/make_pack.py --prompt drowsy nervous     只打印这几个表情的提示词（给已经做好的形象补表情，附上它的底图发）
 
-读 design/painted/<形象>.json 里的 character（角色描述）和 source（原图目录），在 source 的上一级目录里生成：
+读 design/painted/<形象>.json 里的 character（角色描述）、label（名字，没写就用文件名）和 source（原图目录），
+在 source 的上一级目录里生成：
   提示词.md          底图和各个表情的提示词，按顺序一段段发给 GPT
-  参考1_像素原版.png   像素版的半身像放大：只参考发色、饰品和配色
-  参考2_画风.png      已经做好的精绘形象（STYLE_REFERENCE）的底图：只参考画风，各款风格才统一
-character 里写了 reference（比如 参考3_设定.png）时，把那张设定图放进同一个文件夹，它作为图 3：发型、发饰、服装以它为准。
+  参考_画风.png       已经做好的形象（STYLE_REFERENCE）的底图：只参考画风，各款风格才统一
+character 里写了 reference（比如 参考_设定.png）时，把那张设定图放进同一个文件夹：发型、发饰、服装以它为准。
 再建好 source 目录（GPT出图/），出好的图按提示词里的文件名存进去，接着跑 export_painted.py。
 """
 import importlib.util, json, os, sys
@@ -60,15 +60,14 @@ EDIT_PREFIX = ("在这张图上只改脸部表情，其他全部保持不变：�
 
 
 def base_prompt(c):
-    references = ["- 图 1 是这个角色原来的像素版，只参考发色、发饰和配色，不要画成像素风",
-                  "- 图 2 是同一套桌面宠物里另一个角色的底图，只参考画风、上色、比例和构图，不要参考她的长相、发型和衣服"]
+    references = ["- 图 1 是同一套桌面宠物里另一个角色的底图，只参考画风、上色、比例和构图，不要参考她的长相、发型和衣服"]
     if c.get("reference"):
-        references.append("- 图 3 是这个角色的设定图：发型、发饰、服装和配色以它为准，但只画到胸口，手里不拿东西，画风按图 2")
+        references.append("- 图 2 是这个角色的设定图：发型、发饰、服装和配色以它为准，但只画到胸口，手里不拿东西，画风按图 1")
     newline = "\n"
     return f"""参考图：
 {newline.join(references)}
 
-画一张日系动漫风格的角色胸像，用作桌面宠物，和图 2 是同一套、同一种画风。
+画一张日系动漫风格的角色胸像，用作桌面宠物，和图 1 是同一套、同一种画风。
 
 画风：
 - 标准日系动漫立绘风格（类似手游角色立绘），干净的线稿加赛璐璐上色
@@ -153,29 +152,20 @@ def main():
     folder = os.path.dirname(source)
     os.makedirs(source, exist_ok=True)
 
-    # 参考 1：像素原版（design/pet_pixel.py 画的半身像），放大 8 倍，白底
-    pp = module("pet_pixel", os.path.join(HERE, "..", "pet_pixel.py"))
-    if name not in pp.c4.STYLES:
-        sys.exit(f"✗ 像素原型里没有 {name}，参考 1 要自己准备")
-    pixel = pp.c4.to_img(pp.portrait(style=name), 8, name)
-    ref1 = Image.new("RGBA", pixel.size, (255, 255, 255, 255))
-    ref1.alpha_composite(pixel)
-    ref1.convert("RGB").save(os.path.join(folder, "参考1_像素原版.png"))
-
-    # 参考 2：画风参考的底图
+    # 画风参考：已经做好的那款的底图
     with open(os.path.join(HERE, f"{STYLE_REFERENCE}.json")) as f:
         style_source = os.path.join(ep.REPO, json.load(f)["source"])
     Image.open(os.path.join(style_source, "open-small.png")).convert("RGB").resize((1024, 1024), Image.LANCZOS) \
-        .save(os.path.join(folder, "参考2_画风.png"))
+        .save(os.path.join(folder, "参考_画风.png"))
 
-    references = ["参考1_像素原版.png", "参考2_画风.png"]
+    references = ["参考_画风.png"]
     extra = config["character"].get("reference")
     if extra:
         if not os.path.exists(os.path.join(folder, extra)):
             sys.exit(f"✗ 配置里写了设定图 {extra}，但 {os.path.relpath(folder, ep.REPO)}/ 里没有这张图")
         references.append(extra)
     with open(os.path.join(folder, "提示词.md"), "w") as f:
-        f.write(pack_markdown(name, pp.c4.STYLES[name]["label"], config["character"], config["source"], references))
+        f.write(pack_markdown(name, config.get("label", name), config["character"], config["source"], references))
     print(f"出图包：{os.path.relpath(folder, ep.REPO)}/（提示词.md、{'、'.join(references)}）")
 
 

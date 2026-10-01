@@ -39,7 +39,7 @@ enum IconRenderer {
                               hints: [.interpolation: NSImageInterpolation.high.rawValue])
             } else {
                 // 小图标：头像缩放到铺满
-                PetRenderer.draw(frame.icon, in: rect, template: false, templateColor: .black)
+                PetRenderer.draw(frame.icon, in: rect)
             }
             NSGraphicsContext.restoreGraphicsState()
         }

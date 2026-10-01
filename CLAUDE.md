@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make check      # = swift run QuotaPetChecks，唯一的测试
 swift build     # 只编译
-make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套；精绘形象另有 popover-<形象>）；改界面后用它验证，不用启动 App
+make previews   # 把宠物、菜单栏、面板渲染成 PNG 到 build/previews（面板、设置页中英各一套；每款形象另有 popover-<形象>）；改界面后用它验证，不用启动 App
 make dump       # 在终端打印当前额度推算（读真实数据）
 make run / make demo / make install
 make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.zip），版本号取 Resources/Info.plist
@@ -34,7 +34,7 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
 - 宠物在面板上说的话在 `QuotaPetCore/Pet/PetTalk.swift`（能进自检）：按实际情况挑（`Situation`，从上到下就是优先级：用完了、刚恢复、眼看要用完、烧得快、每周节奏、别处在用、闲着、深夜…），同一种情况有几句，面板每打开一次换一句（`PopoverState.nextTalk`）。通知里的话还是 `PetMood.line`。
   - 心情 = 档位 + 趋势（`PetMood.from(snapshot:now:recoveredAt:)`，规则在 `PetTrend.mood`）：快用完了先哭、5 小时额度烧得快先慌（`nervous`，已经用到七成半就还是累）、刚恢复开心一阵（`revived`）、不紧张又半小时没用就歇着（`resting`）。趋势和台词看的是同一份 `PetTrend`，表情和台词对得上（自检会查）。`PetMood.from(percent:)` 只看档位。
   - **不变量**：只有档位能让她睡着（100% 只能来自官方读数或限流消息），趋势再急也只到「快撑不住」。
-  - 加心情：`PetMood` 加 case，像素和精绘的帧（`PetSprites`）、标题、颜色（`Level.mood`）都要补；没开动画时停在第一帧，第一帧要能代表这个心情。
+  - 加心情：`PetMood` 加 case，播哪几个表情（`PetSprites.frames`）、被戳的反应（`reaction`）、标题、颜色（`Level.mood`）都要补；没开动画时停在第一帧，第一帧要能代表这个心情。
   - 「刚恢复」要知道上一次的读数：`UsageStore.recoveredAt` 在刷新时记（只在内存里），标准和「额度恢复」提醒一样（`UsageAlerts.recovered`）；之后 10 分钟内、恢复的窗口还没用到 20% 才算。「这么晚还在忙」一晚只说一次，面板说了哪种情况会回调 `PopoverState.said`。
   - 点面板里的宠物（`OverviewView` 的 `onPoke`）：`PetAnimator.react()` 把 `PetSprites.reaction(for:style:)` 播一遍再回到原来的动画（没开动画也播），她说一句 `PetTalk.poked`（3 秒），然后换成这种情况的下一句。上一句还没说完又戳算连戳，心情好的时候（`PetMood.pouts`）连戳到第 5 下开始闹别扭：表情换成 `pout`，说生气的话。看的是 focus 那家时菜单栏上的宠物是同一个 `PetAnimator`，会跟着一起动。反应的第一帧要和这个心情平时的第一帧不一样（自检会查）。
   - 加台词或加情况：中英都要写；自检「宠物说的话」一节每种情况都要试到（有一条检查会数），试过的输入会在「多语言」一节再查一遍英文。
@@ -60,22 +60,18 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - `ClaudePricing.version` / `price(model:family:)` 对应 `version()` / `price()`：每个请求按模型名里的版本号定价（`claude-opus-5` 按 Opus 5 的价格，不是 Opus 5.5 的）。出了新一代、价格变了时，把旧的当前价挪进老版本表，再改当前价
   - `ClaudeTranscripts` 的解析规则：按 `message.id` 去重、同一个响应的各字段取最大值、跳过 synthetic 和写到一半的行（限流消息只有 App 读，usage_lab 不需要）
 - 改换算相关的逻辑之前，先看 `docs/PRODUCT_PLAN.md` 第 7 节的回归结论：所有模型用一个系数，思考程度（effort）不单独算，缓存读按半价。改完用 `python3 usage_lab.py backtest` 回测，和改之前比一比。
-- 宠物有两种画法，`PetFrame` 里的图是 `PetPicture`：像素画（`PixelGrid`）或精绘（`PaintedPicture`）。`PetStyle.art` / `isPainted` 区分。现在经典、龙娘、墨镜是精绘，其余五款是像素画（计划全部换成精绘，换完再删像素画和「单色宠物」）。
-- `QuotaPetCore/Pet/PetArt.swift` 是 `design/export_swift.py` 生成的，**不要手改**。改像素宠物的流程：改 `design/pet_pixel.py` → 运行它出预览图 → 运行 `export_swift.py` 导出（要装 Pillow 和 NumPy）。
-  - 可选的形象（经典、猫耳、青春、魔女）在 `design/chibi4.py` 的 `STYLES` 里：可以换发型、饰品、配色、眼睛（`pet_pixel.EYE_SETS`）、嘴和腮红，`SsPW` 的颜色不能改（单色模式靠它们挖空脸）。标了 `draft` 的是设计稿，不导出。加一款要同时在 `PetSprites.swift` 的 `PetStyle` 里加 case。`python3 design/pet_pixel.py styles` 会把各款并排出一张对比图。
-  - 每款形象各带一张调色板（`PetPalette`，挂在 `PixelGrid.palette` 上）：导出时不再给改了颜色的字符换字符，同一个字符在不同形象里是不同的颜色，形象再多也不会不够用。
-  - 两家各有一组形象，互不重叠：Claude 是 `PetStyle.claudeChoices`（经典、猫耳、青春、魔女、墨镜 `shades`），Codex 是 `codexChoices`（龙娘 `dragon`、汉服 `hanfu`、极客 `geek`）。`PetStyle.of(_:claudeStyle:codexStyle:)` 决定每家用哪个，存的形象不在那组里就用那组第一款。加一款时要放进其中一组。
-  - 新部件的开关都在 `STYLES` 里：`accessory`（`horns` 龙角，形状在 `HORN`，画在头发上、自己带描边 / `hairpin` 步摇 / `headphones` 耳机）、`knot`（鬓角的中国结）、`buns`（丸子头）、`collar`（`knot` 立领 / `cross` 交领 / `hoodie` 连帽衫）、`wings`（小龙翼，现在没有款式用）、`elf`（尖耳）。中国结、盘扣太小，用形状画会糊成一团，是在 `decorate` 里缩成像素之后手画盖上去的（`KNOTS`、`BUTTONS`）。
-- 精绘形象（经典 `classic`、龙娘 `dragon`、墨镜 `shades`）：GPT 出图，`design/painted/export_painted.py` 按 `design/painted/<形象>.json` 切成 `Resources/Pets/<形象>/{portrait,icon}-<表情>.png`（192 / 44 像素的 2 倍图，面板 96pt、菜单栏 22pt，像素款的菜单栏头像是 16pt），同时生成 `QuotaPetCore/Pet/PaintedArt.swift`（**不要手改**）。流程见 `QuotaPet/README.md`「精绘形象」。
-  - 流水线：`make_pack.py <形象>`（按配置里的 `character` 生成提示词和参考图）→ 用户在 GPT 里出底图和 9 个表情 → `pipeline.py <形象>`（检查原图、自动定位并写进配置、导出）→ 把 `PetStyle.art` 改成 `.painted`。配置里已有的位置不会被覆盖（`--relocate` 才重新定位）。经典、龙娘的像素画还留在 `PetArt.swift` 和 `chibi4.py` 里，App 不用了，只给出图包当参考图 1。
+- 宠物的八款形象都是 GPT 出图切成的图片，没有像素画，也没有单色模式（0.2.0 及以前有过，已经删掉）。`PetFrame` 里的图是 `PetPicture`（哪款形象、头像还是半身像、哪个表情），`PetRenderer` 只负责读图；各种心情播哪几个表情在 `PetSprites.frames`。
+  - 两家各有一组形象，互不重叠：Claude 是 `PetStyle.claudeChoices`（经典、猫耳、青春、魔女、墨镜 `shades`），Codex 是 `codexChoices`（龙娘 `dragon`、汉服 `hanfu`、极客 `geek`）。`PetStyle.of(_:claudeStyle:codexStyle:)` 决定每家用哪个，存的形象不在那组里就用那组第一款。加一款：`PetStyle` 加 case 和名字，放进其中一组，配一份 `design/painted/<rawValue>.json`。
+  - 图片：`design/painted/export_painted.py` 按 `design/painted/<形象>.json` 把原图切成 `Resources/Pets/<形象>/{portrait,icon}-<表情>.png`（192 / 44 像素的 2 倍图，面板 96pt、菜单栏 22pt），同时生成 `QuotaPetCore/Pet/PaintedArt.swift`（表情清单，**不要手改**）。流程见 `QuotaPet/README.md`「改宠物形象」。
+  - 流水线：`make_pack.py <形象>`（按配置里的 `character` 生成提示词和画风参考图）→ 用户在 GPT 里出底图和 13 个表情 → `pipeline.py <形象>`（检查原图、自动定位并写进配置、导出，一款要跑几分钟）。配置里已有的位置不会被覆盖（`--relocate` 才重新定位）。自动定位的菜单栏头像框常常太紧，要手动放大到带上头顶的饰品和头发的外轮廓。
   - 原图在 `anime-sheet/精绘出图/<形象>/GPT出图/`，出图包（`提示词.md`、参考图）在它的上一级；只有墨镜在旧位置 `anime-sheet/精绘出图/GPT出图/`。`anime-sheet/` 是本机的素材文件夹，只写在 `.git/info/exclude` 里，里面的东西不能挪进会被跟踪的地方。
   - App 图标用经典款：配置里写了 `appIcon` 的那款，导出时另外生成 1024 像素的 `Resources/AppIcon.png`，`IconRenderer` 画大图标时用，`build-app.sh` 不把它拷进 App 包。
   - 表情图先对齐到底图，只取脸的椭圆盖上去，头发、衣服各表情一样；脸以外的小块（太阳穴的汗珠）用配置里的 `patches` 从一张复制到几张（`tired-wavy` 的汗珠复制到 `closed-wavy` 和 `nervous`）。
-  - 每款 14 张表情图（`export_painted.FACES`，第一张是底图）。后补的四张：`drowsy` 迷糊（刚启动、睡着或歇着时被戳）、`nervous` 紧张（「有点慌」）、`surprised` 惊讶（被戳）、`pout` 生气（戳烦了）。像素款没有这四张，用现有的眼睛和嘴凑（`PetSprites` 里像素的分支）。
-  - 加表情：`FACES` 和 `make_pack.py` 的 `EXPRESSIONS` 一起加，`make_pack.py --prompt <表情…>` 打印提示词。**每一款精绘的图都齐了再跑导出**：`export_painted.py` 每次都会重写 `PaintedArt.swift` 的表情清单，哪款缺图自检就会失败。表情不能改变脸的轮廓（只取脸的椭圆盖到底图上），所以「生气」不能真的鼓脸。
-  - 不叠小道具：汗珠、眼泪画在表情里，睡着（`sleep`）、疑惑（`puzzled`）是单独的表情，动画帧是 `PetSprites.paintedFrames`（和像素款帧数不同）。没有单色版：`MenuBarIcon`、`PetRenderer` 遇到精绘一律画彩色，设置页的单色开关下面会说明。
+  - 抠背景：原图是纯绿背景，默认按「绿不绿」整张抠。人物身上有绿色（极客的薄荷绿头发和荧光绿耳机、青春的绿眼睛）时在配置里写 `keepGreen`，不然这些地方会被抠掉、变色。
+  - 每款 14 张表情图（`export_painted.FACES`，第一张是底图）。汗珠、眼泪画在表情里，不往图上叠小道具；睡着（`sleep`）、疑惑（`puzzled`）、迷糊（`drowsy`，刚启动、睡着或歇着时被戳）、紧张（`nervous`，「有点慌」）、惊讶（`surprised`，被戳）、生气（`pout`，戳烦了）都是单独的表情。
+  - 加表情：`FACES` 和 `make_pack.py` 的 `EXPRESSIONS` 一起加，`make_pack.py --prompt <表情…>` 打印提示词。**每一款的图都齐了再跑导出**：`export_painted.py` 每次都会重写 `PaintedArt.swift` 的表情清单，哪款缺图自检就会失败。表情不能改变脸的轮廓（只取脸的椭圆盖到底图上），所以「生气」不能真的鼓脸。
   - 找图（`PaintedArt.root`，在 Core 里，App 和自检共用）：打包后在 `Contents/Resources/Pets`（`build-app.sh` 拷进去）；开发时从可执行文件往上找 `Resources/Pets`。不能用 `#filePath` 或 `Bundle.module`，它们会把本机绝对路径编进发布包。
-  - 配置文件名就是 `PetStyle` 的 rawValue，图片尺寸是 `PetSprites.paintedIconPoints` / `portraitPoints` 的 2 倍，自检拿导出的图核对。
+  - 配置文件名就是 `PetStyle` 的 rawValue，图片尺寸是 `PetSprites.iconPoints` / `portraitPoints` 的 2 倍，自检拿导出的图核对。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
 - 第一次启动（`QuotaPetCore/FirstLaunch.swift`，设置里只有 NS 开头的 AppKit 键才算）时宠物一直显示到退出，并弹出面板；开机自启先挂起（`loginItemPending`），等 App 在「应用程序」文件夹里运行时才打开（下载版第一次常在「下载」里被 macOS 挪到临时目录运行），用户自己开关过就不再管。
 - 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：

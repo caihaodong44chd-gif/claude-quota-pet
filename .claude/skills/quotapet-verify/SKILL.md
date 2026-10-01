@@ -1,6 +1,6 @@
 ---
 name: quotapet-verify
-description: 验证 QuotaPet（Swift 写的 macOS 菜单栏 App）的改动真的能用：编译所有 target、跑自检、把宠物、菜单栏、面板渲染成 PNG 来看，必要时用真实数据对账或启动 App。只要改了 QuotaPet/ 下的 Swift 代码、宠物像素画、界面文字或额度计算逻辑，收尾前都用它；用户说「跑一下」「看看效果」「能用吗」「截个图」「验证一下」「提交前检查」时也用它，即使没点名这个技能。不适用于 iOS 模拟器：这是 macOS App，本机也没有 Xcode。
+description: 验证 QuotaPet（Swift 写的 macOS 菜单栏 App）的改动真的能用：编译所有 target、跑自检、把宠物、菜单栏、面板渲染成 PNG 来看，必要时用真实数据对账或启动 App。只要改了 QuotaPet/ 下的 Swift 代码、宠物的图、界面文字或额度计算逻辑，收尾前都用它；用户说「跑一下」「看看效果」「能用吗」「截个图」「验证一下」「提交前检查」时也用它，即使没点名这个技能。不适用于 iOS 模拟器：这是 macOS App，本机也没有 Xcode。
 ---
 
 # QuotaPet 改动验证
@@ -14,7 +14,7 @@ description: 验证 QuotaPet（Swift 写的 macOS 菜单栏 App）的改动真�
 | 改了什么 | 做哪几步 |
 |---|---|
 | 任何 Swift 文件 | 第 2 步（编译 + 自检），每次必做 |
-| 界面、宠物、菜单栏的样子：`Views/`、`Pet/`、`PetArt.swift`、`Formatting.swift` 等 | 再做第 3 步（预览图） |
+| 界面、宠物、菜单栏的样子：`Views/`、`Pet/`、`Resources/Pets/`、`Formatting.swift` 等 | 再做第 3 步（预览图） |
 | `QuotaPetCore/Claude/` 下的解析、定价、窗口推算、换算率 | 再做第 4 步（真实数据对账） |
 | App 运行时的行为：`AppDelegate`、`AppWatcher`、`NotificationManager`、设置的保存、点击和菜单、面板切换条 | 预览图看不到，做第 5 步 |
 
@@ -39,12 +39,13 @@ make previews   # 输出到 build/previews/
 
 | 文件 | 内容 |
 |---|---|
-| `pet-sheet.png` | 每种心情一行、每帧一列（经典款，精绘，没有 `-mono`） |
+| `pet-sheet.png` | 每种心情一行、每帧一列（经典款） |
+| `styles.png` | 八款形象并排（中英、深浅色各一张） |
 | `pet-poke.png` / `pet-poke-<形象>.png` | 被戳的反应：每行第一格是平时的第一帧，后面是反应的几帧 |
-| `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色（精绘款两行一样）、各种百分比、限流倒计时 |
+| `menubar.png` | 菜单栏效果：浅色 / 深色、各种百分比、限流倒计时 |
 | `menubar-codex.png` / `popover-codex{,-tab}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的） |
-| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的；像素款另有 `pet-sheet-<形象>-mono.png`，精绘的 `dragon`、`shades` 没有） |
-| `popover-<精绘形象>.png` | 精绘形象在面板里的样子（和 `popover-busy` 同样的数据，中英、深浅色各一张） |
+| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的） |
+| `popover-<形象>.png` | 每款形象在面板里的样子（和 `popover-busy` 同样的数据，中英、深浅色各一张） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
 | `popover-{rush,idle}.png` | 心情的趋势：才 58% 但烧得快（先冒汗）、50 分钟没用了（歇着） |
 | `settings.png` / `settings-claude.png` / `settings-codex.png` | 设置页的「通用 / Claude / Codex」三个分页 |
@@ -53,7 +54,7 @@ make previews   # 输出到 build/previews/
 
 看的时候检查：文字有没有被截断、对齐和间距对不对、深浅色下是不是都看得清、宠物表情和心情对不对得上。
 
-如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`menubar-codex`、`pet-sheet`、`popover-busy`、`popover-limited`、`popover-rush`、`popover-idle`、`popover-codex-tab`、`popover-shades`（后六个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en`、`popover-rush-en`、`popover-idle-en`、`popover-codex-tab-en`、`popover-shades-en` 及 `-dark`），两张 `menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
+如果改动影响了 README 里的截图，就把对应的假数据图从 `build/previews/` 复制到 `docs/images/`。README 用到的是 `menubar`、`menubar-codex`、`pet-sheet`、`popover-busy`、`popover-limited`、`popover-rush`、`popover-idle`、`popover-codex-tab`、`styles`（后六个各有 `-dark` 版）；英文版 `README.en.md` 用的是它们的 `-en` 版（`pet-sheet-en`、`popover-busy-en`、`popover-limited-en`、`popover-rush-en`、`popover-idle-en`、`popover-codex-tab-en`、`styles-en` 及 `-dark`），两张 `menubar` 中英通用。`icon.png` 来自 `build/AppIcon.iconset/icon_128x128@2x.png`，要先跑 `make app` 才有。复制之前先告诉用户。
 
 ## 4. 用真实数据对账（改了数据逻辑时）
 

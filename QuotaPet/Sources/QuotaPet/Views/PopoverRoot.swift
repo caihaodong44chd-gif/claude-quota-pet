@@ -119,12 +119,12 @@ struct LivePet: View {
     var body: some View { PetImage(picture: animator.frame.portrait) }
 }
 
-/// 面板里的半身像，显示成 96pt（像素画 64×64 每格 1.5pt；精绘是 2 倍图）
+/// 面板里的半身像，显示成 96pt
 struct PetImage: View {
     var picture: PetPicture
 
     var body: some View {
-        Image(nsImage: PetRenderer.image(picture, template: false))
+        Image(nsImage: PetRenderer.image(picture))
             .frame(width: picture.points, height: picture.points)
             .accessibilityHidden(true)
     }

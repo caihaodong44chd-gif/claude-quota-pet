@@ -14,11 +14,8 @@ enum PreviewRenderer {
         L10n.language = .zhHans  // 动画表上的心情名、真实数据那两张用中文
         for style in PetStyle.allCases {
             let suffix = style == .classic ? "" : "-\(style.rawValue)"
-            write(spriteSheet(template: false, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix).png"))
-            if !style.isPainted {  // 精绘没有单色版，单色的动画表和彩色的一样
-                write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
-            }
-            write(spriteSheet(template: false, style: style, poked: true), to: dir.appendingPathComponent("pet-poke\(suffix).png"))
+            write(spriteSheet(style: style), to: dir.appendingPathComponent("pet-sheet\(suffix).png"))
+            write(spriteSheet(style: style, poked: true), to: dir.appendingPathComponent("pet-poke\(suffix).png"))
             write(menuBarStrip(style: style), to: dir.appendingPathComponent("menubar\(suffix).png"))
         }
         write(menuBarGlyphStrip(), to: dir.appendingPathComponent("menubar-codex.png"))
@@ -41,14 +38,17 @@ enum PreviewRenderer {
         for language in Language.allCases {
             L10n.language = language
             let lang = language == .zhHans ? "" : "-\(language.rawValue)"
+            for dark in [false, true] {  // 所有形象并排（名字跟着语言）
+                write(styleStrip(dark: dark), to: dir.appendingPathComponent("styles\(lang)\(dark ? "-dark" : "").png"))
+            }
             if language != .zhHans {  // 看看各种心情的名字
-                write(spriteSheet(template: false, style: .classic), to: dir.appendingPathComponent("pet-sheet\(lang).png"))
+                write(spriteSheet(style: .classic), to: dir.appendingPathComponent("pet-sheet\(lang).png"))
             }
             for (name, snapshot) in sampleSnapshots(now: now) {
                 let mood = PetMood.from(snapshot: snapshot, now: now)
-                // busy 的数据再给每款精绘形象各出一张（popover-<形象>），看半身像在面板里的样子
-                let painted = name == "busy" ? PetStyle.allCases.filter(\.isPainted) : []
-                for (file, style) in [(name, PetStyle.classic)] + painted.map({ ($0.rawValue, $0) }) {
+                // busy 的数据再给每款形象各出一张（popover-<形象>），看半身像在面板里的样子
+                let styles = name == "busy" ? PetStyle.allCases : []
+                for (file, style) in [(name, PetStyle.classic)] + styles.map({ ($0.rawValue, $0) }) {
                     for dark in [false, true] {
                         let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
                                                 pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
@@ -95,7 +95,7 @@ enum PreviewRenderer {
     // MARK: - 宠物动画表：每行一种心情，每列一帧
 
     /// poked：改成画被戳的反应，每行第一格是这个心情平时的第一帧，后面是反应；会闹别扭的心情最后再加上连戳之后的反应
-    static func spriteSheet(template: Bool, style: PetStyle, poked: Bool = false) -> Data? {
+    static func spriteSheet(style: PetStyle, poked: Bool = false) -> Data? {
         func frames(_ mood: PetMood) -> [PetFrame] {
             let frames = PetSprites.frames(for: mood, style: style)
             guard poked else { return frames }
@@ -103,15 +103,15 @@ enum PreviewRenderer {
             return [frames[0]] + reaction + (annoyed == reaction ? [] : annoyed)
         }
         let moods = PetMood.allCases
-        let side: CGFloat = 96                                  // 头像放大到 96 点（像素画一格 3 点）
+        let side: CGFloat = 96                                  // 头像放大到 96 点
         let cell = side + 16
         let labelWidth: CGFloat = 104
         let columns = moods.map { frames($0).count }.max() ?? 1
         let width = labelWidth + CGFloat(columns) * cell + 8
         let height = CGFloat(moods.count) * cell + 8
-        let ink: NSColor = template ? .white : NSColor(white: 0.15, alpha: 1)
+        let ink = NSColor(white: 0.15, alpha: 1)
         return bitmap(width: Int(width), height: Int(height)) {
-            (template ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.98, alpha: 1)).setFill()
+            NSColor(white: 0.98, alpha: 1).setFill()
             NSRect(x: 0, y: 0, width: width, height: height).fill()
             for (row, mood) in moods.enumerated() {
                 let y = 4 + CGFloat(row) * cell
@@ -120,36 +120,65 @@ enum PreviewRenderer {
                     withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: ink])
                 for (col, frame) in frames(mood).enumerated() {
                     let origin = CGPoint(x: labelWidth + CGFloat(col) * cell + 8, y: y + 8)
-                    (template ? NSColor(white: 0.24, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
+                    NSColor(white: 0.92, alpha: 1).setFill()
                     NSRect(x: origin.x - 4, y: origin.y - 4, width: cell - 8, height: cell - 8).fill()
-                    PetRenderer.draw(frame.icon, in: NSRect(origin: origin, size: NSSize(width: side, height: side)),
-                                     template: template, templateColor: .white)
+                    PetRenderer.draw(frame.icon, in: NSRect(origin: origin, size: NSSize(width: side, height: side)))
                 }
             }
         }
     }
 
-    // MARK: - 模拟菜单栏（2 倍分辨率）：浅色 / 深色 × 彩色 / 单色
+    // MARK: - 所有形象并排：一行 Claude 的，一行 Codex 的（2 倍分辨率）
+
+    static func styleStrip(dark: Bool) -> Data? {
+        let groups: [(name: String, styles: [PetStyle])] = [("Claude", PetStyle.claudeChoices), ("Codex", PetStyle.codexChoices)]
+        let side: CGFloat = 96, gap: CGFloat = 12, labelHeight: CGFloat = 22, header: CGFloat = 64, scale: CGFloat = 2
+        let columns = groups.map(\.styles.count).max() ?? 1
+        let width = header + CGFloat(columns) * (side + gap)
+        let rowHeight = side + labelHeight + gap
+        let height = CGFloat(groups.count) * rowHeight + gap
+        let ink: NSColor = dark ? .white : NSColor(white: 0.15, alpha: 1)
+        return bitmap(width: Int(width * scale), height: Int(height * scale), scale: scale) {
+            (dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.98, alpha: 1)).setFill()
+            NSRect(x: 0, y: 0, width: width, height: height).fill()
+            for (row, group) in groups.enumerated() {
+                let y = gap + CGFloat(row) * rowHeight
+                (group.name as NSString).draw(at: CGPoint(x: gap, y: y + side / 2 - 9),
+                                              withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: ink])
+                for (col, style) in group.styles.enumerated() {
+                    let tile = NSRect(x: header + CGFloat(col) * (side + gap), y: y, width: side, height: side)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSBezierPath(roundedRect: tile, xRadius: 18, yRadius: 18).addClip()
+                    (dark ? NSColor(white: 0.22, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
+                    tile.fill()
+                    PetRenderer.draw(PetSprites.frames(for: .normal, style: style)[0].portrait, in: tile)
+                    NSGraphicsContext.restoreGraphicsState()
+                    let label = NSAttributedString(string: style.label, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: ink])
+                    label.draw(at: CGPoint(x: tile.midX - label.size().width / 2, y: tile.maxY + 4))
+                }
+            }
+        }
+    }
+
+    // MARK: - 模拟菜单栏（2 倍分辨率）：浅色、深色各一行
 
     static func menuBarStrip(style: PetStyle) -> Data? {
         let items: [(PetMood, String, NSColor?)] = [
             (.energetic, "27%", nil), (.normal, "63%", nil), (.tired, "82%", .systemOrange),
             (.exhausted, "96%", .systemRed), (.sleeping, "1h23m", nil), (.confused, "", nil),
         ]
-        let rows: [(dark: Bool, mono: Bool)] = [(false, false), (false, true), (true, false), (true, true)]
         let barHeight: CGFloat = 24, itemWidth: CGFloat = 78, scale: CGFloat = 2
         let width = CGFloat(items.count) * itemWidth + 16
-        return bitmap(width: Int(width * scale), height: Int(barHeight * CGFloat(rows.count) * scale), scale: scale) {
-            for (r, row) in rows.enumerated() {
+        return bitmap(width: Int(width * scale), height: Int(barHeight * 2 * scale), scale: scale) {
+            for (r, dark) in [false, true].enumerated() {
                 let y = CGFloat(r) * barHeight
-                (row.dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.95, alpha: 1)).setFill()
+                (dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.95, alpha: 1)).setFill()
                 NSRect(x: 0, y: y, width: width, height: barHeight).fill()
-                let ink: NSColor = row.dark ? .white : .black
+                let ink: NSColor = dark ? .white : .black
                 for (i, item) in items.enumerated() {
                     let x = 10 + CGFloat(i) * itemWidth
                     let icon = PetSprites.frames(for: item.0, style: style)[0].icon
-                    PetRenderer.draw(icon, in: NSRect(x: x, y: y + (barHeight - icon.points) / 2, width: icon.points, height: icon.points),
-                                     template: row.mono, templateColor: ink)
+                    PetRenderer.draw(icon, in: NSRect(x: x, y: y + (barHeight - icon.points) / 2, width: icon.points, height: icon.points))
                     (item.1 as NSString).draw(
                         at: CGPoint(x: x + icon.points + 3, y: y + 4.5),
                         withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
@@ -165,29 +194,19 @@ enum PreviewRenderer {
             (.classic, .tired, .claude, "86%", .systemOrange), (.dragon, .exhausted, .codex, "93%", .systemRed),
             (.dragon, .normal, .codex, "55%", nil), (.classic, .energetic, .claude, "27%", nil),
         ]
-        let rows: [(dark: Bool, mono: Bool)] = [(false, false), (false, true), (true, false), (true, true)]
         let barHeight: CGFloat = 24, itemWidth: CGFloat = 92, scale: CGFloat = 2
         let width = CGFloat(items.count) * itemWidth + 16
-        return bitmap(width: Int(width * scale), height: Int(barHeight * CGFloat(rows.count) * scale), scale: scale) {
-            for (r, row) in rows.enumerated() {
+        return bitmap(width: Int(width * scale), height: Int(barHeight * 2 * scale), scale: scale) {
+            for (r, dark) in [false, true].enumerated() {
                 let y = CGFloat(r) * barHeight
-                (row.dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.95, alpha: 1)).setFill()
+                (dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.95, alpha: 1)).setFill()
                 NSRect(x: 0, y: y, width: width, height: barHeight).fill()
-                let ink: NSColor = row.dark ? .white : .black
-                NSAppearance(named: row.dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+                let ink: NSColor = dark ? .white : .black
+                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
                     for (i, item) in items.enumerated() {
                         let x = 10 + CGFloat(i) * itemWidth
-                        var image = MenuBarIcon.image(PetSprites.frames(for: item.1, style: item.0)[0].icon, template: row.mono,
+                        let image = MenuBarIcon.image(PetSprites.frames(for: item.1, style: item.0)[0].icon,
                                                       glyph: MenuBarIcon.glyph(for: item.2))
-                        if image.isTemplate {  // 模板图画出来是黑的，这里替系统按菜单栏配色着色（精绘没有单色版，不是模板图）
-                            let template = image
-                            image = NSImage(size: template.size, flipped: false) { rect in
-                                template.draw(in: rect)
-                                ink.set()
-                                rect.fill(using: .sourceAtop)
-                                return true
-                            }
-                        }
                         let rect = NSRect(x: x, y: y + (barHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
                         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
                         (" " + item.3 as NSString).draw(

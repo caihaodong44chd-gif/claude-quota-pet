@@ -30,9 +30,6 @@ final class AppSettings: ObservableObject {
     @Published var animatePet: Bool {
         didSet { defaults.set(animatePet, forKey: Keys.animatePet) }
     }
-    @Published var monochromePet: Bool {
-        didSet { defaults.set(monochromePet, forKey: Keys.monochromePet) }
-    }
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Keys.notificationsEnabled) }
     }
@@ -73,7 +70,6 @@ final class AppSettings: ObservableObject {
     init() {
         defaults.register(defaults: [
             Keys.animatePet: true,
-            Keys.monochromePet: false,
             Keys.notificationsEnabled: true,
             Keys.thresholds: [75, 90, 100],
             Keys.notifyRunningOut: true,
@@ -91,7 +87,6 @@ final class AppSettings: ObservableObject {
             .flatMap { PetStyle.codexChoices.contains($0) ? $0 : nil } ?? PetStyle.codexChoices[0]
         showCodex = defaults.bool(forKey: Keys.showCodex)
         animatePet = defaults.bool(forKey: Keys.animatePet)
-        monochromePet = defaults.bool(forKey: Keys.monochromePet)
         notificationsEnabled = defaults.bool(forKey: Keys.notificationsEnabled)
         thresholds = (defaults.array(forKey: Keys.thresholds) as? [Int]) ?? [75, 90, 100]
         notifyRunningOut = defaults.bool(forKey: Keys.notifyRunningOut)
@@ -146,7 +141,6 @@ final class AppSettings: ObservableObject {
         static let codexPetStyle = "codexPetStyle"
         static let showCodex = "showCodex"
         static let animatePet = "animatePet"
-        static let monochromePet = "monochromePet"
         static let notificationsEnabled = "notificationsEnabled"
         static let thresholds = "thresholds"
         static let notifyRunningOut = "notifyRunningOut"

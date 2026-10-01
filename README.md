@@ -78,16 +78,16 @@
 
 <img src="docs/images/pet-sheet.png" width="392" alt="宠物（经典款）的全部动画帧，每行一种心情">
 
-Claude 有五款形象，在「设置 → Claude」里选：经典和墨镜是精绘的，猫耳、青春、魔女是像素画。Codex 有自己的三款：精绘的龙娘，像素画的汉服和极客。
-
-精绘的三款，汗珠、眼泪直接画在表情里，睡着和有点懵是单独的表情；菜单栏上的头像大一点（22pt），没有单色版。像素画的几款用头顶的小道具表示心情（星星、汗珠、Z、问号），可以在设置里开「单色宠物」，跟着菜单栏的黑白配色走。
+一共八款形象。Claude 有五款，在「设置 → Claude」里选；Codex 有自己的三款：
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-shades-dark.png">
-    <img src="docs/images/popover-shades.png" width="320" alt="面板：选了「墨镜」，5 小时额度 86%，她有点累了，太阳穴在冒汗">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/styles-dark.png">
+    <img src="docs/images/styles.png" width="604" alt="八款形象：Claude 的经典、猫耳、青春、魔女、墨镜，Codex 的龙娘、汉服、极客">
   </picture>
 </p>
+
+每款都有十四个表情。汗珠、眼泪直接画在表情里，睡着、有点懵、刚被叫醒都是单独的表情。
 
 ## 同时看 Codex
 
@@ -168,7 +168,7 @@ python3 usage_lab.py backtest                       # 按 App 的学习方式逐
 ```
 QuotaPet/             菜单栏 App（Swift + SwiftUI，SwiftPM 构建）
   Sources/            QuotaPetCore 纯逻辑 / QuotaPet App 本体 / QuotaPetChecks 自检
-  design/             宠物像素画的 Python 原型；painted/ 是精绘形象的脚本：出提示词，把 GPT 出的图切成 App 用的图
+  design/painted/     宠物形象的脚本：出提示词，把 GPT 出的图切成 App 用的图
 usage_lab.py          额度实验室
 docs/PRODUCT_PLAN.md  产品规划和实测记录
 ```

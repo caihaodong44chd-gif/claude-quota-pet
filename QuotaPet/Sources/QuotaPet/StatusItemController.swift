@@ -35,7 +35,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private struct ImageKey: Hashable {
         let picture: PetPicture
-        let template: Bool
         let glyph: String?
     }
 
@@ -63,8 +62,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let glyph = Publishers.CombineLatest(shown, settings.$menuBarText)
             .map { shown, mode in Self.glyph(shown, mode: mode) }
             .removeDuplicates()
-        Publishers.CombineLatest3(animator.$frame, settings.$monochromePet, glyph)
-            .sink { [weak self] frame, monochrome, glyph in self?.showPet(frame.icon, template: monochrome, glyph: glyph) }
+        Publishers.CombineLatest(animator.$frame, glyph)
+            .sink { [weak self] frame, glyph in self?.showPet(frame.icon, glyph: glyph) }
             .store(in: &cancellables)
         Publishers.CombineLatest3(shown, settings.$menuBarText, settings.$language)
             .sink { [weak self] shown, mode, _ in self?.showText(shown, mode: mode) }
@@ -164,10 +163,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     /// glyph：数字前面的小图标，见 glyph(_:mode:)
-    private func showPet(_ frame: PetPicture, template: Bool, glyph: String?) {
-        let template = MenuBarIcon.isTemplate(frame, monochrome: template)  // 没有单色版时开关单色是同一张图，别缓存两份
-        let key = ImageKey(picture: frame, template: template, glyph: glyph)
-        let image = imageCache[key] ?? MenuBarIcon.image(frame, template: template, glyph: glyph)
+    private func showPet(_ frame: PetPicture, glyph: String?) {
+        let key = ImageKey(picture: frame, glyph: glyph)
+        let image = imageCache[key] ?? MenuBarIcon.image(frame, glyph: glyph)
         imageCache[key] = image
         statusItem.button?.image = image
     }

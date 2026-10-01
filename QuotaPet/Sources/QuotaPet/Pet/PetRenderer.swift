@@ -1,81 +1,36 @@
 import AppKit
 import QuotaPetCore
 
-/// 把宠物画成 NSImage：像素画在这里画，精绘交给 PaintedRenderer
+/// 把宠物画成 NSImage：每个表情一张图，这里只负责读图
 enum PetRenderer {
-    /// 画成 picture.points 大小的图。template = 单色模板图，由系统按菜单栏配色着色（只对有单色版的像素画有效）
-    static func image(_ picture: PetPicture, template: Bool) -> NSImage {
-        switch picture.content {
-        case .pixel(let grid): return image(grid, pixel: picture.points / Double(grid.width), template: template)
-        case .painted(let painted): return PaintedRenderer.image(painted, points: picture.points)
-        }
-    }
+    private static let cache = NSCache<NSString, NSImage>()
 
-    /// 设置页的缩略图：会被平滑缩小，像素画先画成位图（直接缩 image(...) 格子之间会露缝）
-    static func thumbnail(_ picture: PetPicture) -> NSImage {
-        if let grid = picture.grid { return bitmap(grid, scale: 2) }
-        return image(picture, template: false)
-    }
+    /// 显示成 picture.points 大小的图
+    static func image(_ picture: PetPicture) -> NSImage { image(picture, points: picture.points) }
 
-    /// 画到当前（y 轴朝下的）上下文里的 rect 中；template 时像素画用 templateColor 画剪影。抗锯齿在这里按需要设好再恢复
-    static func draw(_ picture: PetPicture, in rect: NSRect, template: Bool, templateColor: NSColor) {
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        switch picture.content {
-        case .pixel(let grid):
-            let pixel = rect.width / CGFloat(grid.width)
-            antialiasUnlessCrisp(pixel)
-            draw(grid, pixel: pixel, origin: rect.origin, template: template, templateColor: templateColor)
-        case .painted(let painted):
-            NSGraphicsContext.current?.shouldAntialias = true
-            PaintedRenderer.image(painted, points: rect.width).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1,
-                                                                   respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
-        }
-    }
-
-    /// 一格正好落在整数个物理像素上时关掉抗锯齿，像素边缘才锐利；
-    /// 外接的 1 倍屏上半个点画不出来，要靠抗锯齿混色，不然会丢像素
-    private static func antialiasUnlessCrisp(_ pixel: CGFloat) {
-        let deviceScale = NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform.a ?? 2
-        let devicePixels = pixel * deviceScale
-        NSGraphicsContext.current?.shouldAntialias = abs(devicePixels - devicePixels.rounded()) > 0.01
-    }
-
-    /// 按这款形象的调色板查颜色（和 design/ 里的 Python 原型一致）；没定义的字符画成洋红，一眼看得出
-    static func color(for code: UInt8, in palette: PetPalette) -> NSColor {
-        guard let hex = palette[code] else { return .magenta }
-        return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
-                       blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-    }
-
-    /// 单色模式下挖空的像素：脸（皮肤、腮红）和眼睛高光。头发、衣服、五官保持实心，剪影里看得出是一张脸
-    private static let cutouts = Set("SsPW".utf8)
-
-    static func isCutout(_ code: UInt8) -> Bool { cutouts.contains(code) }
-
-    /// pixel：每个像素画多大（point）。菜单栏头像用 0.5（32 格 = 16pt，Retina 上一格一个物理像素）。
-    /// template = 单色模板图，由系统按菜单栏配色着色
-    static func image(_ grid: PixelGrid, pixel: CGFloat, template: Bool) -> NSImage {
-        let size = NSSize(width: CGFloat(grid.width) * pixel, height: CGFloat(grid.height) * pixel)
-        let image = NSImage(size: size, flipped: true) { _ in
-            antialiasUnlessCrisp(pixel)
-            draw(grid, pixel: pixel, origin: .zero, template: template, templateColor: .black)
+    /// 显示成 points×points 的图。图片本身是 2 倍图，改一下显示大小就行，不用重画；每张图每个尺寸只读一次盘。
+    /// 图没找到时是一块洋红，一眼看得出
+    private static func image(_ picture: PetPicture, points: Double) -> NSImage {
+        let key = "\(picture.file)@\(points)" as NSString
+        if let image = cache.object(forKey: key) { return image }
+        let size = NSSize(width: points, height: points)
+        let image = picture.url.flatMap { NSImage(contentsOf: $0) } ?? NSImage(size: size, flipped: false) { rect in
+            NSColor.magenta.setFill()
+            rect.fill()
             return true
         }
-        image.isTemplate = template
+        image.size = size
+        cache.setObject(image, forKey: key)
         return image
     }
 
-    /// 画成固定分辨率的位图，每格 scale×scale 个像素。要缩放显示时用它：
-    /// image(...) 是显示时按目标分辨率现画的，缩到一格不是整数个物理像素时，格子之间会露出细缝
-    static func bitmap(_ grid: PixelGrid, scale: Int) -> NSImage {
-        let image = NSImage(size: NSSize(width: grid.width * scale, height: grid.height * scale))
-        let rep = rasterize(width: grid.width * scale, height: grid.height * scale) {
-            NSGraphicsContext.current?.shouldAntialias = false
-            draw(grid, pixel: CGFloat(scale), origin: .zero, template: false, templateColor: .black)
-        }
-        if let rep { image.addRepresentation(rep) }
-        return image
+    /// 画到当前（y 轴朝下的）上下文里的 rect 中
+    static func draw(_ picture: PetPicture, in rect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current?.shouldAntialias = true
+        image(picture, points: rect.width).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
+                                                hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
 
     /// 在一张 sRGB 位图上画（y 轴朝下，和 draw 的约定一致）；scale：每个点画几个像素
@@ -92,26 +47,5 @@ enum PetRenderer {
         body()
         NSGraphicsContext.restoreGraphicsState()
         return rep
-    }
-
-    /// 直接画到当前（y 轴朝下的）上下文里
-    static func draw(_ grid: PixelGrid, pixel: CGFloat, origin: CGPoint, template: Bool, templateColor: NSColor) {
-        var colors = [NSColor?](repeating: nil, count: 128)  // 这张图里用到的颜色，每种只建一次
-        for y in 0..<grid.height {
-            for x in 0..<grid.width {
-                let code = grid[x, y]
-                if code == 0 || (template && isCutout(code)) { continue }
-                if template {
-                    templateColor.setFill()
-                } else if code < 128 {
-                    let fill = colors[Int(code)] ?? color(for: code, in: grid.palette)
-                    colors[Int(code)] = fill
-                    fill.setFill()
-                } else {
-                    NSColor.magenta.setFill()
-                }
-                NSRect(x: origin.x + CGFloat(x) * pixel, y: origin.y + CGFloat(y) * pixel, width: pixel, height: pixel).fill()
-            }
-        }
     }
 }
