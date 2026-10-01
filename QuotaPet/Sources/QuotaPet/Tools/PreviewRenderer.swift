@@ -167,7 +167,7 @@ enum PreviewRenderer {
                         let x = 10 + CGFloat(i) * itemWidth
                         var image = MenuBarIcon.image(PetSprites.frames(for: item.1, style: item.0)[0].icon, template: row.mono,
                                                       glyph: MenuBarIcon.glyph(for: item.2))
-                        if row.mono {  // 模板图画出来是黑的，这里替系统按菜单栏配色着色
+                        if image.isTemplate {  // 模板图画出来是黑的，这里替系统按菜单栏配色着色（精绘没有单色版，不是模板图）
                             let template = image
                             image = NSImage(size: template.size, flipped: false) { rect in
                                 template.draw(in: rect)

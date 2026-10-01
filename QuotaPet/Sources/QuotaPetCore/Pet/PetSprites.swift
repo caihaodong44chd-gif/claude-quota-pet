@@ -11,7 +11,7 @@ public struct PetFrame: Hashable, Sendable {
 
 /// 宠物的形象：表情、动画都一样，只是发色、饰品不同
 public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
-    /// 橙色长发，别着星芒花饰和黑色蝴蝶结
+    /// 精绘：橙色长发，右侧橙色花形发饰配黑丝带和金流苏，白色荷叶边立领配橙花胸针和黑领巾
     case classic
     /// 银紫色长发，猫耳
     case neko
@@ -20,7 +20,7 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
     /// 紫色长发、金色眼睛，魔女帽和高立领披肩
     case witch
     // 下面三款是 Codex 的形象
-    /// 白发龙娘：弯龙角、尖耳，鬓角和立领上是红色中国结
+    /// 精绘：白发龙娘，弯龙角、尖耳，鬓角别白色中国结，白色挂脖立领长裙配荷叶边纱袖
     case dragon
     /// 墨色长发盘两个丸子头、金步摇，粉色襦裙配红色交领
     case hanfu
@@ -58,11 +58,11 @@ public enum PetStyle: String, CaseIterable, Identifiable, Sendable {
 
     var art: Art {
         switch self {
-        case .classic: return .pixel(PetArt.classic)
+        case .classic: return .painted
         case .neko: return .pixel(PetArt.neko)
         case .youth: return .pixel(PetArt.youth)
         case .witch: return .pixel(PetArt.witch)
-        case .dragon: return .pixel(PetArt.dragon)
+        case .dragon: return .painted
         case .hanfu: return .pixel(PetArt.hanfu)
         case .geek: return .pixel(PetArt.geek)
         case .shades: return .painted

@@ -79,7 +79,9 @@ for style in PetStyle.allCases {
         check(icon?.cells.contains(UInt8(ascii: "S")) == true, "\(style.label)的头像有皮肤色")
         check(icon != PixelGrid(rows: art.icon.base, palette: art.palette), "\(style.label)画上了眼睛")
         for mood in PetMood.allCases {
-            check(PetSprites.frames(for: mood, style: style).count == PetSprites.frames(for: mood).count, "\(style.label) \(mood) 的帧数和经典款一样")
+            let baseline = PetStyle.allCases.first { !$0.isPainted } ?? style  // 像素款的动画都一样长
+            check(PetSprites.frames(for: mood, style: style).count == PetSprites.frames(for: mood, style: baseline).count,
+                  "\(style.label) \(mood) 的帧数和其他像素款一样")
         }
     case .painted:
         // 导出的表情都用上了、用到的都导出过（精绘款的动画和像素画不一样，帧数也不一样）

@@ -135,13 +135,15 @@ struct SettingsView: View {
         }
     }
 
-    /// Claude 选了精绘形象时说一声：它没有单色版，开了单色也还是彩色的（Codex 的像素宠物照常变单色）
+    /// 选了精绘形象时说一声：它没有单色版，开了单色也还是彩色的（像素宠物照常变单色）。Codex 的那只在本机有 Codex 的记录时才算
     private var monochromeNote: String {
         let note = tr("跟随菜单栏的黑白配色", "Matches the black-and-white menu bar")
-        let style = settings.petStyle
-        guard style.isPainted else { return note }
-        return note + tr("。「\(style.label)」没有单色版，一直是彩色的",
-                         ". \u{201C}\(style.label)\u{201D} has no monochrome version and stays in color")
+        let painted = ([settings.petStyle] + (hasCodex ? [settings.codexPetStyle] : [])).filter(\.isPainted)
+        guard !painted.isEmpty else { return note }
+        let names = painted.map { tr("「\($0.label)」", "\u{201C}\($0.label)\u{201D}") }.joined(separator: tr("", " and "))
+        return note + tr("。\(names)没有单色版，一直是彩色的",
+                         painted.count == 1 ? ". \(names) has no monochrome version and stays in color"
+                                            : ". \(names) have no monochrome version and stay in color")
     }
 
     @ViewBuilder private var claude: some View {

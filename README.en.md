@@ -6,10 +6,10 @@
 
 [简体中文](README.md) · **English**
 
-**A pixel-art pet that lives in your macOS menu bar and shows your Claude subscription usage in real time, with Codex alongside if you use it.**<br>
+**An anime-style pet that lives in your macOS menu bar and shows your Claude subscription usage in real time, with Codex alongside if you use it.**<br>
 The tighter your quota gets, the more tired she looks. When it runs out she falls asleep and tells you when it comes back.
 
-<img src="docs/images/menubar.png" width="484" alt="Menu bar: light and dark menu bars, color and monochrome pet, from 27% up to a 1h23m countdown after hitting the limit">
+<img src="docs/images/menubar.png" width="484" alt="Menu bar: light and dark menu bars, from 27% up to a 1h23m countdown after hitting the limit">
 
 Reads local files only · No network · No login credentials
 
@@ -43,18 +43,18 @@ Her mood follows whichever usage window is tightest:
 
 | Usage | Mood | Looks like |
 |---|---|---|
-| < 50% | Energized | Sparkly eyes, a star twinkling above her head |
+| < 50% | Energized | Sparkly eyes, a big smile |
 | 50–75% | Doing fine | Quietly watching you, blinking now and then |
-| 75–90% | Tired | Droopy eyes, a bead of sweat sliding down |
+| 75–90% | Tired | Droopy eyes, a bead of sweat at her temple |
 | 90–100% | Almost out | `>_<`, tears falling |
-| ≥ 100% | Asleep | Eyes closed, Z's floating up |
-| No data | Confused | A question mark pops up |
+| ≥ 100% | Asleep | Eyes closed, sound asleep |
+| No data | Confused | One eyebrow raised, looking puzzled |
 
-<img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet, one mood per row">
+<img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet (Classic), one mood per row">
 
-Claude has five looks to choose from in Settings → Claude: four pixel-art ones (Classic, Cat ears, Youthful and Witch) and a painted one, Shades. Codex has three of its own: Dragon girl, Hanfu and Geek.
+Claude has five looks to choose from in Settings → Claude: Classic and Shades are painted; Cat ears, Youthful and Witch are pixel art. Codex has three of its own: the painted Dragon girl, and Hanfu and Geek in pixel art.
 
-Shades is painted rather than pixel art, so she skips the little props above: the sweat and tears are painted into her expressions, and asleep and confused each get an expression of their own. Her menu bar icon is a bit bigger (22pt) and has no monochrome version.
+The three painted pets have the sweat and tears painted into their expressions, and asleep and confused each get an expression of their own. Their menu bar icons are a bit bigger (22pt) and have no monochrome version. The pixel-art pets show their mood with little props above the head (a star, a bead of sweat, Z's, a question mark) and can go monochrome to match the menu bar (Settings → General → Monochrome pet).
 
 <p align="center">
   <picture>
@@ -128,7 +128,7 @@ Settings (right-click → Settings…) has a page per topic:
 
 | Page | Options |
 |---|---|
-| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet (not available for Shades). Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
+| General | Menu bar: when to show (when Claude, or Codex if you use it, is open / always), what to show next to the pet (pet only / 5-hour / 5h + week / highest), animation, monochrome pet (not available for the painted pets). Notifications: usage alerts and thresholds (50 / 75 / 90 / 100%, default 75 / 90 / 100), warn before running out, notify when quota resets. Other: language (system / 简体中文 / English), launch at login |
 | Claude | Pet style (Classic / Cat ears / Youthful / Witch / Shades). Live estimate: estimate from local logs, learn the conversion rate automatically (shows the current value), set the weekly reset time manually |
 | Codex (only if you use it) | Show Codex usage, pet style (Dragon girl / Hanfu / Geek), where the data comes from and when the last reading arrived |
 
@@ -168,7 +168,7 @@ Current conclusions: a single rate for all models fits best, thinking effort nee
 ```
 QuotaPet/             menu bar app (Swift + SwiftUI, built with SwiftPM)
   Sources/            QuotaPetCore (pure logic) / QuotaPet (the app) / QuotaPetChecks (self-checks)
-  design/             Python prototypes of the pixel art; painted/ cuts the painted pets out of images generated with GPT
+  design/             Python prototypes of the pixel art; painted/ builds the prompts for the painted pets and cuts them out of images generated with GPT
 usage_lab.py          usage lab
 docs/PRODUCT_PLAN.md  product plan and measurements (in Chinese)
 ```

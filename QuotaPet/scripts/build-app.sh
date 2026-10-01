@@ -31,7 +31,7 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"  # 各语言的 App 名字（访达、通知里显示的）
 cp -R Resources/Pets "$APP/Contents/Resources/"     # 精绘宠物的图（design/painted/export_painted.py 导出）
 
-# 用宠物的像素画生成 App 图标
+# 用经典款的宠物生成 App 图标（大图标用 Resources/AppIcon.png，它不拷进 App 包）
 "$BIN" --render-icon build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 

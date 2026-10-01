@@ -39,10 +39,10 @@ make previews   # 输出到 build/previews/
 
 | 文件 | 内容 |
 |---|---|
-| `pet-sheet.png` / `pet-sheet-mono.png` | 每种心情一行、每帧一列（彩色 / 单色） |
-| `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色、各种百分比、限流倒计时 |
+| `pet-sheet.png` | 每种心情一行、每帧一列（经典款，精绘，没有 `-mono`） |
+| `menubar.png` | 菜单栏效果：浅色 / 深色、彩色 / 单色（精绘款两行一样）、各种百分比、限流倒计时 |
 | `menubar-codex.png` / `popover-codex{,-tab}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的） |
-| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的；`shades` 是精绘的，没有 `-mono`） |
+| `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的；像素款另有 `pet-sheet-<形象>-mono.png`，精绘的 `dragon`、`shades` 没有） |
 | `popover-<精绘形象>.png` | 精绘形象在面板里的样子（和 `popover-busy` 同样的数据，中英、深浅色各一张） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |
 | `settings.png` / `settings-claude.png` / `settings-codex.png` | 设置页的「通用 / Claude / Codex」三个分页 |

@@ -14,6 +14,7 @@
             脸以外还要取的小块（比如太阳穴上的汗珠、流出脸的眼泪）：从 from 那张取 region 这块，盖到 onto 这几张上。
             一颗汗珠只让 GPT 画一次，别的表情复制同一颗，切换表情时汗珠不会跳
   outline   "#RRGGBB"         菜单栏头像外圈描边的颜色：浅金色头发在浅色菜单栏上会发白
+  appIcon   true              App 图标用这款：另外导出 Resources/AppIcon.png（底图的面板取景，1024×1024），只有一款能写
 
 原图：每个表情一张正方形图，透明背景或纯绿背景（#00FF00），文件名见 FACES，open-small 是底图。
 汗珠、眼泪直接让 GPT 画在表情图里，睡着、疑惑也是单独的表情：App 不再往精绘图上叠小道具（漫画符号浮在精绘的脸上很突兀）。
@@ -42,6 +43,8 @@ FACES = ["open-small", "sparkle-open", "happy-open", "closed-open", "closed-smal
          "sleep", "puzzled"]
 PORTRAIT = 192  # PetSprites.portraitPoints 的 2 倍（自检会拿导出的图核对）
 ICON = 44        # PetSprites.paintedIconPoints 的 2 倍
+APP_ICON = 1024  # App 图标（最大 1024 像素）用的半身像
+APP_ICON_PATH = os.path.join(PACKAGE, "Resources", "AppIcon.png")
 
 
 # MARK: - 读图、去背景
@@ -133,11 +136,18 @@ def masked(lum, keep):
     return lum - lum[keep > 0].mean() * keep
 
 
+def keep_mask(work, face):
+    """对齐时挖掉脸（表情不同会干扰对齐）；face 是 None 时整张都用（定位时还不知道脸在哪）"""
+    if face is None:
+        return np.ones((work, work), dtype=np.float32)
+    return 1 - ellipse_mask((work, work), face, scale=1.35)
+
+
 def align(base, expr, face):
     """找让表情图和底图最吻合的缩放和平移（原图像素）。先在 256 的小图上按缩放逐个试、平移用 FFT 互相关找，再在 512 的图上细调"""
     size = base.shape[0]
     work = 256
-    keep = 1 - ellipse_mask((work, work), face, scale=1.35)
+    keep = keep_mask(work, face)
     target = np.fft.rfft2(masked(luminance(base, work), keep))
     source = luminance(expr, work)
     best = (-np.inf, 1.0, 0.0, 0.0)
@@ -153,7 +163,7 @@ def align(base, expr, face):
     _, scale, dx, dy = best
     work = 512
     k = size / work
-    keep = 1 - ellipse_mask((work, work), face, scale=1.35)
+    keep = keep_mask(work, face)
     ref = masked(luminance(base, work), keep)
     source = luminance(expr, work)
     best = (np.inf, scale, dx, dy)
@@ -219,33 +229,41 @@ def outlined(p, color):
     return p + under * (1 - p[..., 3:4])
 
 
-def export(name, config, src, trial, force):
-    """trial：原图不是配置里的那一套（用了 --src）。缺表情或 trial 时只出对比图，
-    免得试一张图就把仓库里已经提交的正式图换掉；force（--write）时照样写进 Resources/Pets"""
-    print(f"== {name}（原图：{os.path.relpath(src, REPO) if src.startswith(REPO) else src}）")
+def align_all(src, face, verbose=True):
+    """读底图和已有的表情图，把表情图对齐到底图。face 是 None 时不挖脸对齐（定位时还不知道脸在哪）。
+    返回 (底图, {表情: 对齐后的图}, {表情: (缩放, dx, dy)}, 缺的表情)，图都是预乘的"""
     missing = [f for f in FACES if not os.path.exists(os.path.join(src, f + ".png"))]
     if FACES[0] in missing:
         sys.exit(f"✗ 缺底图 {FACES[0]}.png")
-    if missing:  # 先出底图看效果时，别的表情还没有：先用底图代替
-        print(f"   ⚠ 还没有这些表情图，先用底图代替：{', '.join(missing)}")
-    face = config["face"]
     base = premultiply(load(os.path.join(src, FACES[0] + ".png")))
     if base.shape[0] != base.shape[1]:
         sys.exit("✗ 底图要是正方形")
-    color = [int(config["outline"][i:i + 2], 16) / 255 for i in (1, 3, 5)]
-
-    aligned = {FACES[0]: base}  # 各表情图对齐到底图之后的样子
+    aligned, moves = {FACES[0]: base}, {}
     for key in FACES[1:]:
         if key in missing:
             continue
         expr = premultiply(load(os.path.join(src, key + ".png")))
         if expr.shape != base.shape:
             expr = per_channel(expr, lambda im: im.resize(base.shape[1::-1], Image.LANCZOS))
-        scale, dx, dy = align(base, expr, face)
-        print(f"   {key:13s} 对齐：缩放 {scale:.3f}，平移 ({dx:+.0f}, {dy:+.0f}) 像素")
-        aligned[key] = resample(expr, scale, dx, dy)
+        moves[key] = align(base, expr, face)
+        if verbose:
+            scale, dx, dy = moves[key]
+            print(f"   {key:13s} 对齐：缩放 {scale:.3f}，平移 ({dx:+.0f}, {dy:+.0f}) 像素")
+        aligned[key] = resample(expr, *moves[key])
+    return base, aligned, moves, missing
 
-    sheet = []
+
+def export(name, config, src, trial, force):
+    """trial：原图不是配置里的那一套（用了 --src）。缺表情或 trial 时只出对比图，
+    免得试一张图就把仓库里已经提交的正式图换掉；force（--write）时照样写进 Resources/Pets"""
+    print(f"== {name}（原图：{os.path.relpath(src, REPO) if src.startswith(REPO) else src}）")
+    face = config["face"]
+    base, aligned, _, missing = align_all(src, face)
+    if missing:  # 先出底图看效果时，别的表情还没有：先用底图代替
+        print(f"   ⚠ 还没有这些表情图，先用底图代替：{', '.join(missing)}")
+    color = [int(config["outline"][i:i + 2], 16) / 255 for i in (1, 3, 5)]
+
+    sheet, zooms = [], []
     for key in FACES:
         frame = composite(base, aligned[key], face) if key in aligned and key != FACES[0] else base
         for patch in config.get("patches", []):
@@ -253,7 +271,9 @@ def export(name, config, src, trial, force):
                 # 小块羽化得窄一些，不然汗珠这么小的东西会被羽化成半透明
                 frame = composite(frame, aligned[patch["from"]], patch["region"], feather=0.004)
         sheet.append((key, crop(frame, config["portrait"], PORTRAIT), outlined(sharpen(crop(frame, config["icon"], ICON)), color)))
+        zooms.append(face_zoom(frame, face))
     contact_sheet(name, sheet)
+    zoom_sheet(name, zooms)
 
     if (missing or trial) and not force:
         print("   只出了对比图，没动 Resources/Pets（缺表情或用了 --src）；确定要写进 App 就加 --write")
@@ -267,6 +287,29 @@ def export(name, config, src, trial, force):
         to_image(unpremultiply(portrait)).save(os.path.join(folder, f"portrait-{key}.png"), optimize=True)
         to_image(unpremultiply(icon)).save(os.path.join(folder, f"icon-{key}.png"), optimize=True)
     print(f"   已写入 {os.path.relpath(folder, REPO)}/")
+    if config.get("appIcon"):  # 大尺寸的 App 图标要高清的半身像，192 的面板图放大会糊；只在打包时用，不进 App 包
+        to_image(unpremultiply(crop(base, config["portrait"], APP_ICON))).save(APP_ICON_PATH, optimize=True)
+        print(f"   已写入 {os.path.relpath(APP_ICON_PATH, REPO)}")
+
+
+def face_zoom(frame, face, out=280):
+    """脸那一块放大（比脸的椭圆大一圈），看表情盖上去有没有接缝、双下巴线"""
+    cx, cy, rx, ry = face
+    r = max(rx, ry) * 1.45
+    return crop(frame, [cx - r, cy - r, 2 * r], out)
+
+
+def zoom_sheet(name, zooms):
+    """脸部放大对比图：每格一个表情，顺序同 FACES，一行 5 个"""
+    size = zooms[0].shape[0]
+    columns = 5
+    rows = (len(zooms) + columns - 1) // columns
+    im = Image.new("RGBA", (columns * size, rows * size), (255, 255, 255, 255))
+    for i, zoom in enumerate(zooms):
+        im.alpha_composite(to_image(unpremultiply(zoom)), ((i % columns) * size, (i // columns) * size))
+    path = os.path.join(OUT, f"painted-{name}-faces.png")
+    im.save(path)
+    print(f"   脸部放大图：{os.path.relpath(path, REPO)}")
 
 
 def contact_sheet(name, sheet):
@@ -325,8 +368,12 @@ def main():
             with open(os.path.join(HERE, file)) as f:
                 configs.append((file[:-5], json.load(f)))
     for name, config in configs:
-        if not args or name in args:
-            export(name, config, src or os.path.join(REPO, config["source"]), trial=src is not None, force=force)
+        if args and name not in args:
+            continue
+        if "face" not in config:  # 刚用 make_pack.py 建好、原图还没齐的形象
+            print(f"== {name}：还没定好脸的位置和取景，先跳过")
+            continue
+        export(name, config, src or os.path.join(REPO, config["source"]), trial=src is not None, force=force)
     write_swift()
 
 

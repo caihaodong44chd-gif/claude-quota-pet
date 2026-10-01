@@ -1,7 +1,7 @@
 import AppKit
 import QuotaPetCore
 
-/// QuotaPet --render-icon <dir>：用宠物的像素画生成 App 图标（.iconset，再用 iconutil 转成 .icns）
+/// QuotaPet --render-icon <dir>：用经典款的宠物生成 App 图标（.iconset，再用 iconutil 转成 .icns）
 @MainActor
 enum IconRenderer {
     static func writeIconset(to dir: URL) {
@@ -15,6 +15,11 @@ enum IconRenderer {
         }
     }
 
+    /// 大图标用的高清半身像：design/painted/export_painted.py 给配置了 appIcon 的那款导出，只在打包时用
+    private static let appIconPortrait = PaintedArt.root.flatMap {
+        NSImage(contentsOf: $0.deletingLastPathComponent().appendingPathComponent("AppIcon.png"))
+    }
+
     static func icon(pixels: Int) -> Data? {
         PreviewRenderer.bitmap(width: pixels, height: pixels) {
             let size = CGFloat(pixels)
@@ -26,14 +31,12 @@ enum IconRenderer {
 
             NSGraphicsContext.saveGraphicsState()
             tile.addClip()
-            let frame = PetSprites.frames(for: .normal)[0]  // 经典款，像素画
-            if size >= 128, let portrait = frame.portrait.grid {
-                // 大图标：半身像按整数倍放大（像素画保持锐利），贴着底边
-                let pixel = (rect.width / CGFloat(PetSprites.portraitSize)).rounded(.down)
-                let width = pixel * CGFloat(PetSprites.portraitSize)
-                NSGraphicsContext.current?.shouldAntialias = false
-                PetRenderer.draw(portrait, pixel: pixel, origin: CGPoint(x: ((size - width) / 2).rounded(), y: rect.maxY - width),
-                                 template: false, templateColor: .black)
+            let frame = PetSprites.frames(for: .normal)[0]  // 经典款
+            if size >= 128, let portrait = appIconPortrait {
+                // 大图标：高清半身像铺满，贴着底边（圆角会切掉肩膀两边）
+                portrait.draw(in: NSRect(x: rect.minX, y: rect.maxY - rect.width, width: rect.width, height: rect.width),
+                              from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
+                              hints: [.interpolation: NSImageInterpolation.high.rawValue])
             } else {
                 // 小图标：头像缩放到铺满
                 PetRenderer.draw(frame.icon, in: rect, template: false, templateColor: .black)
