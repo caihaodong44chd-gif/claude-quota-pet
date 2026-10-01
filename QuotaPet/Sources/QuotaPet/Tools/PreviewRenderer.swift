@@ -94,11 +94,13 @@ enum PreviewRenderer {
 
     // MARK: - 宠物动画表：每行一种心情，每列一帧
 
-    /// poked：改成画被戳的反应，每行第一格是这个心情平时的第一帧，后面是反应
+    /// poked：改成画被戳的反应，每行第一格是这个心情平时的第一帧，后面是反应；会闹别扭的心情最后再加上连戳之后的反应
     static func spriteSheet(template: Bool, style: PetStyle, poked: Bool = false) -> Data? {
         func frames(_ mood: PetMood) -> [PetFrame] {
             let frames = PetSprites.frames(for: mood, style: style)
-            return poked ? [frames[0]] + PetSprites.reaction(for: mood, style: style) : frames
+            guard poked else { return frames }
+            let reaction = PetSprites.reaction(for: mood, style: style), annoyed = PetSprites.reaction(for: mood, style: style, annoyed: true)
+            return [frames[0]] + reaction + (annoyed == reaction ? [] : annoyed)
         }
         let moods = PetMood.allCases
         let side: CGFloat = 96                                  // 头像放大到 96 点（像素画一格 3 点）

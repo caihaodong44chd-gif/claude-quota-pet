@@ -1,7 +1,7 @@
 import Foundation
 
 /// 演示模式：75 秒一轮，额度从 0 涨到 100%，再睡 15 秒，看看宠物的所有状态。
-/// 中间有一段没在用（35%–50%，她歇着）、有一段烧得很快（62%–75%，没到七成半就先冒汗）；第二轮起，开头是刚恢复
+/// 中间有一段没在用（35%–50%，她歇着）、有一段烧得很快（62%–75%，没到七成半就先慌了）；第二轮起，开头是刚恢复
 public final class DemoProvider: UsageProvider, Sendable {
     public let id = ProviderID.claude
     public let pollInterval: TimeInterval = 1

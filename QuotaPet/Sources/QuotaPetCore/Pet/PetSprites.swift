@@ -124,17 +124,21 @@ public enum PetSprites {
     }
 
     /// 在面板上被戳了一下的反应：播一遍就回到这个心情原来的动画。
-    /// 第一帧和平时的第一帧不一样，点了才看得出来；还没算出来（loading）时没有反应
-    public static func reaction(for mood: PetMood, style: PetStyle = .classic) -> [PetFrame] {
+    /// 第一帧和平时的第一帧不一样，点了才看得出来；还没算出来（loading）时没有反应。
+    /// annoyed：连着戳了很多下（见 PetTalk.poked），心情好的时候会闹别扭
+    public static func reaction(for mood: PetMood, style: PetStyle = .classic, annoyed: Bool = false) -> [PetFrame] {
+        let pout = annoyed && mood.pouts
         switch style.art {
-        case .pixel(let art):
+        case .pixel(let art):  // 像素款没有新画的那几个表情，用现有的眼睛和嘴凑
             func frame(_ eyes: String, _ mouth: String, _ extras: [String], _ duration: TimeInterval) -> PetFrame {
                 makeFrame(art, eyes, mouth, extras, duration)
             }
+            if pout { return [frame("tired", "wavy", [], 1.4)] }  // 半睁着眼、撇着嘴（有的形象闭眼时嘴画得一样，分不出来）
             switch mood {
             case .energetic, .normal: return [frame("closed", "open", [], 0.15), frame("happy", "open", [], 1.0)]  // 笑眯眼
             case .revived: return [frame("closed", "open", [], 0.15), frame("sparkle", "open", ["starBig"], 1.0)]
             case .resting: return [frame("open", "small", ["question"], 0.8), frame("open", "small", [], 0.5)]  // 嗯？睁开眼
+            case .nervous: return [frame("closed", "wavy", ["sweatA"], 0.9)]
             case .tired: return [frame("closed", "wavy", ["sweatA"], 0.9)]                                     // 闭眼缓一缓
             case .exhausted: return [frame("tired", "wavy", ["sweatB"], 0.9)]                                  // 抬眼看你一下
             case .sleeping: return [frame("closed", "wavy", [], 1.0)]                                          // 皱皱眉，接着睡
@@ -143,13 +147,15 @@ public enum PetSprites {
             }
         case .painted:
             func frame(_ face: String, _ duration: TimeInterval) -> PetFrame { paintedFrame(style, face, duration) }
+            if pout { return [frame("pout", 1.6)] }
             switch mood {
-            case .energetic, .normal: return [frame("closed-open", 0.15), frame("happy-open", 1.0)]
-            case .revived: return [frame("closed-open", 0.15), frame("sparkle-open", 1.0)]
-            case .resting: return [frame("puzzled", 0.8), frame("open-small", 0.5)]
+            case .energetic, .normal: return [frame("surprised", 0.5), frame("happy-open", 0.9)]  // 诶？然后笑
+            case .revived: return [frame("surprised", 0.5), frame("sparkle-open", 0.9)]
+            case .resting: return [frame("drowsy", 0.9), frame("open-small", 0.5)]                // 迷迷糊糊睁开眼
+            case .nervous: return [frame("surprised", 0.9)]                                       // 吓一跳
             case .tired: return [frame("closed-wavy", 0.9)]
             case .exhausted: return [frame("tired-wavy", 0.9)]
-            case .sleeping: return [frame("closed-small", 1.0)]  // 嘴合上一下，接着睡
+            case .sleeping: return [frame("drowsy", 1.4)]                                         // 被叫醒一下，接着睡
             case .confused: return [frame("open-small", 0.8)]
             case .loading: return []
             }
@@ -217,6 +223,13 @@ public enum PetSprites {
                 frame("closed", "small", [], 2.6),
                 frame("open", "small", [], 0.3),
             ]
+        case .nervous:  // 烧得快：睁着眼、嘴抿成波浪，汗珠往下滑（像素款没有专门的表情，和有点累只差眼睛）
+            return [
+                frame("open", "wavy", ["sweatA"], 0.7),
+                frame("open", "wavy", ["sweatB"], 0.7),
+                frame("closed", "wavy", ["sweatB"], 0.14),
+                frame("open", "wavy", [], 1.0),
+            ]
         case .confused:  // 没数据：冒问号
             return [
                 frame("open", "small", ["question"], 1.0),
@@ -250,10 +263,12 @@ public enum PetSprites {
                     frame("sparkle-open", 0.5)]
         case .resting:  // 闭着眼歇着，偶尔睁一下（睡着是另一张：张着嘴、脸红）
             return [frame("closed-small", 3.2), frame("open-small", 1.0), frame("closed-small", 2.6), frame("open-small", 0.3)]
+        case .nervous:  // 睁大眼、抿着嘴，偶尔紧张地闭一下眼（汗珠和有点累的是同一颗）
+            return [frame("nervous", 2.4), frame("closed-wavy", 0.14)]
         case .confused:
             return [frame("puzzled", 1)]
-        case .loading:
-            return [frame("open-small", 0.9), frame("closed-small", 0.12)]
+        case .loading:  // 刚醒，还迷糊着
+            return [frame("drowsy", 1.2), frame("closed-small", 0.3)]
         }
     }
 }

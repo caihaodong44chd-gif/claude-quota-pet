@@ -10,7 +10,7 @@
   face      大多数表情都会变的地方就是眼睛和嘴：各表情和底图的差别取中位数，框出来再放大一圈（眉毛、下巴）
   icon      菜单栏头像：以脸为中心的正方形，边长约为脸宽的 3 倍，偏上一点（多带额头、少带脖子）
   portrait  面板半身像：边长 0.8，水平以脸为中心，从头顶上面一点开始
-  patches   tired-wavy 的汗珠（蓝色像素）复制到 tired-wavy 和 closed-wavy；cry-o 流出脸外的眼泪补到 cry-o
+  patches   tired-wavy 的汗珠（蓝色像素）复制到 tired-wavy、closed-wavy 和 nervous；cry-o 流出脸外的眼泪补到 cry-o
 画在 design/out/painted-<形象>-locate.png 上，不准就改配置里的数字（坐标都是原图边长的比例），再跑一次。
 """
 import importlib.util, json, os, sys
@@ -117,7 +117,7 @@ def locate(base, aligned):
         sweat = box(blue(full(aligned["tired-wavy"])) & ~blue(full(base)), 0, 100, least=5)
         if sweat:
             sx0, sy0, sx1, sy1 = sweat
-            patches.append({"from": "tired-wavy", "onto": ["tired-wavy", "closed-wavy"],
+            patches.append({"from": "tired-wavy", "onto": ["tired-wavy", "closed-wavy", "nervous"],
                             "region": [(sx0 + sx1) / 2, (sy0 + sy1) / 2, (sx1 - sx0) + 0.01, (sy1 - sy0) + 0.014]})
     if "cry-o" in aligned:
         tears = blue(full(aligned["cry-o"])) & ~blue(full(base))

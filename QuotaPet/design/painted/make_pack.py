@@ -1,6 +1,7 @@
 """精绘流水线第 1 步：给一款形象生成出图包（提示词 + 参考图），放进本机不进 git 的素材文件夹。
 
 用法：python3 design/painted/make_pack.py classic
+      python3 design/painted/make_pack.py --prompt drowsy nervous     只打印这几个表情的提示词（给已经做好的形象补表情，附上它的底图发）
 
 读 design/painted/<形象>.json 里的 character（角色描述）和 source（原图目录），在 source 的上一级目录里生成：
   提示词.md          底图和各个表情的提示词，按顺序一段段发给 GPT
@@ -41,6 +42,13 @@ EXPRESSIONS = {
     "cry-o": f"眼睛紧紧闭成 > < 的形状，眉毛皱起来；嘴张成小小的 O 形，很着急。{TEARS}。",
     "sleep": "睡着了。眼睛轻轻闭着，眉毛完全放松，嘴巴微微张开一点，脸颊有一点红晕，看起来睡得很香。",
     "puzzled": "有点懵、很疑惑。一边眉毛挑起、另一边微微皱着，眼睛睁着看向画面右上方，嘴抿成一条歪歪的斜线。",
+    "drowsy": "刚被叫醒，还迷迷糊糊的。眼睛只睁开一半，眼神发懵、没有焦点，一只眼比另一只睁得更小一点，眉毛放松、微微下垂；"
+              "嘴微微张开一条小缝，像还没睡醒。脸颊有一点红晕。",
+    "nervous": "紧张、有点慌。眼睛睁大，瞳孔比平时小一点，眉毛向上皱成八字；嘴抿成波浪形、嘴角微微咧开，像在硬撑着笑。"
+               "不要画汗珠（之后会另外加上）。",
+    "surprised": "被戳了一下，吓了一小跳，有点害羞。眼睛睁得圆圆的，眉毛扬起；嘴张成小小的圆形，像在说「诶？」；脸颊明显泛红。",
+    "pout": "有点生气，在闹别扭。眉毛压低、向中间皱起，眼睛半眯着斜看向画面一侧；嘴紧紧抿着、嘴角向下撇，脸颊泛红。"
+            "脸的轮廓不要变，不要把腮帮子画鼓。",
 }
 assert set(EXPRESSIONS) == set(ep.FACES[1:]), "EXPRESSIONS 要和 export_painted.FACES 对上"
 
@@ -81,9 +89,9 @@ def base_prompt(c):
 不要：文字、水印、背景元素；不要画眼泪、汗珠、星星等符号。"""
 
 
-def batch_prompt():
-    """9 个表情一次发：要 GPT 出 9 张单独的图、每张都在底图上改（不然容易拼成九宫格，或者一张接一张地改走样）"""
-    items = [f"{i}. {face}：{text}" for i, (face, text) in enumerate(EXPRESSIONS.items(), start=1)]
+def batch_prompt(faces=None):
+    """几个表情一次发（默认全部）：要 GPT 每个表情出一张单独的图、每张都在底图上改（不然容易拼成九宫格，或者一张接一张地改走样）"""
+    items = [f"{i}. {face}：{EXPRESSIONS[face]}" for i, face in enumerate(faces or EXPRESSIONS, start=1)]
     return "\n".join([
         f"以我上传的这张图为底图，生成下面 {len(items)} 个表情，每个表情单独一张图，一共 {len(items)} 张，不要拼成一张。",
         "每张都直接在这张底图上改，不要在上一张生成的图上接着改；每张图注明编号和名字。",
@@ -124,6 +132,12 @@ def pack_markdown(name, label, c, source, references):
 
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--prompt":
+        unknown = [f for f in sys.argv[2:] if f not in EXPRESSIONS]
+        if unknown:
+            sys.exit(f"✗ 没有这些表情：{', '.join(unknown)}（有：{', '.join(EXPRESSIONS)}）")
+        print(batch_prompt(sys.argv[2:]))
+        return
     if len(sys.argv) != 2:
         sys.exit("用法：python3 design/painted/make_pack.py <形象>")
     name = sys.argv[1]

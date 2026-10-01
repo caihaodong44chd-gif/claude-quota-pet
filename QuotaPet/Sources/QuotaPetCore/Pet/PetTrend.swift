@@ -44,13 +44,14 @@ struct PetTrend {
     /// 有一阵没用了，别处也没在用
     var idle: Bool { elsewhere == nil && (quiet ?? 0) >= Self.idleAfter }
 
-    /// 心情 = 档位 + 趋势：快用完了先哭、烧得快先冒汗，不紧张又闲着就歇着。
+    /// 心情 = 档位 + 趋势：快用完了先哭、烧得快先慌（已经用到七成半、在冒汗了就还是累），不紧张又闲着就歇着。
     /// 只有档位能说「睡着了」：官方读数或限流消息才能宣布用完
     var mood: PetMood {
         if level == .sleeping { return .sleeping }
         if recovered { return .revived }
         if soon != nil || level == .exhausted { return .exhausted }
-        if fast != nil || level == .tired { return .tired }
+        if level == .tired { return .tired }
+        if fast != nil { return .nervous }
         return idle ? .resting : level
     }
 }

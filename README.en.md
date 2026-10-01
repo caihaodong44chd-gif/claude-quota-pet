@@ -32,7 +32,7 @@ Reads local files only · No network · No login credentials
 - **Usage at a glance**: the menu bar shows the pet plus your 5-hour usage. The number turns orange above 75% and red above 90%; once you hit the limit it switches to a countdown such as `1h23m`
 - **Details on click**: 5-hour and weekly usage, when each resets, your recent burn rate, "at this rate you'll run out at…", and whether your weekly usage is over or under an even pace, with how much you can use per day until the reset
 - **Live between official readings**: official readings only arrive every 15 minutes, so in between QuotaPet estimates from Claude Code's local logs, using a conversion rate it learns from your own data
-- **Reacts before the numbers cross a line**: she starts sweating early when you're burning fast, rests when you're idle, and cheers up for a while when your quota resets. What she says follows what's actually going on, and she answers when you poke her ([more below](#pet-moods))
+- **Reacts before the numbers cross a line**: she gets nervous early when you're burning fast, rests when you're idle, and cheers up for a while when your quota resets. What she says follows what's actually going on, and she answers when you poke her ([more below](#pet-moods))
 - **Only the notifications that matter**: one alert each at 75% / 90% / 100%, a heads-up when the recent pace will run you out soon (about 30 minutes ahead for the 5-hour window, a day ahead for the weekly quota), and one when your quota resets
 - **Codex too**: if you use Codex on this Mac, it's picked up automatically. Switch between the two in the popover, and the pet follows whichever is tighter ([more below](#codex-too))
 - **Follows Claude**: the pet appears when the Claude desktop app opens and hides when it quits (if you use Codex, its desktop app counts too; or set it to always show)
@@ -56,7 +56,7 @@ Then it follows the trend, so she reacts before you cross into the next band:
 | What's going on | How she reacts |
 |---|---|
 | At the recent pace you'll run out within half an hour (within a day for the weekly quota) | Cries early and tells you when it runs dry |
-| The 5-hour window won't last until its reset at this pace | Starts sweating before you reach 75% |
+| The 5-hour window won't last until its reset at this pace | Gets nervous before you reach 75%: wide eyes, tight lips, a bead of sweat |
 | Your quota just reset | Cheers for a while: "Fully recharged!" |
 | Nothing is tight and you haven't used it for half an hour | Closes her eyes and rests |
 
@@ -65,7 +65,7 @@ She only falls asleep when the quota is really used up (the official reading hit
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/popover-rush-en-dark.png">
-    <img src="docs/images/popover-rush-en.png" width="320" alt="Popover: 5-hour usage is only at 58%, but 45% went in the last hour and she's already sweating">
+    <img src="docs/images/popover-rush-en.png" width="320" alt="Popover: 5-hour usage is only at 58%, but 45% went in the last hour and she's already nervous">
   </picture>
   &nbsp;
   <picture>
@@ -74,7 +74,7 @@ She only falls asleep when the quota is really used up (the official reading hit
   </picture>
 </p>
 
-What she says in the popover follows the situation too: when you'll run out, when it resets, whether you're over or under pace this week, whether you're also using Claude somewhere else. Each situation has a few lines, and she picks a different one every time you open the popover. Poke her and she'll pull a face and answer back.
+What she says in the popover follows the situation too: when you'll run out, when it resets, whether you're over or under pace this week, whether you're also using Claude somewhere else. Each situation has a few lines, and she picks a different one every time you open the popover. Poke her and she'll pull a face and answer back; keep poking and she'll sulk.
 
 <img src="docs/images/pet-sheet-en.png" width="392" alt="Every animation frame of the pet (Classic), one mood per row">
 

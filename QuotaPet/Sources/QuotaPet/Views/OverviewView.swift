@@ -19,8 +19,8 @@ struct OverviewView<Pet: View>: View {
     /// 宠物这次说第几句等（见 PetTalk）；说的是哪种情况会通过 onSay 告诉外面
     var talk = PetTalk.Options()
     var onSay: (PetTalk.Situation) -> Void = { _ in }
-    /// 点了一下宠物（外面让她做个反应、换下一句）
-    var onPoke: () -> Void = {}
+    /// 点了一下宠物（外面让她做个反应、换下一句）；参数是她是不是被戳烦了
+    var onPoke: (Bool) -> Void = { _ in }
     /// 渲染预览图时固定「现在」
     var fixedNow: Date?
 
@@ -30,6 +30,8 @@ struct OverviewView<Pet: View>: View {
     /// 一共戳了宠物几下，和她被戳之后说的那句（过几秒就回到平时的话）
     @State private var pokes = 0
     @State private var pokedLine: String?
+    /// 连着戳了几下：上一句还没说完又戳才算
+    @State private var pokeStreak = 0
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -68,10 +70,12 @@ struct OverviewView<Pet: View>: View {
         let said = PetTalk.say(snapshot, mood: mood, now: now, options: talk)
         return HStack(spacing: 12) {
             Button {
-                guard let line = PetTalk.poked(mood: mood, count: pokes + 1) else { return }
+                let streak = pokedLine == nil ? 1 : pokeStreak + 1
+                guard let poke = PetTalk.poked(mood: mood, count: pokes + 1, streak: streak) else { return }
                 pokes += 1
-                pokedLine = line
-                onPoke()
+                pokeStreak = streak
+                pokedLine = poke.line
+                onPoke(poke.annoyed)
             } label: {
                 pet
                     .frame(width: 96, height: 96)

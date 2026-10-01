@@ -84,8 +84,11 @@ for style in PetStyle.allCases {
                   "\(style.label) \(mood) 的帧数和其他像素款一样")
         }
     case .painted:
-        // 导出的表情都用上了、用到的都导出过（精绘款的动画和像素画不一样，帧数也不一样）
-        let used = Set(PetMood.allCases.flatMap { PetSprites.frames(for: $0, style: style) }.compactMap { frame -> String? in
+        // 导出的表情都用上了、用到的都导出过（精绘款的动画和像素画不一样，帧数也不一样）。被戳的反应里用的也算
+        let shown = PetMood.allCases.flatMap { mood in
+            PetSprites.frames(for: mood, style: style) + [false, true].flatMap { PetSprites.reaction(for: mood, style: style, annoyed: $0) }
+        }
+        let used = Set(shown.compactMap { frame -> String? in
             if case .painted(let painted) = frame.portrait.content { return painted.face }
             return nil
         })
@@ -987,7 +990,8 @@ do {
     func mood(_ snapshot: UsageSnapshot, recoveredAt: Date? = nil) -> PetMood {
         PetMood.from(snapshot: snapshot, now: now, recoveredAt: recoveredAt)
     }
-    check(mood(talkSnapshot(40, burn: 42, now: now)) == .tired, "才 40%，但照这个速度撑不到重置：先冒汗")
+    check(mood(talkSnapshot(40, burn: 42, now: now)) == .nervous, "才 40%，但照这个速度撑不到重置：先慌")
+    check(mood(talkSnapshot(76, burn: 20, now: now)) == .tired, "已经用到七成半：是累，不是慌")
     check(mood(talkSnapshot(60, burn: 85, now: now)) == .exhausted, "才 60%，但半小时内就用完：先哭")
     check(mood(talkSnapshot(30, weekly: 70, weeklyBurn: 1.5, now: now)) == .exhausted, "每周额度一天内会用完：哭")
     check(mood(talkSnapshot(20, weekly: 55, weeklyBurn: 1, now: now)) == .normal, "每周额度只是撑不到重置：不算烧得快，心情照档位")
@@ -1007,7 +1011,7 @@ do {
     check(mood(talkSnapshot(3, weekly: 92, now: now), recoveredAt: now - 300) == .exhausted, "5 小时的恢复了，每周的还在九成：不开心")
     // 表情和台词对得上
     let pairs: [PetTalk.Situation: PetMood] = [.usedUp: .sleeping, .recovered: .revived, .runningOut: .exhausted, .almostOut: .exhausted,
-                                               .burningFast: .tired, .tired: .tired, .idle: .resting]
+                                               .burningFast: .nervous, .tired: .tired, .idle: .resting]
     for input in talkInputs {
         guard let snapshot = input.snapshot, snapshot.hasData else { continue }
         let situation = PetTalk.lines(snapshot, mood: input.mood, now: input.now, options: input.options).situation
@@ -1015,19 +1019,22 @@ do {
         if let expected = pairs[situation] { check(mood == expected, "说的是 \(situation)，心情应该是 \(expected)，实际是 \(mood)") }
     }
     // 没开动画时停在第一帧：歇着是闭眼的，刚恢复是笑眯眼
-    let faces = [PetMood.resting, .revived].map { mood -> String? in
-        if case .painted(let painted) = PetSprites.frames(for: mood, style: .classic)[0].portrait.content { return painted.face }
+    func face(_ frame: PetFrame?) -> String? {
+        if case .painted(let painted) = frame?.portrait.content { return painted.face }
         return nil
     }
-    check(faces == ["closed-small", "happy-open"], "精绘款歇着、刚恢复的第一帧：\(faces)")
+    let faces = [PetMood.resting, .revived, .nervous, .loading].map { face(PetSprites.frames(for: $0, style: .classic)[0]) }
+    check(faces == ["closed-small", "happy-open", "nervous", "drowsy"], "精绘款歇着、刚恢复、有点慌、刚醒的第一帧：\(faces)")
 
     // 戳一下：每种心情都有反应（还没算出来时除外），第一帧和平时不一样，说的话轮着来
     for style in PetStyle.allCases {
         for mood in PetMood.allCases where mood != .loading {
-            let reaction = PetSprites.reaction(for: mood, style: style)
+            let reaction = PetSprites.reaction(for: mood, style: style), annoyed = PetSprites.reaction(for: mood, style: style, annoyed: true)
             check(!reaction.isEmpty && reaction.first?.portrait != PetSprites.frames(for: mood, style: style)[0].portrait,
                   "\(style.label) \(mood) 被戳的反应，第一帧要和平时的第一帧不一样")
-            for frame in reaction {
+            check(!annoyed.isEmpty && annoyed.first?.portrait != PetSprites.frames(for: mood, style: style)[0].portrait,
+                  "\(style.label) \(mood) 戳烦了的反应，第一帧也要和平时的第一帧不一样")
+            for frame in reaction + annoyed {
                 if case .painted(let painted) = frame.portrait.content {
                     check(PaintedArt.faces.contains(painted.face), "\(style.label) \(mood) 的反应用了没导出的表情 \(painted.face)")
                 }
@@ -1036,10 +1043,19 @@ do {
         check(PetSprites.reaction(for: .loading, style: style).isEmpty, "\(style.label)还没算出来时戳了没反应")
     }
     check(PetTalk.poked(mood: .loading, count: 1) == nil, "还没算出来时戳了不说话")
-    let pokes = (1...5).map { PetTalk.poked(mood: .normal, count: $0) }
-    check(pokes[0] == "在呢在呢！" && Set(pokes.prefix(4)).count == 4 && pokes[4] == pokes[0], "连着戳，轮着说：\(pokes)")
-    check(PetTalk.poked(mood: .sleeping, count: 1) == "唔…再睡一会儿…" && PetTalk.poked(mood: .tired, count: 1) == "别戳啦，我在冒汗…",
+    let pokes = (1...5).map { PetTalk.poked(mood: .normal, count: $0)?.line }
+    check(pokes[0] == "在呢在呢！" && Set(pokes.prefix(4)).count == 4 && pokes[4] == pokes[0], "隔一会儿戳一下，轮着说：\(pokes)")
+    check(PetTalk.poked(mood: .sleeping, count: 1)?.line == "唔…再睡一会儿…" && PetTalk.poked(mood: .tired, count: 1)?.line == "别戳啦，我在冒汗…",
           "被戳时说的话跟着心情")
+    // 连着戳（上一句还没说完又戳）：心情好的时候第 5 下开始闹别扭，表情换成生气的；累了、睡着了不会
+    let fourth = PetTalk.poked(mood: .normal, count: 4, streak: 4), fifth = PetTalk.poked(mood: .normal, count: 5, streak: 5)
+    check(fourth?.annoyed == false && fifth?.annoyed == true && fifth?.line == "哼，不理你了", "连戳到第 5 下生气：\(String(describing: fifth))")
+    check(PetTalk.poked(mood: .normal, count: 6, streak: 6)?.line == "戳够了没有！", "接着戳，生气的话也轮着说")
+    check(PetTalk.poked(mood: .tired, count: 9, streak: 9)?.annoyed == false && PetTalk.poked(mood: .sleeping, count: 9, streak: 9)?.annoyed == false,
+          "累了、睡着了连戳也不生气")
+    check(face(PetSprites.reaction(for: .normal, style: .classic, annoyed: true).first) == "pout"
+          && face(PetSprites.reaction(for: .normal, style: .classic).first) == "surprised"
+          && face(PetSprites.reaction(for: .sleeping, style: .classic, annoyed: true).first) == "drowsy", "精绘款被戳：惊讶；戳烦了：生气；睡着时：迷糊")
 
     // 演示模式一轮下来（第二轮起，开头是刚恢复），有数据时的心情都看得到
     let demo = DemoProvider(), began = Date()
@@ -1112,7 +1128,8 @@ do {
     check(UsageAlerts.body(.runningOut(at(25, 12, 45)), window: alertWindow, now: at(25, 12, 30))
           == "At the recent pace it runs out around 12:45 (in about 15 min), 2 hr 15 min before the reset.", "英文预警")
     english += talkInputs.flatMap { PetTalk.lines($0.snapshot, mood: $0.mood, now: $0.now, options: $0.options).lines }
-    english += PetMood.allCases.flatMap { mood in (1...4).compactMap { PetTalk.poked(mood: mood, count: $0) } }
+    english += PetMood.allCases.flatMap { mood in (1...8).compactMap { PetTalk.poked(mood: mood, count: $0, streak: $0)?.line } }
+    english += PetMood.allCases.flatMap { mood in (1...4).compactMap { PetTalk.poked(mood: mood, count: $0)?.line } }
     check(PetTalk.say(talkSnapshot(85, burn: 60, now: at(25, 12)), mood: .tired, now: at(25, 12)).line
           == "At this rate we're out by 12:15. Slow down!", "英文台词")
     check(!english.contains(where: hasChinese), "英文界面里有中文：\(english.filter(hasChinese))")

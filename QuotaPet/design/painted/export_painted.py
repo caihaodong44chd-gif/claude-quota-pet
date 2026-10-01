@@ -40,7 +40,7 @@ OUT = os.path.join(HERE, "..", "out")
 
 # PetSprites.paintedFrames 用到的表情（多数是 眼睛-嘴）；第一个是底图
 FACES = ["open-small", "sparkle-open", "happy-open", "closed-open", "closed-small", "tired-wavy", "closed-wavy", "cry-o",
-         "sleep", "puzzled"]
+         "sleep", "puzzled", "drowsy", "nervous", "surprised", "pout"]
 PORTRAIT = 192  # PetSprites.portraitPoints 的 2 倍（自检会拿导出的图核对）
 ICON = 44        # PetSprites.paintedIconPoints 的 2 倍
 APP_ICON = 1024  # App 图标（最大 1024 像素）用的半身像

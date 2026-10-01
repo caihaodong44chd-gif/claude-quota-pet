@@ -64,8 +64,17 @@ public enum PetTalk {
         }
     }
 
-    /// 在面板上被戳了一下时说的话，按心情分几组，count 是第几下（从 1 数，轮着说）。还没算出来时不说
-    public static func poked(mood: PetMood, count: Int) -> String? {
+    /// 连着戳到第几下开始闹别扭
+    static let annoyedAfter = 5
+
+    /// 在面板上被戳了一下时说的话，按心情分几组，count 是一共第几下（从 1 数，轮着说）。还没算出来时不说。
+    /// streak 是连着戳的第几下（上一句还没说完又戳）：心情好的时候连戳 5 下以上她会闹别扭（annoyed，表情也换成生气的）
+    public static func poked(mood: PetMood, count: Int, streak: Int = 1) -> (line: String, annoyed: Bool)? {
+        if mood.pouts, streak >= annoyedAfter {
+            let lines = [tr("哼，不理你了", "Hmph. Not talking to you"), tr("戳够了没有！", "Are you done poking?!"),
+                         tr("再戳我真的生气了！", "One more and I'm really mad!")]
+            return (lines[(streak - annoyedAfter) % lines.count], true)
+        }
         let lines: [String]
         switch mood {
         case .energetic, .normal, .revived:
@@ -74,6 +83,9 @@ public enum PetTalk {
         case .resting:
             lines = [tr("嗯？我没睡着哦", "Hm? I wasn't asleep"), tr("啊，你回来啦", "Oh, you're back"),
                      tr("醒着呢，就是歇一会儿", "Awake, just taking a breather")]
+        case .nervous:
+            lines = [tr("啊！吓我一跳", "Ah! You startled me"), tr("别戳啦，正慌着呢！", "Not now, I'm panicking!"),
+                     tr("慢一点我就不慌了", "Slow down and I'll calm down")]
         case .tired:
             lines = [tr("别戳啦，我在冒汗…", "No poking, I'm sweating here…"), tr("唔…让我喘口气", "Mm… let me catch my breath"),
                      tr("省着点用，我就不累了", "Go easy and I won't be so tired")]
@@ -88,7 +100,7 @@ public enum PetTalk {
         case .loading:
             return nil
         }
-        return lines[abs(count - 1) % lines.count]
+        return (lines[abs(count - 1) % lines.count], false)
     }
 
     /// 现在是什么情况、她说哪一句
@@ -154,7 +166,7 @@ public enum PetTalk {
         if level != .tired, let fast = trend.fast, let burn = fast.window.burnPerHour {
             var lines = [
                 tr("今天好拼啊，一小时烧了 \(Int(burn.rounded()))%…", "Going hard today: \(Int(burn.rounded()))% an hour…"),
-                tr("慢点慢点，我快跟不上了", "Slow down, I can barely keep up"),
+                PetMood.nervous.line,
             ]
             if let back = fast.window.resetsAt {
                 lines.insert(tr("这个速度撑不到 \(clock(back)) 重置哦", "At this speed we won't make it to the \(clock(back)) reset"), at: 1)

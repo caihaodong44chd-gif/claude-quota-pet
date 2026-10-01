@@ -64,9 +64,9 @@ final class PetAnimator: ObservableObject {
         restart()
     }
 
-    /// 被戳了一下：把反应播一遍，再回到原来的动画。是用户自己点的，没开动画也播
-    func react() {
-        let reaction = PetSprites.reaction(for: mood, style: style)
+    /// 被戳了一下：把反应播一遍，再回到原来的动画。是用户自己点的，没开动画也播。annoyed：连着戳了很多下
+    func react(annoyed: Bool = false) {
+        let reaction = PetSprites.reaction(for: mood, style: style, annoyed: annoyed)
         guard !reaction.isEmpty, !screenAsleep, isVisible else { return }
         play(reaction[...])
     }

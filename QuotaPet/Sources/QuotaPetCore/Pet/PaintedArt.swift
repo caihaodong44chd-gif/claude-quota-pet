@@ -3,5 +3,5 @@
 
 /// 精绘宠物：图片在 Resources/Pets/<形象>/ 里（见 PaintedPicture），这里只记每款都有哪些表情
 public enum PaintedArt {
-    static let faces: [String] = ["open-small", "sparkle-open", "happy-open", "closed-open", "closed-small", "tired-wavy", "closed-wavy", "cry-o", "sleep", "puzzled"]
+    static let faces: [String] = ["open-small", "sparkle-open", "happy-open", "closed-open", "closed-small", "tired-wavy", "closed-wavy", "cry-o", "sleep", "puzzled", "drowsy", "nervous", "surprised", "pout"]
 }

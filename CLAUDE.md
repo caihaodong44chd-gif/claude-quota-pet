@@ -32,11 +32,11 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - `@Published` 在赋值前就通知，`StatusItemController` 的订阅里要用传进来的新值，不能去读 `store` 的属性。
 - 提醒的判断和措辞在 `QuotaPetCore/UsageAlerts.swift`（能进自检），`NotificationManager` 只发通知、把每个窗口的记录（`last`、`notified`、`warned`、`cycleEnd`）存进 UserDefaults。每个窗口每个周期，每个阈值和「快用完」各只提醒一次；用量掉到 5% 以下，或者重置时间往后跳了半个窗口以上，算新周期。「快用完」= `projectedExhaustion` 落在 `warningLead` 以内（5 小时窗口半小时，一天以上的窗口一天），归在「用量提醒」总开关下面；和阈值提醒同时发生时并成一条。
 - 宠物在面板上说的话在 `QuotaPetCore/Pet/PetTalk.swift`（能进自检）：按实际情况挑（`Situation`，从上到下就是优先级：用完了、刚恢复、眼看要用完、烧得快、每周节奏、别处在用、闲着、深夜…），同一种情况有几句，面板每打开一次换一句（`PopoverState.nextTalk`）。通知里的话还是 `PetMood.line`。
-  - 心情 = 档位 + 趋势（`PetMood.from(snapshot:now:recoveredAt:)`，规则在 `PetTrend.mood`）：快用完了先哭、5 小时额度烧得快先冒汗、刚恢复开心一阵（`revived`）、不紧张又半小时没用就歇着（`resting`）。趋势和台词看的是同一份 `PetTrend`，表情和台词对得上（自检会查）。`PetMood.from(percent:)` 只看档位。
+  - 心情 = 档位 + 趋势（`PetMood.from(snapshot:now:recoveredAt:)`，规则在 `PetTrend.mood`）：快用完了先哭、5 小时额度烧得快先慌（`nervous`，已经用到七成半就还是累）、刚恢复开心一阵（`revived`）、不紧张又半小时没用就歇着（`resting`）。趋势和台词看的是同一份 `PetTrend`，表情和台词对得上（自检会查）。`PetMood.from(percent:)` 只看档位。
   - **不变量**：只有档位能让她睡着（100% 只能来自官方读数或限流消息），趋势再急也只到「快撑不住」。
   - 加心情：`PetMood` 加 case，像素和精绘的帧（`PetSprites`）、标题、颜色（`Level.mood`）都要补；没开动画时停在第一帧，第一帧要能代表这个心情。
   - 「刚恢复」要知道上一次的读数：`UsageStore.recoveredAt` 在刷新时记（只在内存里），标准和「额度恢复」提醒一样（`UsageAlerts.recovered`）；之后 10 分钟内、恢复的窗口还没用到 20% 才算。「这么晚还在忙」一晚只说一次，面板说了哪种情况会回调 `PopoverState.said`。
-  - 点面板里的宠物（`OverviewView` 的 `onPoke`）：`PetAnimator.react()` 把 `PetSprites.reaction(for:style:)` 播一遍再回到原来的动画（没开动画也播），她说一句 `PetTalk.poked`（3 秒），然后换成这种情况的下一句。看的是 focus 那家时菜单栏上的宠物是同一个 `PetAnimator`，会跟着一起动。反应的第一帧要和这个心情平时的第一帧不一样（自检会查）。
+  - 点面板里的宠物（`OverviewView` 的 `onPoke`）：`PetAnimator.react()` 把 `PetSprites.reaction(for:style:)` 播一遍再回到原来的动画（没开动画也播），她说一句 `PetTalk.poked`（3 秒），然后换成这种情况的下一句。上一句还没说完又戳算连戳，心情好的时候（`PetMood.pouts`）连戳到第 5 下开始闹别扭：表情换成 `pout`，说生气的话。看的是 focus 那家时菜单栏上的宠物是同一个 `PetAnimator`，会跟着一起动。反应的第一帧要和这个心情平时的第一帧不一样（自检会查）。
   - 加台词或加情况：中英都要写；自检「宠物说的话」一节每种情况都要试到（有一条检查会数），试过的输入会在「多语言」一节再查一遍英文。
 - 消耗速度按 `UsageWindow.burnUnit` 说：一天以上的窗口按天（每天 20%），5 小时窗口按小时；`projectedExhaustion` 的门槛也是每个单位 1%。
 - `UsageWindow.pace`：一天以上的窗口（每周额度等）和平均节奏比，画成面板进度条上的刻度和下面那行「比平均节奏多用 N 个点 · 之后每天可用约 X%」。5 小时窗口从第一次使用才开始计时，不看节奏；Claude 每周额度还没看到过重置时（`scheduleKnown` 为 false，重置时间是按第一次使用猜的）也不看。
@@ -70,7 +70,9 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - 流水线：`make_pack.py <形象>`（按配置里的 `character` 生成提示词和参考图）→ 用户在 GPT 里出底图和 9 个表情 → `pipeline.py <形象>`（检查原图、自动定位并写进配置、导出）→ 把 `PetStyle.art` 改成 `.painted`。配置里已有的位置不会被覆盖（`--relocate` 才重新定位）。经典、龙娘的像素画还留在 `PetArt.swift` 和 `chibi4.py` 里，App 不用了，只给出图包当参考图 1。
   - 原图在 `anime-sheet/精绘出图/<形象>/GPT出图/`，出图包（`提示词.md`、参考图）在它的上一级；只有墨镜在旧位置 `anime-sheet/精绘出图/GPT出图/`。`anime-sheet/` 是本机的素材文件夹，只写在 `.git/info/exclude` 里，里面的东西不能挪进会被跟踪的地方。
   - App 图标用经典款：配置里写了 `appIcon` 的那款，导出时另外生成 1024 像素的 `Resources/AppIcon.png`，`IconRenderer` 画大图标时用，`build-app.sh` 不把它拷进 App 包。
-  - 表情图先对齐到底图，只取脸的椭圆盖上去，头发、衣服各表情一样；脸以外的小块（太阳穴的汗珠）用配置里的 `patches` 从一张复制到几张。
+  - 表情图先对齐到底图，只取脸的椭圆盖上去，头发、衣服各表情一样；脸以外的小块（太阳穴的汗珠）用配置里的 `patches` 从一张复制到几张（`tired-wavy` 的汗珠复制到 `closed-wavy` 和 `nervous`）。
+  - 每款 14 张表情图（`export_painted.FACES`，第一张是底图）。后补的四张：`drowsy` 迷糊（刚启动、睡着或歇着时被戳）、`nervous` 紧张（「有点慌」）、`surprised` 惊讶（被戳）、`pout` 生气（戳烦了）。像素款没有这四张，用现有的眼睛和嘴凑（`PetSprites` 里像素的分支）。
+  - 加表情：`FACES` 和 `make_pack.py` 的 `EXPRESSIONS` 一起加，`make_pack.py --prompt <表情…>` 打印提示词。**每一款精绘的图都齐了再跑导出**：`export_painted.py` 每次都会重写 `PaintedArt.swift` 的表情清单，哪款缺图自检就会失败。表情不能改变脸的轮廓（只取脸的椭圆盖到底图上），所以「生气」不能真的鼓脸。
   - 不叠小道具：汗珠、眼泪画在表情里，睡着（`sleep`）、疑惑（`puzzled`）是单独的表情，动画帧是 `PetSprites.paintedFrames`（和像素款帧数不同）。没有单色版：`MenuBarIcon`、`PetRenderer` 遇到精绘一律画彩色，设置页的单色开关下面会说明。
   - 找图（`PaintedArt.root`，在 Core 里，App 和自检共用）：打包后在 `Contents/Resources/Pets`（`build-app.sh` 拷进去）；开发时从可执行文件往上找 `Resources/Pets`。不能用 `#filePath` 或 `Bundle.module`，它们会把本机绝对路径编进发布包。
   - 配置文件名就是 `PetStyle` 的 rawValue，图片尺寸是 `PetSprites.paintedIconPoints` / `portraitPoints` 的 2 倍，自检拿导出的图核对。

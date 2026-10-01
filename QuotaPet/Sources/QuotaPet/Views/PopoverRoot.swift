@@ -78,8 +78,8 @@ struct PopoverRoot: View {
                     onQuit: onQuit,
                     talk: PetTalk.Options(pick: state.talk.pick, recoveredAt: store.recoveredAt[selected], lateNight: state.talk.lateNight),
                     onSay: state.said,
-                    onPoke: {
-                        (selected == focus ? animator : headerAnimator).react()
+                    onPoke: { annoyed in
+                        (selected == focus ? animator : headerAnimator).react(annoyed: annoyed)
                         state.poked()
                     })
                     .onChange(of: look, initial: true) { _, look in headerAnimator.show(mood: look.mood, style: look.style) }
@@ -153,7 +153,7 @@ enum Level {
         switch mood {
         case .energetic, .revived: return Color(nsColor: .systemGreen)
         case .normal: return Color(nsColor: .systemTeal)
-        case .tired: return Color(nsColor: .systemOrange)
+        case .tired, .nervous: return Color(nsColor: .systemOrange)
         case .exhausted: return Color(nsColor: .systemRed)
         case .sleeping: return Color(nsColor: .systemIndigo)
         case .resting: return Color(nsColor: .systemBlue)
