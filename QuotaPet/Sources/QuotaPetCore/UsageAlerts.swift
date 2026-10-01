@@ -60,7 +60,7 @@ public enum UsageAlerts {
         var nextCycle = false
         if let old = state.cycleEnd, let end = window.resetsAt { nextCycle = end.timeIntervalSince(old) > window.duration / 2 }
         if percent < 5 || nextCycle {
-            if percent < 5, state.last >= 60, options.reset { alerts.append(.reset) }
+            if recovered(from: state.last, to: percent), options.reset { alerts.append(.reset) }
             state.notified = []
             state.warned = false
         }
@@ -82,6 +82,9 @@ public enum UsageAlerts {
         state.last = percent
         return (alerts, state)
     }
+
+    /// 额度恢复了：上次看到用了六成以上，现在掉到了 5% 以下（没怎么用就重置的不值得说）
+    public static func recovered(from last: Double, to percent: Double) -> Bool { percent < 5 && last >= 60 }
 
     public static func title(_ alert: Alert, window: UsageWindow, provider: ProviderID) -> String {
         let name = provider.displayName

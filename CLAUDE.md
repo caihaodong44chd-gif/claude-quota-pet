@@ -31,6 +31,13 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - 菜单栏不止一家时，数字前面加一个 SF Symbol 小图标（`MenuBarIcon`：星号是 Claude，终端是 Codex），和宠物画在同一张图里。
   - `@Published` 在赋值前就通知，`StatusItemController` 的订阅里要用传进来的新值，不能去读 `store` 的属性。
 - 提醒的判断和措辞在 `QuotaPetCore/UsageAlerts.swift`（能进自检），`NotificationManager` 只发通知、把每个窗口的记录（`last`、`notified`、`warned`、`cycleEnd`）存进 UserDefaults。每个窗口每个周期，每个阈值和「快用完」各只提醒一次；用量掉到 5% 以下，或者重置时间往后跳了半个窗口以上，算新周期。「快用完」= `projectedExhaustion` 落在 `warningLead` 以内（5 小时窗口半小时，一天以上的窗口一天），归在「用量提醒」总开关下面；和阈值提醒同时发生时并成一条。
+- 宠物在面板上说的话在 `QuotaPetCore/Pet/PetTalk.swift`（能进自检）：按实际情况挑（`Situation`，从上到下就是优先级：用完了、刚恢复、眼看要用完、烧得快、每周节奏、别处在用、闲着、深夜…），同一种情况有几句，面板每打开一次换一句（`PopoverState.nextTalk`）。通知里的话还是 `PetMood.line`。
+  - 心情 = 档位 + 趋势（`PetMood.from(snapshot:now:recoveredAt:)`，规则在 `PetTrend.mood`）：快用完了先哭、5 小时额度烧得快先冒汗、刚恢复开心一阵（`revived`）、不紧张又半小时没用就歇着（`resting`）。趋势和台词看的是同一份 `PetTrend`，表情和台词对得上（自检会查）。`PetMood.from(percent:)` 只看档位。
+  - **不变量**：只有档位能让她睡着（100% 只能来自官方读数或限流消息），趋势再急也只到「快撑不住」。
+  - 加心情：`PetMood` 加 case，像素和精绘的帧（`PetSprites`）、标题、颜色（`Level.mood`）都要补；没开动画时停在第一帧，第一帧要能代表这个心情。
+  - 「刚恢复」要知道上一次的读数：`UsageStore.recoveredAt` 在刷新时记（只在内存里），标准和「额度恢复」提醒一样（`UsageAlerts.recovered`）；之后 10 分钟内、恢复的窗口还没用到 20% 才算。「这么晚还在忙」一晚只说一次，面板说了哪种情况会回调 `PopoverState.said`。
+  - 点面板里的宠物（`OverviewView` 的 `onPoke`）：`PetAnimator.react()` 把 `PetSprites.reaction(for:style:)` 播一遍再回到原来的动画（没开动画也播），她说一句 `PetTalk.poked`（3 秒），然后换成这种情况的下一句。看的是 focus 那家时菜单栏上的宠物是同一个 `PetAnimator`，会跟着一起动。反应的第一帧要和这个心情平时的第一帧不一样（自检会查）。
+  - 加台词或加情况：中英都要写；自检「宠物说的话」一节每种情况都要试到（有一条检查会数），试过的输入会在「多语言」一节再查一遍英文。
 - 消耗速度按 `UsageWindow.burnUnit` 说：一天以上的窗口按天（每天 20%），5 小时窗口按小时；`projectedExhaustion` 的门槛也是每个单位 1%。
 - `UsageWindow.pace`：一天以上的窗口（每周额度等）和平均节奏比，画成面板进度条上的刻度和下面那行「比平均节奏多用 N 个点 · 之后每天可用约 X%」。5 小时窗口从第一次使用才开始计时，不看节奏；Claude 每周额度还没看到过重置时（`scheduleKnown` 为 false，重置时间是按第一次使用猜的）也不看。
 

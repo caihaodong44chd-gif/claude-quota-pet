@@ -1,6 +1,7 @@
 import Foundation
 
 /// 演示模式：75 秒一轮，额度从 0 涨到 100%，再睡 15 秒，看看宠物的所有状态。
+/// 中间有一段没在用（35%–50%，她歇着）、有一段烧得很快（62%–75%，没到七成半就先冒汗）；第二轮起，开头是刚恢复
 public final class DemoProvider: UsageProvider, Sendable {
     public let id = ProviderID.claude
     public let pollInterval: TimeInterval = 1
@@ -14,12 +15,14 @@ public final class DemoProvider: UsageProvider, Sendable {
     public func snapshot(now: Date) throws -> UsageSnapshot {
         let t = now.timeIntervalSince(started).truncatingRemainder(dividingBy: 75)
         let session = min(100, t / 60 * 100)
-        let weekly = 20 + session * 0.15
+        let weekly = 36 + session * 0.1  // 和平均节奏差不多，不然她一直在说每周节奏
+        let resting = (35..<50).contains(session), rushing = (62..<75).contains(session)
         let sessionReset = now.addingTimeInterval(session >= 100 ? 75 - t : 2 * 3600 + 23 * 60)
         let windows = [
             UsageWindow(id: "five_hour", title: UsageWindow.sessionTitle, duration: 5 * 3600, percent: session,
                         official: (session / 5).rounded(.down) * 5, officialAt: now.addingTimeInterval(-240),
-                        startedAt: sessionReset.addingTimeInterval(-5 * 3600), resetsAt: sessionReset, burnPerHour: 38),
+                        startedAt: sessionReset.addingTimeInterval(-5 * 3600), resetsAt: sessionReset,
+                        burnPerHour: rushing ? 45 : resting ? 0 : 8),
             UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: 7 * 86400, percent: weekly,
                         official: weekly.rounded(.down), officialAt: now.addingTimeInterval(-240),
                         startedAt: now.addingTimeInterval(-3 * 86400), resetsAt: now.addingTimeInterval(4 * 86400 + 5 * 3600),
@@ -27,10 +30,9 @@ public final class DemoProvider: UsageProvider, Sendable {
         ]
         let today = ActivitySummary(
             requests: 128, tokens: 12_345_678, usd: 18.42,
-            byFamily: [FamilyUsage(family: "Opus", requests: 90, usd: 15.1), FamilyUsage(family: "Sonnet", requests: 38, usd: 3.32)],
-            lastRequestAt: now)
+            byFamily: [FamilyUsage(family: "Opus", requests: 90, usd: 15.1), FamilyUsage(family: "Sonnet", requests: 38, usd: 3.32)])
         return UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-240),
-                             today: today, notes: [tr("演示模式：数据是假的，75 秒看完宠物的所有状态。",
+                             today: today, lastActiveAt: resting ? now.addingTimeInterval(-40 * 60) : now, notes: [tr("演示模式：数据是假的，75 秒看完宠物的所有状态。",
                                                       "Demo mode: the data is fake. Watch every pet mood in 75 seconds.")])
     }
 }
@@ -49,6 +51,6 @@ public final class DemoCodexProvider: UsageProvider, Sendable {
         let week = UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: 7 * 86400, percent: 58, official: 58,
                                officialAt: now.addingTimeInterval(-600), startedAt: now.addingTimeInterval(-4 * 86400),
                                resetsAt: now.addingTimeInterval(3 * 86400 + 2 * 3600), burnPerHour: 0.8, burnLookback: 86400)
-        return UsageSnapshot(provider: .codex, windows: [week], generatedAt: now, officialAt: week.officialAt)
+        return UsageSnapshot(provider: .codex, windows: [week], generatedAt: now, officialAt: week.officialAt, lastActiveAt: now)
     }
 }

@@ -18,6 +18,7 @@ enum PreviewRenderer {
             if !style.isPainted {  // 精绘没有单色版，单色的动画表和彩色的一样
                 write(spriteSheet(template: true, style: style), to: dir.appendingPathComponent("pet-sheet\(suffix)-mono.png"))
             }
+            write(spriteSheet(template: false, style: style, poked: true), to: dir.appendingPathComponent("pet-poke\(suffix).png"))
             write(menuBarStrip(style: style), to: dir.appendingPathComponent("menubar\(suffix).png"))
         }
         write(menuBarGlyphStrip(), to: dir.appendingPathComponent("menubar-codex.png"))
@@ -27,7 +28,7 @@ enum PreviewRenderer {
         let live = UsageSnapshot.visible([try? ClaudeProvider().snapshot(now: now), try? CodexProvider().snapshot(now: now)].compactMap { $0 },
                                          hidden: settings.hiddenProviders)
         if let focus = UsageSnapshot.focus(of: live) {
-            let mood = PetMood.from(snapshot: focus)
+            let mood = PetMood.from(snapshot: focus, now: now)
             let style = PetStyle.of(focus.provider, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle)
             for dark in [false, true] {
                 let view = OverviewView(snapshot: focus, errorMessage: nil, mood: mood,
@@ -44,13 +45,14 @@ enum PreviewRenderer {
                 write(spriteSheet(template: false, style: .classic), to: dir.appendingPathComponent("pet-sheet\(lang).png"))
             }
             for (name, snapshot) in sampleSnapshots(now: now) {
-                let mood = PetMood.from(snapshot: snapshot)
+                let mood = PetMood.from(snapshot: snapshot, now: now)
                 // busy 的数据再给每款精绘形象各出一张（popover-<形象>），看半身像在面板里的样子
                 let painted = name == "busy" ? PetStyle.allCases.filter(\.isPainted) : []
                 for (file, style) in [(name, PetStyle.classic)] + painted.map({ ($0.rawValue, $0) }) {
                     for dark in [false, true] {
                         let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
-                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait), fixedNow: now)
+                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                                talk: sampleTalk, fixedNow: now)
                         write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(file)\(lang)\(dark ? "-dark" : "").png"))
                     }
                 }
@@ -58,12 +60,12 @@ enum PreviewRenderer {
             // 同时有 Codex：看 Claude（宠物跟着 Claude），和看 Codex（宠物跟着 Codex，换成龙娘）
             for (name, tabs, selected) in codexSamples(now: now) {
                 let snapshot = tabs.first { $0.provider == selected }
-                let mood = PetMood.from(snapshot: snapshot)
+                let mood = PetMood.from(snapshot: snapshot, now: now)
                 let style = PetStyle.of(selected, claudeStyle: .classic, codexStyle: .dragon)
                 for dark in [false, true] {
                     let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood,
                                             pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
-                                            tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, fixedNow: now)
+                                            tabs: tabs, focus: UsageSnapshot.focus(of: tabs)?.provider, talk: sampleTalk, fixedNow: now)
                     write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(name)\(lang)\(dark ? "-dark" : "").png"))
                 }
             }
@@ -87,14 +89,22 @@ enum PreviewRenderer {
         print("预览图已写入 \(dir.path)")
     }
 
+    /// 假数据的面板图不看是几点渲染的：半夜出图也不说「这么晚还在忙」
+    private static let sampleTalk = PetTalk.Options(lateNight: false)
+
     // MARK: - 宠物动画表：每行一种心情，每列一帧
 
-    static func spriteSheet(template: Bool, style: PetStyle) -> Data? {
+    /// poked：改成画被戳的反应，每行第一格是这个心情平时的第一帧，后面是反应
+    static func spriteSheet(template: Bool, style: PetStyle, poked: Bool = false) -> Data? {
+        func frames(_ mood: PetMood) -> [PetFrame] {
+            let frames = PetSprites.frames(for: mood, style: style)
+            return poked ? [frames[0]] + PetSprites.reaction(for: mood, style: style) : frames
+        }
         let moods = PetMood.allCases
         let side: CGFloat = 96                                  // 头像放大到 96 点（像素画一格 3 点）
         let cell = side + 16
         let labelWidth: CGFloat = 104
-        let columns = moods.map { PetSprites.frames(for: $0, style: style).count }.max() ?? 1
+        let columns = moods.map { frames($0).count }.max() ?? 1
         let width = labelWidth + CGFloat(columns) * cell + 8
         let height = CGFloat(moods.count) * cell + 8
         let ink: NSColor = template ? .white : NSColor(white: 0.15, alpha: 1)
@@ -106,7 +116,7 @@ enum PreviewRenderer {
                 ("\(mood.title)\n\(mood.rawValue)" as NSString).draw(
                     at: CGPoint(x: 10, y: y + cell / 2 - 16),
                     withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: ink])
-                for (col, frame) in PetSprites.frames(for: mood, style: style).enumerated() {
+                for (col, frame) in frames(mood).enumerated() {
                     let origin = CGPoint(x: labelWidth + CGFloat(col) * cell + 8, y: y + 8)
                     (template ? NSColor(white: 0.24, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
                     NSRect(x: origin.x - 4, y: origin.y - 4, width: cell - 8, height: cell - 8).fill()
@@ -235,20 +245,27 @@ enum PreviewRenderer {
         let today = ActivitySummary(
             requests: 262, tokens: 21_400_000, usd: 21.15,
             byFamily: [FamilyUsage(family: "Opus", requests: 174, usd: 14.40), FamilyUsage(family: "Sonnet", requests: 48, usd: 5.78),
-                       FamilyUsage(family: "Haiku", requests: 40, usd: 0.97)],
-            lastRequestAt: now)
+                       FamilyUsage(family: "Haiku", requests: 40, usd: 0.97)])
         let week = 7 * 86400.0
-        func snapshot(_ windows: [UsageWindow], notes: [String] = []) -> UsageSnapshot {
+        /// quiet：多久没用了
+        func snapshot(_ windows: [UsageWindow], quiet: TimeInterval = 0) -> UsageSnapshot {
             UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-9 * 60),
-                          today: today, notes: notes)
+                          today: today, lastActiveAt: now.addingTimeInterval(-quiet))
         }
         let session = UsageWindow.sessionTitle, weekly = UsageWindow.weeklyTitle
         return [
             ("calm", snapshot([window("five_hour", session, 5 * 3600, 27.3, official: 24, resetIn: 2 * 3600 + 14 * 60, burn: 6),
                                window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.5)])),
-            ("busy", snapshot([window("five_hour", session, 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 42,
+            // busy：35 分钟后用完，还没进半小时的预警，她只是累；再快一点就哭了
+            ("busy", snapshot([window("five_hour", session, 5 * 3600, 86.2, official: 80, resetIn: 3 * 3600 + 5 * 60, burn: 24,
                                      other: 14, otherBurn: 8),
                                window("seven_day", weekly, week, 38.9, official: 38, resetIn: 4 * 86400 + 19 * 3600, burn: 0.9)])),
+            // 心情的趋势：才 58% 但烧得快（先冒汗）；50 分钟没用了（歇着）
+            ("rush", snapshot([window("five_hour", session, 5 * 3600, 58.4, official: 52, resetIn: 3 * 3600 + 5 * 60, burn: 45),
+                               window("seven_day", weekly, week, 36.2, official: 36, resetIn: 4 * 86400 + 19 * 3600, burn: 0.9)])),
+            ("idle", snapshot([window("five_hour", session, 5 * 3600, 27, official: 27, resetIn: 2 * 3600 + 14 * 60, burn: 0),
+                               window("seven_day", weekly, week, 25.4, official: 25, resetIn: 4 * 86400 + 19 * 3600, burn: 0.5)],
+                              quiet: 50 * 60)),
             ("limited", snapshot([window("five_hour", session, 5 * 3600, 100, official: 100, resetIn: 83 * 60, burn: 0),
                                   window("seven_day", weekly, week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
             ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now, notes: [ClaudeProvider.missingHistoryNote],
@@ -265,7 +282,8 @@ enum PreviewRenderer {
                                      official: percent, officialAt: now.addingTimeInterval(-agoMinutes * 60),
                                      startedAt: now.addingTimeInterval(resetIn - week), resetsAt: now.addingTimeInterval(resetIn),
                                      burnPerHour: burn, burnLookback: 86400)
-            return UsageSnapshot(provider: .codex, windows: [window], generatedAt: now, officialAt: window.officialAt)
+            return UsageSnapshot(provider: .codex, windows: [window], generatedAt: now, officialAt: window.officialAt,
+                                 lastActiveAt: window.officialAt)
         }
         return [
             ("codex", [claude["busy"]!, codex(55, agoMinutes: 12, resetIn: 2 * 86400 + 5 * 3600, burn: 0.6)], .claude),

@@ -17,6 +17,23 @@ final class PopoverState: ObservableObject {
     @Published var usesCodex = false
     /// 有桌面端可以跟（见 MenuBarVisibility.shouldShow）
     @Published var canFollowApp = true
+    /// 宠物这次说第几句、能不能说「这么晚还在忙」。从随机的一句开始，重启 App 后不会总是同一句
+    @Published private(set) var talk = PetTalk.Options(pick: .random(in: 0..<6))
+    private var lateNightSaidAt: Date?
+
+    /// 面板每打开一次换一句；「这么晚还在忙」一晚只说一次
+    func nextTalk(now: Date = Date()) {
+        talk = PetTalk.Options(pick: talk.pick + 1, lateNight: lateNightSaidAt.map { now.timeIntervalSince($0) > 12 * 3600 } ?? true)
+    }
+
+    /// 戳了一下宠物：等她的反应说完，接着说这种情况的下一句
+    func poked() {
+        talk.pick += 1
+    }
+
+    func said(_ situation: PetTalk.Situation) {
+        if situation == .lateNight { lateNightSaidAt = Date() }
+    }
 }
 
 struct PopoverRoot: View {
@@ -46,7 +63,7 @@ struct PopoverRoot: View {
                 // 选中的那家没数据了（比如 Codex 的记录过期了）就回到宠物跟着的那家
                 let selected = shown.contains { $0.provider == state.selected } ? state.selected : focus ?? .claude
                 let snapshot = store.snapshot(for: selected)
-                let look = PetLook(mood: PetMood.of(snapshot, failed: store.errors[selected] != nil),
+                let look = PetLook(mood: PetMood.of(snapshot, failed: store.errors[selected] != nil, recoveredAt: store.recoveredAt[selected]),
                                    style: PetStyle.of(selected, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle))
                 OverviewView(
                     snapshot: snapshot,
@@ -58,7 +75,13 @@ struct PopoverRoot: View {
                     onSelect: { state.selected = $0; state.picked = true },
                     onRefresh: { store.refresh() },
                     onSettings: { state.page = .settings },
-                    onQuit: onQuit)
+                    onQuit: onQuit,
+                    talk: PetTalk.Options(pick: state.talk.pick, recoveredAt: store.recoveredAt[selected], lateNight: state.talk.lateNight),
+                    onSay: state.said,
+                    onPoke: {
+                        (selected == focus ? animator : headerAnimator).react()
+                        state.poked()
+                    })
                     .onChange(of: look, initial: true) { _, look in headerAnimator.show(mood: look.mood, style: look.style) }
             case .settings:
                 let claude = store.snapshot(for: .claude)
@@ -83,9 +106,9 @@ struct PetLook: Equatable {
 }
 
 extension PetMood {
-    /// 这家的心情；还一次都没算出来又出错了时是疑惑
-    static func of(_ snapshot: UsageSnapshot?, failed: Bool) -> PetMood {
-        snapshot == nil && failed ? .confused : PetMood.from(snapshot: snapshot)
+    /// 这家的心情；还一次都没算出来又出错了时是疑惑。快照每分钟至少重算一次，趋势（闲了多久、刚恢复）跟着走
+    static func of(_ snapshot: UsageSnapshot?, failed: Bool, recoveredAt: Date?) -> PetMood {
+        snapshot == nil && failed ? .confused : PetMood.from(snapshot: snapshot, now: Date(), recoveredAt: recoveredAt)
     }
 }
 
@@ -128,11 +151,12 @@ enum Level {
 
     static func mood(_ mood: PetMood) -> Color {
         switch mood {
-        case .energetic: return Color(nsColor: .systemGreen)
+        case .energetic, .revived: return Color(nsColor: .systemGreen)
         case .normal: return Color(nsColor: .systemTeal)
         case .tired: return Color(nsColor: .systemOrange)
         case .exhausted: return Color(nsColor: .systemRed)
         case .sleeping: return Color(nsColor: .systemIndigo)
+        case .resting: return Color(nsColor: .systemBlue)
         case .confused, .loading: return Color(nsColor: .systemGray)
         }
     }

@@ -10,6 +10,8 @@ final class UsageStore: ObservableObject {
     @Published private(set) var snapshots: [UsageSnapshot] = []
     /// 算出错的原因，按数据源
     @Published private(set) var errors: [ProviderID: String] = [:]
+    /// 最近一次看到这家额度恢复的时间，宠物刚恢复时会说一声（只记在内存里，重启 App 就忘了）
+    private(set) var recoveredAt: [ProviderID: Date] = [:]
 
     /// 每次拿到某一家的新数据时回调（旧快照，新快照），用来发通知
     var onUpdate: ((UsageSnapshot?, UsageSnapshot) -> Void)?
@@ -142,6 +144,7 @@ final class UsageStore: ObservableObject {
         switch result {
         case .success(let new):
             let old = snapshot(for: id)
+            if PetTalk.recovered(from: old, to: new) { recoveredAt[id] = new.generatedAt }
             let next = providers.compactMap { $0.id == id ? new : snapshot(for: $0.id) }
             if next != snapshots { snapshots = next }
             if errors[id] != nil { errors[id] = nil }

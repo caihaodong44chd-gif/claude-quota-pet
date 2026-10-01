@@ -139,14 +139,12 @@ public struct ActivitySummary: Equatable, Sendable {
     public var tokens: Int
     public var usd: Double
     public var byFamily: [FamilyUsage]
-    public var lastRequestAt: Date?
 
-    public init(requests: Int = 0, tokens: Int = 0, usd: Double = 0, byFamily: [FamilyUsage] = [], lastRequestAt: Date? = nil) {
+    public init(requests: Int = 0, tokens: Int = 0, usd: Double = 0, byFamily: [FamilyUsage] = []) {
         self.requests = requests
         self.tokens = tokens
         self.usd = usd
         self.byFamily = byFamily
-        self.lastRequestAt = lastRequestAt
     }
 }
 
@@ -178,6 +176,8 @@ public struct UsageSnapshot: Equatable, Sendable {
     /// 最近一次官方读数的时间
     public var officialAt: Date?
     public var today: ActivitySummary?
+    /// 最近一次在本机用它是什么时候，不知道时为 nil（宠物看它判断是不是闲着）
+    public var lastActiveAt: Date?
     /// 给用户看的数据说明 / 警告
     public var notes: [String]
     /// 一点数据都没有时为 false（宠物会显示疑惑）
@@ -186,18 +186,27 @@ public struct UsageSnapshot: Equatable, Sendable {
     public var estimation: EstimationInfo?
 
     public init(provider: ProviderID, windows: [UsageWindow], generatedAt: Date, officialAt: Date? = nil,
-                today: ActivitySummary? = nil, notes: [String] = [], hasData: Bool = true, estimation: EstimationInfo? = nil) {
+                today: ActivitySummary? = nil, lastActiveAt: Date? = nil, notes: [String] = [], hasData: Bool = true,
+                estimation: EstimationInfo? = nil) {
         self.provider = provider
         self.windows = windows
         self.generatedAt = generatedAt
         self.officialAt = officialAt
         self.today = today
+        self.lastActiveAt = lastActiveAt
         self.notes = notes
         self.hasData = hasData
         self.estimation = estimation
     }
 
     public func window(_ id: String) -> UsageWindow? { windows.first { $0.id == id } }
+
+    /// 用完了的窗口里最晚恢复的那个：几个都满了要等它。没有用完的，或者有一个不知道什么时候恢复时为 nil
+    public var lastToRecover: UsageWindow? {
+        let full = windows.filter { $0.percent >= 100 }
+        guard full.allSatisfy({ $0.resetsAt != nil }) else { return nil }
+        return full.max { ($0.resetsAt ?? .distantPast) < ($1.resetsAt ?? .distantPast) }
+    }
 
     /// 最紧张的窗口，宠物的心情跟它走
     public var tightest: UsageWindow? { windows.max { $0.percent < $1.percent } }

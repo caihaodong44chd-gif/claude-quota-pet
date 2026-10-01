@@ -70,10 +70,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             .sink { [weak self] shown, mode, _ in self?.showText(shown, mode: mode) }
             .store(in: &cancellables)
         Publishers.CombineLatest4(shown, store.$errors, settings.$petStyle, settings.$codexPetStyle)
-            .sink { [weak animator] shown, errors, claudeStyle, codexStyle in
+            .sink { [weak animator, weak store] shown, errors, claudeStyle, codexStyle in
                 // 一家都显示不了（比如 Claude 第一次就读出错、又没有 Codex 的数据）又有出错的：疑惑
                 let focus = UsageSnapshot.focus(of: shown)
-                animator?.show(mood: PetMood.of(focus, failed: !errors.isEmpty),
+                // recoveredAt 在快照赋值之前就记好了，这里读得到新的
+                animator?.show(mood: PetMood.of(focus, failed: !errors.isEmpty, recoveredAt: focus.flatMap { store?.recoveredAt[$0.provider] }),
                                style: PetStyle.of(focus?.provider ?? .claude, claudeStyle: claudeStyle, codexStyle: codexStyle))
             }
             .store(in: &cancellables)
@@ -253,6 +254,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popoverState.page = page
         popoverState.selected = store.focus?.provider ?? .claude  // 每次打开先看宠物跟着的那家
         popoverState.picked = false
+        popoverState.nextTalk()
         if let screen = button.window?.screen ?? NSScreen.main {
             popoverState.maxHeight = screen.visibleFrame.height - 30  // 留出面板的小箭头和一点边距
         }

@@ -42,7 +42,9 @@ public final class CodexProvider: UsageProvider, @unchecked Sendable {
             notes.append(tr("Codex 的读数停在\(ago)（最后一次在这台 Mac 上用 Codex 时）。网页、云端任务的用量要等下次在本机用 Codex 才会更新。",
                             "The last Codex reading was \(ago), the last time you used Codex on this Mac. Usage from the web or cloud tasks shows up the next time you use it here."))
         }
-        return UsageSnapshot(provider: .codex, windows: windows, generatedAt: now, officialAt: latest.time, notes: notes)
+        // 每轮对话结束记一次读数，最近一次读数的时间就是最近一次使用
+        return UsageSnapshot(provider: .codex, windows: windows, generatedAt: now, officialAt: latest.time, lastActiveAt: latest.time,
+                             notes: notes)
     }
 
     /// 一个额度窗口。读数就是官方百分比，不用估算；最近一次读数之后已经重置过的窗口算 0，等下次使用再开始

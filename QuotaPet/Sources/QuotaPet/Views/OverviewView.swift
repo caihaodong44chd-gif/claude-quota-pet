@@ -16,12 +16,20 @@ struct OverviewView<Pet: View>: View {
     var onRefresh: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
+    /// 宠物这次说第几句等（见 PetTalk）；说的是哪种情况会通过 onSay 告诉外面
+    var talk = PetTalk.Options()
+    var onSay: (PetTalk.Situation) -> Void = { _ in }
+    /// 点了一下宠物（外面让她做个反应、换下一句）
+    var onPoke: () -> Void = {}
     /// 渲染预览图时固定「现在」
     var fixedNow: Date?
 
     /// 点刷新后给个反馈：图标转一圈，底部说明刷新了什么
     @State private var refreshSpin = 0.0
     @State private var refreshedAt: Date?
+    /// 一共戳了宠物几下，和她被戳之后说的那句（过几秒就回到平时的话）
+    @State private var pokes = 0
+    @State private var pokedLine: String?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -31,7 +39,7 @@ struct OverviewView<Pet: View>: View {
 
     private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            header(now: now)
             if tabs.count > 1, let selected = snapshot?.provider {
                 ProviderTabs(snapshots: tabs, selected: selected, focus: focus, onSelect: onSelect)
             }
@@ -56,12 +64,30 @@ struct OverviewView<Pet: View>: View {
         .padding(14)
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            pet
-                .frame(width: 96, height: 96)
-                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Level.mood(mood).opacity(0.13)))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    private func header(now: Date) -> some View {
+        let said = PetTalk.say(snapshot, mood: mood, now: now, options: talk)
+        return HStack(spacing: 12) {
+            Button {
+                guard let line = PetTalk.poked(mood: mood, count: pokes + 1) else { return }
+                pokes += 1
+                pokedLine = line
+                onPoke()
+            } label: {
+                pet
+                    .frame(width: 96, height: 96)
+                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Level.mood(mood).opacity(0.13)))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(PokeStyle())
+            .focusable(false)  // 开了键盘导航时，别让面板一打开焦点框就落在宠物上
+            .help(tr("戳戳她", "Give her a poke"))
+            .accessibilityLabel(tr("戳一下宠物", "Poke the pet"))
+            .task(id: pokes) {
+                guard pokes > 0 else { return }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if !Task.isCancelled { pokedLine = nil }  // 又戳了一下时这个任务会被取消：别把新的那句清掉
+            }
+            .onChange(of: snapshot?.provider) { pokedLine = nil }  // 切到另一家：换了一只宠物
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(snapshot?.provider.displayName ?? "Claude")
@@ -74,10 +100,11 @@ struct OverviewView<Pet: View>: View {
                         .background(Capsule().fill(Level.mood(mood).opacity(0.16)))
                         .foregroundStyle(Level.mood(mood))
                 }
-                Text(mood.line)
+                Text(pokedLine ?? said.line)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)  // 英文比较长，折行而不是截断
+                    .onChange(of: said.situation, initial: true) { _, situation in onSay(situation) }
             }
             .padding(.leading, 4)
             Spacer(minLength: 0)
@@ -151,6 +178,15 @@ struct OverviewView<Pet: View>: View {
         if next > now { return tr("下次约 \(Fmt.clock(next, now: now))", "next around \(Fmt.clock(next, now: now))") }
         if now.timeIntervalSince(last) < 45 * 60 { return tr("下一次随时会到", "the next one is due any moment") }
         return tr("官方读数暂停了（Claude 桌面端没开？）", "official readings have paused (is the Claude desktop app closed?)")
+    }
+}
+
+/// 戳宠物时按下去缩一下、松开弹回来
+struct PokeStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.5), value: configuration.isPressed)
     }
 }
 

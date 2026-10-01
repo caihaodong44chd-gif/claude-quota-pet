@@ -64,6 +64,24 @@ final class PetAnimator: ObservableObject {
         restart()
     }
 
+    /// 被戳了一下：把反应播一遍，再回到原来的动画。是用户自己点的，没开动画也播
+    func react() {
+        let reaction = PetSprites.reaction(for: mood, style: style)
+        guard !reaction.isEmpty, !screenAsleep, isVisible else { return }
+        play(reaction[...])
+    }
+
+    private func play(_ reaction: ArraySlice<PetFrame>) {
+        timer?.invalidate()
+        guard let next = reaction.first else {
+            index = 0
+            restart()
+            return
+        }
+        frame = next
+        schedule(after: next.duration) { $0.play(reaction.dropFirst()) }
+    }
+
     private func restart() {
         timer?.invalidate()
         timer = nil
@@ -75,8 +93,14 @@ final class PetAnimator: ObservableObject {
     }
 
     private func scheduleNext() {
-        let timer = Timer(timeInterval: frames[index].duration, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.advance() }
+        schedule(after: frames[index].duration) { $0.advance() }
+    }
+
+    private func schedule(after delay: TimeInterval, _ then: @escaping @MainActor (PetAnimator) -> Void) {
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if let self { then(self) }
+            }
         }
         RunLoop.main.add(timer, forMode: .common)  // 菜单打开时也继续动
         self.timer = timer

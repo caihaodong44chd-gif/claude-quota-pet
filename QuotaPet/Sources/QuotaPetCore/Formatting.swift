@@ -43,9 +43,14 @@ public enum Fmt {
             return tr("昨天 \(time)", "yesterday \(time)")
         }
         if date > now, date.timeIntervalSince(now) < 6 * 86400 {
-            return "\(dateText(date, template: "EEE", calendar: calendar)) \(time)"
+            return "\(weekday(date, calendar: calendar)) \(time)"
         }
         return "\(dateText(date, template: "MMMd", calendar: calendar)) \(time)"
+    }
+
+    /// 周三 / Wed
+    public static func weekday(_ date: Date, calendar: Calendar = .current) -> String {
+        dateText(date, template: "EEE", calendar: calendar)
     }
 
     /// 周三 / Wed、10月2日 / Oct 2：按界面语言用系统的写法，农历、希伯来历等非公历也对
@@ -100,11 +105,9 @@ public enum MenuBarText {
     /// 被限流时不显示百分比，改成显示多久后恢复。
     public static func make(_ snap: UsageSnapshot?, mode: MenuBarTextMode, now: Date) -> (text: String, level: Double) {
         guard let snap, snap.hasData else { return ("", 0) }
-        let limited = snap.windows.filter { $0.percent >= 100 }
-        if !limited.isEmpty {
+        if snap.windows.contains(where: { $0.percent >= 100 }) {
             // 多个窗口都满了，要等最晚恢复的那个
-            let resets = limited.compactMap(\.resetsAt)
-            if resets.count == limited.count, let latest = resets.max() {
+            if let latest = snap.lastToRecover?.resetsAt {
                 return (Fmt.compactDuration(latest.timeIntervalSince(now)), 100)
             }
             return ("100%", 100)

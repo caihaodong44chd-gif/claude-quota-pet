@@ -123,6 +123,46 @@ public enum PetSprites {
         }
     }
 
+    /// 在面板上被戳了一下的反应：播一遍就回到这个心情原来的动画。
+    /// 第一帧和平时的第一帧不一样，点了才看得出来；还没算出来（loading）时没有反应
+    public static func reaction(for mood: PetMood, style: PetStyle = .classic) -> [PetFrame] {
+        switch style.art {
+        case .pixel(let art):
+            func frame(_ eyes: String, _ mouth: String, _ extras: [String], _ duration: TimeInterval) -> PetFrame {
+                makeFrame(art, eyes, mouth, extras, duration)
+            }
+            switch mood {
+            case .energetic, .normal: return [frame("closed", "open", [], 0.15), frame("happy", "open", [], 1.0)]  // 笑眯眼
+            case .revived: return [frame("closed", "open", [], 0.15), frame("sparkle", "open", ["starBig"], 1.0)]
+            case .resting: return [frame("open", "small", ["question"], 0.8), frame("open", "small", [], 0.5)]  // 嗯？睁开眼
+            case .tired: return [frame("closed", "wavy", ["sweatA"], 0.9)]                                     // 闭眼缓一缓
+            case .exhausted: return [frame("tired", "wavy", ["sweatB"], 0.9)]                                  // 抬眼看你一下
+            case .sleeping: return [frame("closed", "wavy", [], 1.0)]                                          // 皱皱眉，接着睡
+            case .confused: return [frame("open", "small", [], 0.8)]
+            case .loading: return []
+            }
+        case .painted:
+            func frame(_ face: String, _ duration: TimeInterval) -> PetFrame { paintedFrame(style, face, duration) }
+            switch mood {
+            case .energetic, .normal: return [frame("closed-open", 0.15), frame("happy-open", 1.0)]
+            case .revived: return [frame("closed-open", 0.15), frame("sparkle-open", 1.0)]
+            case .resting: return [frame("puzzled", 0.8), frame("open-small", 0.5)]
+            case .tired: return [frame("closed-wavy", 0.9)]
+            case .exhausted: return [frame("tired-wavy", 0.9)]
+            case .sleeping: return [frame("closed-small", 1.0)]  // 嘴合上一下，接着睡
+            case .confused: return [frame("open-small", 0.8)]
+            case .loading: return []
+            }
+        }
+    }
+
+    static func paintedFrame(_ style: PetStyle, _ face: String, _ duration: TimeInterval) -> PetFrame {
+        func picture(_ part: PaintedPicture.Part, _ points: Double) -> PetPicture {
+            PetPicture(content: .painted(PaintedPicture(style: style, part: part, face: face)), points: points)
+        }
+        return PetFrame(icon: picture(.icon, paintedIconPoints), portrait: picture(.portrait, portraitPoints), duration: duration)
+    }
+
     static func pixelFrames(for mood: PetMood, _ art: PetArt.Look) -> [PetFrame] {
         func frame(_ eyes: String, _ mouth: String, _ extras: [String], _ duration: TimeInterval) -> PetFrame {
             makeFrame(art, eyes, mouth, extras, duration)
@@ -162,6 +202,21 @@ public enum PetSprites {
                 frame("closed", "small", ["zzzA"], 1.1),
                 frame("closed", "small", ["zzzB"], 1.1),
             ]
+        case .revived:  // 刚恢复：笑眯眼，星星一闪一闪
+            return [
+                frame("happy", "open", ["starBig"], 0.45),
+                frame("happy", "open", ["starSmall"], 0.45),
+                frame("sparkle", "open", ["starBig"], 0.5),
+                frame("happy", "open", ["starSmall"], 0.45),
+                frame("closed", "open", [], 0.12),
+            ]
+        case .resting:  // 有一阵没用了：闭着眼歇着，偶尔睁一下（没有 Z，和睡着不一样）
+            return [
+                frame("closed", "small", [], 3.2),
+                frame("open", "small", [], 1.0),
+                frame("closed", "small", [], 2.6),
+                frame("open", "small", [], 0.3),
+            ]
         case .confused:  // 没数据：冒问号
             return [
                 frame("open", "small", ["question"], 1.0),
@@ -177,12 +232,7 @@ public enum PetSprites {
 
     /// 精绘：汗珠、眼泪在表情图里，睡着、疑惑是单独的表情，所以帧数和像素画不一样
     static func paintedFrames(for mood: PetMood, _ style: PetStyle) -> [PetFrame] {
-        func frame(_ face: String, _ duration: TimeInterval) -> PetFrame {
-            func picture(_ part: PaintedPicture.Part, _ points: Double) -> PetPicture {
-                PetPicture(content: .painted(PaintedPicture(style: style, part: part, face: face)), points: points)
-            }
-            return PetFrame(icon: picture(.icon, paintedIconPoints), portrait: picture(.portrait, portraitPoints), duration: duration)
-        }
+        func frame(_ face: String, _ duration: TimeInterval) -> PetFrame { paintedFrame(style, face, duration) }
         switch mood {
         case .energetic:  // 星星眼，偶尔笑眯眼、眨一下眼
             return [frame("sparkle-open", 1.6), frame("happy-open", 0.6), frame("sparkle-open", 1.2), frame("closed-open", 0.12)]
@@ -195,6 +245,11 @@ public enum PetSprites {
             return [frame("cry-o", 1)]
         case .sleeping:
             return [frame("sleep", 1)]
+        case .revived:  // 笑眯眼为主，间或星星眼
+            return [frame("happy-open", 0.9), frame("sparkle-open", 0.5), frame("happy-open", 0.7), frame("closed-open", 0.12),
+                    frame("sparkle-open", 0.5)]
+        case .resting:  // 闭着眼歇着，偶尔睁一下（睡着是另一张：张着嘴、脸红）
+            return [frame("closed-small", 3.2), frame("open-small", 1.0), frame("closed-small", 2.6), frame("open-small", 0.3)]
         case .confused:
             return [frame("puzzled", 1)]
         case .loading:

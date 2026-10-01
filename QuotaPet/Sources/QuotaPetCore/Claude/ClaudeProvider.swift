@@ -128,7 +128,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
         return UsageSnapshot(
             provider: .claude, windows: [session, weekly], generatedAt: now, officialAt: officialAt,
-            today: todaySummary(requests, now: now), notes: notes,
+            today: todaySummary(requests, now: now), lastActiveAt: requests.last?.time, notes: notes,
             hasData: !samples.isEmpty || !requests.isEmpty, estimation: estimation)
     }
 
@@ -244,7 +244,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
     func todaySummary(_ requests: [ClaudeRequest], now: Date) -> ActivitySummary {
         let dayStart = Calendar.current.startOfDay(for: now)
-        var summary = ActivitySummary(lastRequestAt: requests.last?.time)
+        var summary = ActivitySummary()
         var byFamily: [ModelFamily: FamilyUsage] = [:]
         for r in requests where r.time >= dayStart && r.time <= now {
             let usd = r.usd
