@@ -531,6 +531,8 @@ do {
     check(later.window("five_hour")?.percent == 0 && later.window("five_hour")?.resetsAt == nil && later.window("five_hour")?.official == nil,
           "读数之后已经重置的窗口算 0，等下次使用再开始")
     check(near(later.window("seven_day")?.percent, 46), "每周还没重置")
+    check(try! provider.snapshot(now: at(20, 13, 50)).notes.isEmpty, "读数不到 1 小时：没有提示")
+    check(later.notes.contains { $0.contains("Dot") }, "读数 2 小时没更新：提醒云端任务（Dot）的用量要等下次本机使用")
     let staleSnap = try! provider.snapshot(now: at(21, 3))
     check(staleSnap.notes.contains { $0.contains("Codex 的读数停在") }, "读数太久没更新时提醒：\(staleSnap.notes)")
 
