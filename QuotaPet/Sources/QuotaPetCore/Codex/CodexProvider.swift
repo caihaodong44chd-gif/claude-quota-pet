@@ -18,6 +18,13 @@ public final class CodexProvider: UsageProvider, @unchecked Sendable {
            "No Codex usage records yet. They show up after you use Codex (CLI or desktop app) on this Mac.")
     }
 
+    /// 读数太久没更新时给用户看的那句话（预览图也用它）
+    public static func staleNote(readAt: Date, now: Date) -> String {
+        let ago = Fmt.ago(readAt, now: now)
+        return tr("Codex 的读数停在\(ago)（最后一次在这台 Mac 上用 Codex 时）。网页、Dot 等云端任务的用量要等下次在本机用 Codex 才会更新。",
+                  "The last Codex reading was \(ago), the last time you used Codex on this Mac. Usage from the web or cloud tasks (such as Dots) shows up the next time you use it here.")
+    }
+
     public init(home: URL = CodexLogScanner.defaultHome) {
         scanner = CodexLogScanner(home: home)
     }
@@ -39,9 +46,7 @@ public final class CodexProvider: UsageProvider, @unchecked Sendable {
         }
         var notes: [String] = []
         if now.timeIntervalSince(latest.time) > Self.staleAfter, windows.contains(where: { $0.official != nil }) {
-            let ago = Fmt.ago(latest.time, now: now)
-            notes.append(tr("Codex 的读数停在\(ago)（最后一次在这台 Mac 上用 Codex 时）。网页、Dot 等云端任务的用量要等下次在本机用 Codex 才会更新。",
-                            "The last Codex reading was \(ago), the last time you used Codex on this Mac. Usage from the web or cloud tasks (such as Dots) shows up the next time you use it here."))
+            notes.append(Self.staleNote(readAt: latest.time, now: now))
         }
         // 每轮对话结束记一次读数，最近一次读数的时间就是最近一次使用
         return UsageSnapshot(provider: .codex, windows: windows, generatedAt: now, officialAt: latest.time, lastActiveAt: latest.time,

@@ -43,7 +43,7 @@ make previews   # 输出到 build/previews/
 | `styles.png` | 八款形象并排（中英、深浅色各一张） |
 | `pet-poke.png` / `pet-poke-<形象>.png` | 被戳的反应：每行第一格是平时的第一帧，后面是反应的几帧 |
 | `menubar.png` | 菜单栏效果：浅色 / 深色、各种百分比、限流倒计时 |
-| `menubar-codex.png` / `popover-codex{,-tab}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的） |
+| `menubar-codex.png` / `popover-codex{,-tab,-stale}.png` | 同时有 Claude 和 Codex 时：菜单栏数字前的小图标、面板切换条（看 Claude / 看 Codex，宠物换成 Codex 的）；`-stale` 是 Codex 读数停了几小时、面板底部带提示的样子 |
 | `pet-sheet-<形象>.png` / `menubar-<形象>.png` | 其他形象（`dragon`、`hanfu`、`geek` 是 Codex 的） |
 | `popover-<形象>.png` | 每款形象在面板里的样子（和 `popover-busy` 同样的数据，中英、深浅色各一张） |
 | `popover-{calm,busy,limited,empty}.png` | 面板的四种状态（假数据） |

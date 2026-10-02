@@ -143,6 +143,12 @@ make check      # run the self-checks
 make previews   # render the pet, menu bar and popover to PNGs in build/previews
 ```
 
+**Using it on another Mac**: install it on each Mac, following the steps above. QuotaPet only reads files on the Mac it runs on, never goes online, and doesn't sync between devices, so each one shows what it can see:
+
+- Claude: the Claude desktop app must be installed and signed in on that Mac; otherwise you only get the estimate from Claude Code's logs.
+- Codex: the Codex tab only appears once you've used Codex on that Mac.
+- Usage from your phone, the web, another computer, or cloud tasks such as Dots only shows up after that Mac's next official reading (Claude: every 15 minutes) or the next time you use Codex there. If the Codex reading is more than an hour old, the popover says so.
+
 ## Using it
 
 - **Left-click** the pet to open the popover; **right-click** for Refresh, Settings and Quit.
@@ -173,7 +179,7 @@ Settings (right-click → Settings…) has a page per topic:
 - **Local records**: every 15-minute interval (how much the official reading rose, and what Claude Code spent locally) is appended to `~/Library/Application Support/QuotaPet/intervals.jsonl`, so the history survives Claude Code cleaning up old logs.
 - Usage from chat (including the desktop app), the web and mobile isn't in the local logs, so it shows up with the next official reading (at most 15 minutes later). Whatever the official increase can't be explained by local logs is counted as usage from other apps; the popover shows how much each window got from them, and includes it in the burn rate and the "run out at" estimate.
 - Estimates top out at 99%. Only an official reading or a limit message from Claude Code can declare "used up", so the pet doesn't fall asleep or send a false alert.
-- Codex readings only update when you use Codex on this Mac, so usage from the web or cloud tasks shows up the next time you use it here. QuotaPet reads only the usage fields in the conversation logs, never `~/.codex/auth.json` or any other login credentials.
+- Codex readings only update when you use Codex on this Mac, so usage from the web or cloud tasks (such as Dots) shows up the next time you use it here, and the popover notes it when the reading is more than an hour old. QuotaPet reads only the usage fields in the conversation logs, never `~/.codex/auth.json` or any other login credentials.
 
 ## Usage lab
 

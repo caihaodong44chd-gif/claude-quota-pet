@@ -299,17 +299,20 @@ enum PreviewRenderer {
     static func codexSamples(now: Date) -> [(String, [UsageSnapshot], ProviderID)] {
         let claude = Dictionary(uniqueKeysWithValues: sampleSnapshots(now: now))
         let week = 7 * 86400.0
-        func codex(_ percent: Double, agoMinutes: Double, resetIn: TimeInterval, burn: Double) -> UsageSnapshot {
+        func codex(_ percent: Double, agoMinutes: Double, resetIn: TimeInterval, burn: Double, stale: Bool = false) -> UsageSnapshot {
+            let readAt = now.addingTimeInterval(-agoMinutes * 60)
             let window = UsageWindow(id: "seven_day", title: UsageWindow.weeklyTitle, duration: week, percent: percent,
-                                     official: percent, officialAt: now.addingTimeInterval(-agoMinutes * 60),
+                                     official: percent, officialAt: readAt,
                                      startedAt: now.addingTimeInterval(resetIn - week), resetsAt: now.addingTimeInterval(resetIn),
                                      burnPerHour: burn, burnLookback: 86400)
-            return UsageSnapshot(provider: .codex, windows: [window], generatedAt: now, officialAt: window.officialAt,
-                                 lastActiveAt: window.officialAt)
+            return UsageSnapshot(provider: .codex, windows: [window], generatedAt: now, officialAt: readAt,
+                                 lastActiveAt: readAt, notes: stale ? [CodexProvider.staleNote(readAt: readAt, now: now)] : [])
         }
         return [
             ("codex", [claude["busy"]!, codex(55, agoMinutes: 12, resetIn: 2 * 86400 + 5 * 3600, burn: 0.6)], .claude),
             ("codex-tab", [claude["calm"]!, codex(93, agoMinutes: 4, resetIn: 86400 + 3 * 3600, burn: 0.9)], .codex),
+            // 读数停了几小时：Dot 等云端任务的用量还没记进来
+            ("codex-stale", [claude["calm"]!, codex(61, agoMinutes: 5 * 60, resetIn: 2 * 86400, burn: 0.4, stale: true)], .codex),
         ]
     }
 

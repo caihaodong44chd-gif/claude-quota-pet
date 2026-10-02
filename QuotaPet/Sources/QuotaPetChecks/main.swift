@@ -1139,7 +1139,7 @@ do {
     english += MenuBarVisibility.allCases.map { $0.label(codex: true) }
     english += MenuBarVisibility.allCases.flatMap { v in [true, false].flatMap { c in [v.note(codex: c, canFollow: true), v.note(codex: c, canFollow: false)] } }
     english += (stale.windows + demo.windows + codex.windows).map(\.title) + stale.notes + missing.notes + demo.notes + codex.notes
-    english += [CodexProvider.missingNote, UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
+    english += [CodexProvider.missingNote, CodexProvider.staleNote(readAt: Date(timeIntervalSinceNow: -5 * 3600), now: Date()), UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
     english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,
                 Fmt.clock(at(24, 9), now: at(25, 12)), Fmt.duration(30)]
     let alertWindow = UsageWindow(id: "five_hour", title: UsageWindow.sessionTitle, duration: fiveHours, percent: 85,
