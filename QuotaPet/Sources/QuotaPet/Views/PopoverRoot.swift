@@ -12,11 +12,13 @@ final class PopoverState: ObservableObject {
     @Published var isShown = false
     /// 面板最高多高：菜单栏所在的屏幕放得下多少。小屏幕上设置页放不下，超出的部分滚动
     @Published var maxHeight: CGFloat = .infinity
-    /// 下面两个由 StatusItemController 在同一处算好填进来，菜单栏显不显示和设置页的说明用的是同一份
+    /// 下面几个由 StatusItemController 在同一处算好填进来，菜单栏显不显示和设置页的说明用的是同一份
     /// 在用 Codex：有它的数据，又没在设置里关掉
     @Published var usesCodex = false
     /// 有桌面端可以跟（见 MenuBarVisibility.shouldShow）
     @Published var canFollowApp = true
+    /// Claude 桌面端开着：官方读数停了、它又没开时，面板底部提醒打开它
+    @Published var claudeRunning = true
     /// 和她聊天的状态：这次说第几句、能不能说「这么晚还在忙」、连着戳了几下。从随机的一句开始，重启 App 后不会总是同一句
     @Published private(set) var chat = PetChat(pick: .random(in: 0..<6))
 
@@ -70,6 +72,7 @@ struct PopoverRoot: View {
                     onRefresh: { store.refresh() },
                     onSettings: { state.page = .settings },
                     onQuit: onQuit,
+                    claudeRunning: state.claudeRunning,
                     said: OverviewView<LivePet>.Said(situation: status.situation, pick: state.chat.pick),
                     onSay: state.said,
                     onPoke: {

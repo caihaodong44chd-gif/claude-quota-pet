@@ -106,6 +106,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 self.visibility = visibility
                 self.appRunning = running.0 || (running.1 && usesCodex)
                 self.popoverState.usesCodex = usesCodex
+                self.popoverState.claudeRunning = running.0
                 self.popoverState.canFollowApp = installed.0 || (installed.1 && (usesCodex || codexPending))
                 self.updateVisibility()
             }

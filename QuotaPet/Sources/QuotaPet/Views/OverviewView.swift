@@ -18,6 +18,8 @@ struct OverviewView<Pet: View>: View {
     var onRefresh: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
+    /// Claude 桌面端开着没有：官方读数停了的时候，只有它没开才提醒（开着也停的话用户解决不了，不打扰）
+    var claudeRunning = true
     /// 这句话是哪种情况、第几句。变了（换了情况、面板又打开了一次）就通过 onSay 告诉外面：「这么晚还在忙」一晚只说一次要靠它记
     struct Said: Equatable {
         var situation: PetTalk.Situation
@@ -167,23 +169,30 @@ struct OverviewView<Pet: View>: View {
                      "No official reading from the desktop app: “used up” came from Claude Code, the rest is a local estimate")
                 : tr("暂无官方读数，数值全部是本机估算", "No official reading yet, so all numbers are local estimates")
         }
-        return tr("聊天、网页、手机的用量要等官方读数（每 15 分钟一次），\(nextOfficialText(now: now))",
-                  "Chat, web and mobile usage shows up with the official reading (every 15 min); \(nextOfficialText(now: now))")
+        guard let next = nextOfficialText(now: now) else {
+            return claudeRunning
+                ? tr("聊天、网页、手机的用量要等下一次官方读数", "Chat, web and mobile usage shows up with the next official reading")
+                : tr("打开 Claude 桌面端才会更新官方读数（聊天、网页、手机的用量要靠它）",
+                     "Open the Claude desktop app to update the official reading (chat, web and mobile usage comes from it)")
+        }
+        return tr("聊天、网页、手机的用量要等官方读数（每 15 分钟一次），\(next)",
+                  "Chat, web and mobile usage shows up with the official reading (every 15 min); \(next)")
     }
 
     private func refreshedText(now: Date) -> String {
         snapshot?.provider == .codex
             ? tr("已刷新：本机日志里的读数都读到了", "Refreshed: every reading in the local logs is loaded")
-            : tr("已刷新：本机部分是最新的，\(nextOfficialText(now: now))", "Refreshed: local data is up to date; \(nextOfficialText(now: now))")
+            : nextOfficialText(now: now).map { tr("已刷新：本机部分是最新的，\($0)", "Refreshed: local data is up to date; \($0)") }
+                ?? tr("已刷新：本机部分是最新的", "Refreshed: local data is up to date")
     }
 
-    /// 桌面端很准时地每 15 分钟记一次，下一次 = 上一次 + 15 分钟
-    private func nextOfficialText(now: Date) -> String {
+    /// 桌面端很准时地每 15 分钟记一次，下一次 = 上一次 + 15 分钟。停了（ClaudeProvider.staleAfter）时是 nil：说不准下一次什么时候
+    private func nextOfficialText(now: Date) -> String? {
         guard let last = snapshot?.officialAt else { return tr("官方读数暂时没有", "no official reading yet") }
-        let next = last.addingTimeInterval(15 * 60)
+        let next = last.addingTimeInterval(WindowInference.sampleSpacing)
         if next > now { return tr("下次约 \(Fmt.clock(next, now: now))", "next around \(Fmt.clock(next, now: now))") }
-        if now.timeIntervalSince(last) < 45 * 60 { return tr("下一次随时会到", "the next one is due any moment") }
-        return tr("官方读数暂停了（Claude 桌面端没开？）", "official readings have paused (is the Claude desktop app closed?)")
+        if now.timeIntervalSince(last) < ClaudeProvider.staleAfter { return tr("下一次随时会到", "the next one is due any moment") }
+        return nil
     }
 }
 

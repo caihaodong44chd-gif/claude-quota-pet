@@ -51,7 +51,8 @@ enum PreviewRenderer {
                 for (file, style) in [(name, PetStyle.classic)] + styles.map({ ($0.rawValue, $0) }) {
                     for dark in [false, true] {
                         let view = OverviewView(snapshot: snapshot, errorMessage: nil, mood: mood, line: status.line(0),
-                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait), fixedNow: now)
+                                                pet: PetImage(picture: PetSprites.frames(for: mood, style: style)[0].portrait),
+                                                claudeRunning: name != "stale", fixedNow: now)
                         write(render(view, dark: dark), to: dir.appendingPathComponent("popover-\(file)\(lang)\(dark ? "-dark" : "").png"))
                     }
                 }
@@ -257,10 +258,12 @@ enum PreviewRenderer {
     }
 
     static func sampleSnapshots(now: Date) -> [(String, UsageSnapshot)] {
-        func window(_ id: String, _ title: String, _ duration: TimeInterval, _ percent: Double, official: Double,
-                    resetIn: TimeInterval, burn: Double, other: Double = 0, otherBurn: Double? = nil) -> UsageWindow {
+        /// readAgo：官方读数是多久前的
+        func window(_ id: String, _ title: String, _ duration: TimeInterval, _ percent: Double, official: Double?,
+                    resetIn: TimeInterval, burn: Double, other: Double = 0, otherBurn: Double? = nil,
+                    readAgo: TimeInterval = 9 * 60) -> UsageWindow {
             UsageWindow(id: id, title: title, duration: duration, percent: percent, official: official,
-                        officialAt: now.addingTimeInterval(-9 * 60), startedAt: now.addingTimeInterval(resetIn - duration),
+                        officialAt: official.map { _ in now.addingTimeInterval(-readAgo) }, startedAt: now.addingTimeInterval(resetIn - duration),
                         resetsAt: now.addingTimeInterval(resetIn), otherPercent: other, burnPerHour: burn, otherBurnPerHour: otherBurn,
                         burnLookback: duration > 86400 ? 86400 : 1800)
         }
@@ -270,8 +273,8 @@ enum PreviewRenderer {
                        FamilyUsage(family: "Haiku", requests: 40, usd: 0.97)])
         let week = 7 * 86400.0
         /// quiet：多久没用了
-        func snapshot(_ windows: [UsageWindow], quiet: TimeInterval = 0) -> UsageSnapshot {
-            UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-9 * 60),
+        func snapshot(_ windows: [UsageWindow], quiet: TimeInterval = 0, readAgo: TimeInterval = 9 * 60) -> UsageSnapshot {
+            UsageSnapshot(provider: .claude, windows: windows, generatedAt: now, officialAt: now.addingTimeInterval(-readAgo),
                           today: today, lastActiveAt: now.addingTimeInterval(-quiet))
         }
         let session = UsageWindow.sessionTitle, weekly = UsageWindow.weeklyTitle
@@ -292,6 +295,11 @@ enum PreviewRenderer {
                                   window("seven_day", weekly, week, 47, official: 47, resetIn: 4 * 86400 + 19 * 3600, burn: 0)])),
             ("empty", UsageSnapshot(provider: .claude, windows: [], generatedAt: now, notes: [ClaudeProvider.missingHistoryNote],
                                     hasData: false)),
+            // 官方读数停在一天前（新版桌面端开着也可能停掉后台刷新），渲染时当作桌面端没开：底部提醒打开它
+            ("stale", snapshot([window("five_hour", session, 5 * 3600, 4, official: nil, resetIn: 4 * 3600 + 10 * 60, burn: 3.6),
+                                window("seven_day", weekly, week, 63.2, official: 62, resetIn: 2 * 86400, burn: 0.4,
+                                       readAgo: 26 * 3600)],
+                               quiet: 5 * 60, readAgo: 26 * 3600)),
         ]
     }
 

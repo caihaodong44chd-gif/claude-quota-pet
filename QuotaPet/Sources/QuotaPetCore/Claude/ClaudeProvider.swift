@@ -15,6 +15,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
     public static let sessionDuration: TimeInterval = 5 * 3600
     public static let weekDuration: TimeInterval = 7 * 86400
+    /// 官方读数多久没来算停了：桌面端每 15 分钟记一次，连着错过两次
+    public static let staleAfter: TimeInterval = 3 * WindowInference.sampleSpacing
     /// 限流消息里没有账号信息，Claude Code 和桌面端登的可能不是同一个账号。所以同一个窗口里有官方读数时要对得上：
     /// 限流之后的读数，或者限流之前的读数 + 之间本机的用量，至少要到这么多。同一个账号撞线时这里接近 100
     /// （给本机看不到的网页 / 手机用量和估算误差留 25 个点）；别的账号撞线时很难刚好这么高
@@ -116,18 +118,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
             resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, live: cfg.liveEstimate, now: now)
 
-        let officialAt = samples.last?.time
-        if let t = officialAt, now.timeIntervalSince(t) > 45 * 60 {
-            let ago = Fmt.ago(t, now: now)
-            let rest = [session, weekly].contains { $0.limitReported }
-                ? tr("「用完了」是 Claude Code 报告的，其余变化是本机估算。", "“Used up” was reported by Claude Code; everything else is a local estimate.")
-                : tr("之后的变化是本机估算。", "Changes since then are local estimates.")
-            notes.append(tr("官方读数停在\(ago)（Claude 桌面端没开？），\(rest)",
-                            "The last official reading was \(ago) (is the Claude desktop app closed?). \(rest)"))
-        }
-
         return UsageSnapshot(
-            provider: .claude, windows: [session, weekly], generatedAt: now, officialAt: officialAt,
+            provider: .claude, windows: [session, weekly], generatedAt: now, officialAt: samples.last?.time,
             today: todaySummary(requests, now: now), lastActiveAt: requests.last?.time, notes: notes,
             hasData: !samples.isEmpty || !requests.isEmpty, estimation: estimation)
     }

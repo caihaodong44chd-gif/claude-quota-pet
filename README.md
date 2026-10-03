@@ -136,7 +136,7 @@ make install    # 编译，装到 ~/Applications，并打开开机自启
 
 **用在别的电脑上**：每台 Mac 各装一份，按上面的步骤来。QuotaPet 只读这台 Mac 上的文件，不联网，设备之间不同步，所以每台显示的是它自己看到的用量：
 
-- Claude：这台 Mac 上要装好并登录 Claude 桌面端，否则只有 Claude Code 日志估算出来的数。
+- Claude：这台 Mac 上要装好并登录 Claude 桌面端，否则只有 Claude Code 日志估算出来的数。新版桌面端有时会停掉后台刷新（Anthropic 的服务端开关控制），读数停了的话重启一下 Claude 桌面端，会记一次新读数。
 - Codex：这台 Mac 上用过 Codex，面板里才会出现 Codex 页签。
 - 在手机、网页、别的电脑，或者 Dot 这样的云端任务里用掉的额度，要等这台 Mac 的下一次官方读数（Claude 每 15 分钟一次）或下一次在本机用 Codex 才看得到。Codex 的读数超过 1 小时没更新时，面板会提示。
 

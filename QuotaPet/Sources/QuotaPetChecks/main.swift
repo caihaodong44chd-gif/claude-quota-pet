@@ -1126,7 +1126,7 @@ do {
     let codex = try! CodexProvider(home: dir.appendingPathComponent("codex")).snapshot(now: at(20, 15))
     check(codex.window("seven_day")?.title == "Weekly quota" && codex.notes.contains { $0.contains("1 day ago") }, "Codex 的英文：\(codex.notes)")
     check(stale.window("five_hour")?.title == "5-hour session", "英文窗口名")
-    check(stale.notes.contains { $0.contains("3 hr ago") }, "官方读数停了的提示是英文：\(stale.notes)")
+    check(stale.notes.isEmpty, "官方读数停了不另外提示（卡片上写着是多久前的读数）：\(stale.notes)")
     check(missing.notes == [ClaudeProvider.missingHistoryNote], "没有桌面端记录的提示是英文")
 
     // 英文界面里不能混进中文：漏翻了，或者 tr 的两个参数写反了

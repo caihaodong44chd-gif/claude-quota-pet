@@ -145,7 +145,7 @@ make previews   # render the pet, menu bar and popover to PNGs in build/previews
 
 **Using it on another Mac**: install it on each Mac, following the steps above. QuotaPet only reads files on the Mac it runs on, never goes online, and doesn't sync between devices, so each one shows what it can see:
 
-- Claude: the Claude desktop app must be installed and signed in on that Mac; otherwise you only get the estimate from Claude Code's logs.
+- Claude: the Claude desktop app must be installed and signed in on that Mac; otherwise you only get the estimate from Claude Code's logs. Recent versions of the desktop app may stop refreshing usage in the background (a server-side switch at Anthropic controls this); if the official reading has stalled, restart the Claude desktop app and it records a fresh one.
 - Codex: the Codex tab only appears once you've used Codex on that Mac.
 - Usage from your phone, the web, another computer, or cloud tasks such as Dots only shows up after that Mac's next official reading (Claude: every 15 minutes) or the next time you use Codex there. If the Codex reading is more than an hour old, the popover says so.
 
