@@ -27,10 +27,10 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
 
 - 现在有 Claude（`ClaudeProvider`）和 Codex（`CodexProvider`）两家。`UsageSnapshot.visible` 决定显示哪几家：Claude 一直在，别的有数据、用户又没在设置里关掉（`AppSettings.hiddenProviders`）才出现，所以没用过 Codex 时界面和只有 Claude 时一样。关掉的那家不显示、不发提醒（提醒的记录照常更新，重新打开时不会补发一堆）。
   - 设置页按「通用 / Claude / Codex」分页（`SettingsView.Page`），本机有 Codex 的记录时才有 Codex 页（和「显示」开关无关，不然关掉后就打不开了）。`UsageSnapshot.focus` 是宠物和菜单栏跟着的那家（最紧张的，一样时 Claude 优先）。
-  - 面板不止一家时顶部有切换条（`ProviderTabs`），每次打开先选 focus 那家；看的是 focus 时面板和菜单栏共用一个 `PetAnimator`，切到另一家时换成 `headerAnimator`。
+  - 面板不止一家时顶部有切换条（`ProviderTabs`），每次打开先选 focus 那家；看的是 focus 时面板和菜单栏共用一个 `PetAnimator`，切到另一家时换成 `headerAnimator`。面板每次重画都把算出来的心情交给它用的那个 animator（`PetLook.onMenuBar`），表情和标签、台词才对得上。
   - 菜单栏不止一家时，数字前面加一个 SF Symbol 小图标（`MenuBarIcon`：星号是 Claude，终端是 Codex），和宠物画在同一张图里。
   - `@Published` 在赋值前就通知，`StatusItemController` 的订阅里要用传进来的新值，不能去读 `store` 的属性。
-- 提醒的判断和措辞在 `QuotaPetCore/UsageAlerts.swift`（能进自检），`NotificationManager` 只发通知、把每个窗口的记录（`last`、`notified`、`warned`、`cycleEnd`）存进 UserDefaults。每个窗口每个周期，每个阈值和「快用完」各只提醒一次；用量掉到 5% 以下，或者重置时间往后跳了半个窗口以上，算新周期。「快用完」= `projectedExhaustion` 落在 `warningLead` 以内（5 小时窗口半小时，一天以上的窗口一天），归在「用量提醒」总开关下面；和阈值提醒同时发生时并成一条。
+- 提醒的判断和措辞在 `QuotaPetCore/UsageAlerts.swift`（能进自检），`NotificationManager` 只发通知、把每个窗口的记录（`last`、`notified`、`warned`、`cycleEnd`）存进 UserDefaults。每个窗口每个周期，每个阈值和「快用完」各只提醒一次；用量掉到 5% 以下，或者重置时间往后跳了半个窗口以上，算新周期。只提醒这次刚跨过的阈值：上次就已经在它上面、没提醒过的（刚在设置里打开的、提醒关着时跨过的）记上不补发。改设置（实时估算、自动学习、每周重置时间）引起的变化不是真的用量变化：`UsageStore` 把那次结果标成 `settingsChanged`，只更新提醒记录、不发提醒，也不记成「刚恢复」。发不出去的提醒（还没问过权限、系统没收下）不记成提醒过；`NotificationManager` 是通知中心的代理，App 在前台（面板开着）时也弹。「快用完」= `projectedExhaustion` 落在 `warningLead` 以内（5 小时窗口半小时，一天以上的窗口一天），归在「用量提醒」总开关下面；和阈值提醒同时发生时并成一条。
 - 宠物现在的样子用 `PetStatus.of(snapshot, failed:, memory:, now:)` 一次算出来（`QuotaPetCore/Pet/PetTalk.swift`，能进自检）：心情、说话的由头、这种情况下轮着说的几句。菜单栏（`StatusItemController`）和面板（`PopoverRoot`）都用它，不要各算各的，表情、标签和台词才对得上。通知里的话还是 `PetMood.line`。
   - 心情 = 档位 + 趋势（规则在 `PetTrend.mood`）：快用完了先哭、5 小时额度烧得快先慌（`nervous`，已经用到七成半就还是累）、刚恢复开心一阵（`revived`）、不紧张又半小时没用就歇着（`resting`）。`PetMood.from(percent:)` 只看档位。
   - **不变量**：只有档位能让她睡着（100% 只能来自官方读数或限流消息），趋势再急也只到「快撑不住」。
@@ -47,14 +47,15 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
 - `QuotaPetCore` 是纯逻辑，不能依赖 AppKit，这样自检才跑得起来。界面代码都在 `QuotaPet` target 里。
 - `ClaudeProvider.snapshot` 的算法：当前 % = 最近一次官方读数（桌面端每 15 分钟写一次 `plan-usage-history.json`）+ 读数之后本机日志里请求的额度加权花费（API 价格，但缓存读按半价）÷ 换算率。
   - 换算率由 `RateLearner` 从 `IntervalArchive` 学出来（`~/Library/Application Support/QuotaPet/intervals.jsonl`，只追加，半衰期 3 小时），起始值 $0.27 / 1%。
-  - 窗口的开始和重置时间由 `WindowInference` 推算：5 小时窗口从第一次使用开始；每周额度按固定时间重置（`fixedCadence`），看到过一次重置（读数掉了至少 3 个点，或限流消息）后就按它每 7 天循环，多次跳变取交集收窄时间、取最晚的时刻。用户手动指定了每周重置时间时，按它往后每 7 天算一次。
+  - 窗口的开始和重置时间由 `WindowInference` 推算：5 小时窗口从第一次使用开始；每周额度按固定时间重置（`fixedCadence`），看到过一次重置（读数掉了至少 3 个点，或限流消息）后就按它每 7 天循环，多次跳变取交集收窄时间、取最晚的时刻。用户手动指定了每周重置时间时，按它往后每 7 天算一次。还没看到过重置时，按第一次使用推出来的窗口开始时间存在 `weekly-origin.json`（和 `intervals.jsonl` 在一起），下次从它接着推（`origin`）：日志只留 8 天，不然起点每天往后挪。
+  - 官方读数要属于当前窗口才用：在最近一次重置之后，也不比一个窗口还旧。隔了一个窗口以上还不是 0 的读数（比如 5 小时额度隔夜 50 → 30）算新窗口里的使用，不当成上一个窗口的。
   - Claude Code 被限流时会在日志里写一条 synthetic 消息，带 `quotaLimits`（`rateLimitType`、秒级 `resetsAt`）。扫描器把它记成 `ClaudeLimitEvent`：没到恢复时间前这个窗口直接算用完，重置时间以它为准。
   - 其他端（网页、手机、桌面端聊天）用量由 `OtherUsage` 算：相邻两次官方读数之间，官方增量比本机估算多出门槛以上的部分。`RateLearner` 学换算率时也用同一个门槛，跳过这种混用的区间。
   - **不变量**：官方读数没到 100 时，估算值最多 99%。只有官方读数或限流消息能宣布「用完了」，免得宠物误睡、误发提醒。
 - `CodexProvider`：Codex（命令行和桌面端）每轮对话结束时把服务器给的额度写进 `~/.codex/sessions/**/*.jsonl`（归档的在 `archived_sessions/`）的 `token_count` 事件（`payload.rate_limits`：`primary` / `secondary` 各有 `used_percent`、`window_minutes`、秒级 `resets_at`；老版本是 `resets_in_seconds`）。
   - 读数就是官方百分比，不用估算；只看总额度（`limit_id` 是 `codex` 或没有），个别模型单独的额度桶不显示。300 分钟和 10080 分钟的窗口用和 Claude 一样的 id（`five_hour`、`seven_day`），菜单栏的「5 小时」「5h + 周」对两家都管用；某家没有这种窗口时退回最紧张的窗口。
   - 最近一次读数之后已经过了重置时间的窗口算 0%、没有重置时间（等下次使用）。消耗速度用同一个窗口里的历次读数算，回看时长和 Claude 一样（5 小时窗口 30 分钟，其他 24 小时）。
-  - 日志可能有几百 MB：`CodexLogScanner` 第一次从最近改过的文件往前读，比最新读数早 25 小时以上的文件只从末尾往后跟。两家的扫描器都用 `LineCursor` 增量读：分块读、每块包在 `autoreleasepool` 里，不然第一次扫描时内存会涨几百 MB。
+  - 日志可能有几百 MB：`CodexLogScanner` 第一次从最近改过的文件往前读，读到一次比「现在 − 25 小时」还早的读数（算每周消耗速度的起点）为止，更早的文件只从末尾往后跟。两家的扫描器都用 `LineCursor` 增量读：分块读、每块包在 `autoreleasepool` 里，不然第一次扫描时内存会涨几百 MB。
   - `UsageStore` 按数据源分开刷新：文件变了只重算那一家（`providersAffected`），每分钟兜底全部重算，也顺便给启动后才出现的目录补上监听。
   - 只解析带 `rate_limits` 的行，只取时间和额度字段；`~/.codex` 下别的文件（`auth.json` 登录凭据、数据库）都不碰。
 - **和 `usage_lab.py` 要保持一致的地方**，改一边就要改另一边（只涉及 Claude；Codex 不用估算，usage_lab 里没有它）：
@@ -76,9 +77,9 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - 找图（`PaintedArt.root`，在 Core 里，App 和自检共用）：打包后在 `Contents/Resources/Pets`（`build-app.sh` 拷进去）；开发时从可执行文件往上找 `Resources/Pets`。不能用 `#filePath` 或 `Bundle.module`，它们会把本机绝对路径编进发布包。
   - 配置文件名就是 `PetStyle` 的 rawValue，图片尺寸是 `PetSprites.iconPoints` / `portraitPoints` 的 2 倍，自检拿导出的图核对。
 - 命令行参数（`--demo`、`--dump`、`--render-previews` 等）都在 `Sources/QuotaPet/main.swift` 里分发。
-- 第一次启动（`QuotaPetCore/FirstLaunch.swift`，设置里只有 NS 开头的 AppKit 键才算）时宠物一直显示到退出，并弹出面板；开机自启先挂起（`loginItemPending`），等 App 在「应用程序」文件夹里运行时才打开（下载版第一次常在「下载」里被 macOS 挪到临时目录运行），用户自己开关过就不再管。
+- 第一次启动（`QuotaPetCore/FirstLaunch.swift`，设置里只有 NS 开头的 AppKit 键才算）时宠物一直显示到退出，并弹出面板；开机自启先挂起（`loginItemPending`），等 App 在「应用程序」文件夹里运行时才打开（下载版第一次常在「下载」里被 macOS 挪到临时目录运行），用户自己开关成功过就不再管（`FirstLaunch.clearsLoginItemPending`：打开要在「应用程序」里才算，失败了留着）。要在系统设置「登录项」里允许时，用户自己点的会帮他打开那一页。同时有几个 QuotaPet 在跑时留最早启动的（`FirstLaunch.launchedEarlier`），后来的请它把宠物叫出来再退出。
 - 界面支持简体中文和英文（`QuotaPetCore/Localization.swift`），默认跟随系统，设置 → 通用 → 语言可以改：
-  - 每句界面文字都写成 `tr("中文", "English")`，两种语言写在一起；新加或改界面文字时两种都要写。英文里的数量用 `plural(n, "day")` 分单复数。
+  - 每句界面文字都写成 `tr("中文", "English")`，两种语言写在一起；新加或改界面文字时两种都要写。英文里的数量用 `plural(n, "day")` 分单复数（数字要换写法时传 `shown:`，比如 `plural(n, "token", shown: Fmt.tokens(n))`）。
   - 当前语言在 `L10n.language`，由 `AppSettings.language` 在 willSet 里同步（订阅者要读到新语言）。快照里的窗口名、说明文字是后台按当前语言算的，换语言时 `UsageStore` 会重算，面板用 `.id(settings.language)` 整个重建。
   - 自检开头固定成中文；「多语言」一节查英文，并检查英文里没混进中文。App 本体的文字自检覆盖不到，改了要看 `make previews` 的 `-en` 图。
   - `--dump` 是对账工具，固定输出中文。App 在访达、通知里显示的名字在 `Resources/*.lproj/InfoPlist.strings`。

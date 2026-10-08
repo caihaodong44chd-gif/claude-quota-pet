@@ -1,33 +1,41 @@
 #!/bin/sh
 # 提交前的隐私检查：仓库是公开的，真实额度数据、截图、本机路径、真实邮箱都不能进 git。
 # 启用（每个 clone 做一次）：git config core.hooksPath .githooks
-# 确认没问题、实在要跳过时：git commit --no-verify
+# 被拦了就改内容（换成 ~、删掉、改邮箱），不要用 --no-verify 绕过
 
 fail=0
 say() { printf '%s\n' "$*" >&2; }
 
-# 1. 可能是真实数据或截图的文件
+# 1. 可能是真实数据或截图的文件（不分大小写：data.JSONL、intervals.jsonl.bak、CleanShot、screenshot 都算）
 bad=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR |
-  grep -E '\.jsonl$|(^|/)popover-live[^/]*\.png$|(^|/)(snapshots|intervals|plan-usage-history)[^/]*$|Screenshot|Screen Shot|截屏|屏幕快照')
+  grep -iE '\.jsonl($|\.)|(^|/)popover-live[^/]*\.png$|(^|/)(snapshots|intervals|plan-usage-history)[^/]*$|screenshot|screen shot|cleanshot|截屏|屏幕快照')
 if [ -n "$bad" ]; then
   say "✗ 这些文件可能是真实数据或截图，不能提交："
   printf '%s\n' "$bad" | sed 's/^/    /' >&2
   fail=1
 fi
 
-# 2. 新增的内容里不能有本机绝对路径（比如贴进来的 --dump 输出）
-hits=$(git diff --cached -U0 --no-color | grep -E '^\+[^+]' | grep -F "$HOME/")
+# 2. 新增的内容里不能有本机绝对路径（比如贴进来的 --dump 输出），包括 JSON 里转义成 \/Users\/… 的。
+#    外部 diff 工具、textconv 会改掉 diff 的内容，二进制文件默认不显示内容，都关掉；grep 也要 -a，不然遇到二进制内容只说一句「匹配」
+user_dir="/Users/$(id -un)"
+added=$(git diff --cached -U0 --no-color --no-ext-diff --no-textconv --text |
+  grep -aE '^\+' | grep -avE '^\+\+\+ (b/|/dev/null)')
+hits=$(printf '%s\n' "$added" | grep -aF \
+  -e "$HOME" -e "$(printf '%s' "$HOME" | sed 's#/#\\/#g')" \
+  -e "$user_dir" -e "$(printf '%s' "$user_dir" | sed 's#/#\\/#g')")
 if [ -n "$hits" ]; then
-  say "✗ 新增内容里有本机路径 $HOME/…，换成 ~ 或删掉："
+  say "✗ 新增内容里有本机路径 $HOME，换成 ~ 或删掉："
   printf '%s\n' "$hits" | head -5 | cut -c1-160 | sed 's/^/    /' >&2
   fail=1
 fi
 
-# 3. 作者邮箱要用 GitHub 的 noreply 地址，不暴露真实邮箱
-case "$(git var GIT_AUTHOR_IDENT)" in
-  *@users.noreply.github.com\>*) ;;
-  *) say "✗ 提交邮箱不是 GitHub noreply 地址（git config user.email 改一下）"; fail=1 ;;
-esac
+# 3. 作者和提交者的邮箱都要用 GitHub 的 noreply 地址，不暴露真实邮箱
+for who in AUTHOR COMMITTER; do
+  case "$(git var "GIT_${who}_IDENT")" in
+    *@users.noreply.github.com\>*) ;;
+    *) say "✗ 提交用的邮箱（$who）不是 GitHub noreply 地址（git config user.email 改一下）"; fail=1 ;;
+  esac
+done
 
 if [ "$fail" -ne 0 ]; then
   say "隐私检查没通过，提交已取消。规则见 .githooks/pre-commit"

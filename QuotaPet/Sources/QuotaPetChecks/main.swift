@@ -293,6 +293,24 @@ do {  // 限流消息给出精确的重置时间：14:00（按第一次使用推
     check(r3.lastReset == at(20, 19, 5) && r3.current?.start == at(20, 19, 10), "一段空档里的两次精确重置都用上：\(r3)")
 }
 
+do {  // 隔了一个窗口以上的读数还不是 0（5 小时额度隔夜 50 → 30）：之前的窗口早就结束了，早上的读数是另一个窗口的
+    let overnight = [S(time: at(24, 18), value: 50), S(time: at(25, 9), value: 30)]
+    let r = WindowInference.infer(samples: overnight, activity: [at(24, 14), at(24, 17), at(25, 15)], duration: fiveHours,
+                                  now: at(25, 15, 10))
+    check(r.current?.start == at(25, 15) && r.lastReset.map { $0 > at(25, 9) } == true, "早上那个窗口在下午用之前就结束了：\(r)")
+
+    // 每周额度还没看到过重置：从之前推出来的窗口开始时间（origin）接着推。日志只留 8 天，周一 10:00 开始的窗口，
+    // 到了周二中午最早的请求已经是上周四的了，从它推的话窗口会变成从上周四开始
+    let retained = [at(10, 9), at(14, 10), at(15, 10)]
+    let drifted = WindowInference.infer(samples: [], activity: retained, duration: week, now: at(15, 12), fixedCadence: true)
+    let kept = WindowInference.infer(samples: [], activity: retained, duration: week, now: at(15, 12), fixedCadence: true, origin: at(14, 10))
+    check(drifted.current?.start == at(10, 9) && kept.current?.start == at(14, 10) && kept.lastReset == at(14, 10),
+          "从 origin 接着推，起点不跟着日志往后挪：\(kept)")
+    let after = WindowInference.infer(samples: [], activity: retained + [at(21, 11)], duration: week, now: at(21, 12), fixedCadence: true,
+                                      origin: at(14, 10))
+    check(after.current?.start == at(21, 11) && after.lastReset == at(14, 10) + week, "origin 的窗口结束后照常从下一次使用开始：\(after)")
+}
+
 // MARK: - 官方读数 + 实时估算
 
 do {
@@ -340,10 +358,34 @@ do {
     check(near(other.percent, 25, 1e-3) && other.resetsAt == at(20, 19, 35), "官方 20% + 本机 5% 离 100 太远：多半是别的账号撞线，不用：\(other.percent)")
     let closed = limited([], work, [hit], now: at(20, 14, 50))
     check(near(closed.percent, 100) && closed.resetsAt == at(20, 18), "这个窗口里没有官方读数时没法核对，相信限流消息")
+    let olderReading = limited([S(time: at(20, 13, 30), value: 20)], work, [hit], now: at(20, 14, 50))
+    check(near(olderReading.percent, 100) && olderReading.limitReported,
+          "限流前最近的读数是一个多小时前的（桌面端停了）：之后网页、手机用了多少看不到，不拿它否定限流消息：\(olderReading.percent)")
     let later = limited(before, work + [opus(at(20, 18, 2), usd: 0.117 * 2)], [hit], now: at(20, 18, 10))
     check(later.official == nil && near(later.percent, 2, 1e-3) && later.startedAt == at(20, 18, 2), "恢复之后从新窗口重新算：\(later)")
     let bogus = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 20))
     check(near(limited(before, work, [bogus], now: at(20, 14, 50)).percent, 90, 1e-3), "恢复时间比限流晚 5 小时以上的不可信，不用")
+
+    // 官方读数所在的窗口已经结束了，不能当成现在的：5 小时额度隔夜 50 → 30、下午才用 Claude Code；隔夜 100 → 100；每周读数停在 9 天前
+    func five(_ series: [S], _ reqs: [ClaudeRequest], now: Date) -> UsageWindow {
+        provider.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: series, requests: reqs, scale: 1,
+                             percentOf: percentOf, resetAnchor: nil, live: true, now: now)
+    }
+    let overnight = [S(time: at(24, 18), value: 50), S(time: at(25, 9), value: 30)]
+    let yesterday = [opus(at(24, 14), usd: 0.117 * 20), opus(at(24, 17), usd: 0.117 * 20)]
+    let afternoon = five(overnight, yesterday + [opus(at(25, 15), usd: 0.117 * 2), opus(at(25, 15, 5), usd: 0.117)], now: at(25, 15, 10))
+    check(afternoon.official == nil && near(afternoon.percent, 3, 1e-3), "早上读数的窗口已经结束：只算下午的本机用量：\(afternoon.percent)")
+    check(near(five(overnight, yesterday, now: at(25, 14, 30)).percent, 0), "那个窗口结束后还没用：0%")
+    let maxed = [S(time: at(24, 21, 30), value: 90), S(time: at(24, 21, 45), value: 100), S(time: at(25, 9), value: 100)]
+    let night = [opus(at(24, 17), usd: 0.117 * 40), opus(at(24, 21, 40), usd: 0.117 * 50)]
+    check(near(five(maxed, night, now: at(25, 12)).percent, 100), "早上又用满了：那个窗口里照样是 100%")
+    let woke = five(maxed, night + [opus(at(26, 10), usd: 0.117)], now: at(26, 10, 5))
+    check(woke.official == nil && near(woke.percent, 1, 1e-3), "第二天再用：不是 100 + 1 = 101%（宠物误睡、误报用完）：\(woke.percent)")
+    let lastWeek = provider.buildWindow(id: "seven_day", title: "", duration: week,
+                                        series: [S(time: at(10, 9), value: 40), S(time: at(10, 9, 15), value: 40)],
+                                        requests: [opus(at(19, 10), usd: 0.117 * 3)], scale: 1, percentOf: percentOf,
+                                        resetAnchor: nil, fixedCadence: true, live: true, now: at(19, 10, 5))
+    check(lastWeek.official == nil && near(lastWeek.percent, 3, 1e-3), "每周读数停在 9 天前：不再当成这一周的：\(lastWeek.percent)")
 
     let manual = provider.buildWindow(id: "seven_day", title: "", duration: week, series: [], requests: [],
                                       scale: 0.124, percentOf: percentOf, resetAnchor: at(16, 18), live: true, now: at(25, 23))
@@ -384,6 +426,27 @@ do {  // 整条链路：日志里的限流消息经过 snapshot() 分到各自�
           "5 小时的限流消息进了 5 小时窗口：\(String(describing: session))")
     check(weekly?.limitReported == true && near(weekly?.percent, 100) && weekly?.resetsAt == at(24, 9),
           "每周的限流消息进了每周窗口：\(String(describing: weekly))")
+    try? FileManager.default.removeItem(at: dir)
+}
+
+do {  // 每周窗口推出来的开始时间存下来，重启后接着推：日志只留 8 天，旧请求滚出去后起点不会跟着往后挪
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-origin-\(UUID().uuidString)")
+    let projects = dir.appendingPathComponent("projects/-Users-me-demo")
+    try! FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    let log = [logLine("o1", "2026-09-07T01:00:00.000Z", "claude-opus-5-5", output: 1_000),
+               logLine("o2", "2026-09-10T01:00:00.000Z", "claude-opus-5-5", output: 1_000),
+               logLine("o3", "2026-09-14T02:00:00.000Z", "claude-opus-5-5", output: 1_000),
+               logLine("o4", "2026-09-15T02:00:00.000Z", "claude-opus-5-5", output: 1_000)]
+    try! (log.joined(separator: "\n") + "\n").write(to: projects.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+    func provider() -> ClaudeProvider {
+        ClaudeProvider(historyURL: dir.appendingPathComponent("none.json"), projectsURL: dir.appendingPathComponent("projects"),
+                       archiveURL: dir.appendingPathComponent("intervals.jsonl"))
+    }
+    let first = try! provider().snapshot(now: Date(timeIntervalSince1970: 1_789_354_800))     // 09-14 03:00Z：最早的请求还在
+    let o3 = ISO8601DateFormatter().date(from: "2026-09-14T02:00:00Z")!
+    check(first.window("seven_day")?.startedAt == o3, "每周窗口从上一个窗口结束后的第一次使用开始：\(String(describing: first.window("seven_day")?.startedAt))")
+    let later = try! provider().snapshot(now: Date(timeIntervalSince1970: 1_789_444_800))     // 09-15 04:00Z：09-07 的请求滚出去了
+    check(later.window("seven_day")?.startedAt == o3, "重启后从存下来的起点接着推，不会变成从 09-10 开始：\(String(describing: later.window("seven_day")?.startedAt))")
     try? FileManager.default.removeItem(at: dir)
 }
 
@@ -544,6 +607,28 @@ do {
           "窗口是最近 30 分钟里才开始的：从 0 算起（按 20 分钟算）")
 }
 
+do {  // 第一次扫描（刚启动）也要读到「现在 − 24 小时」之前的最后一次读数：算每周消耗速度的起点。
+    // 昨天的对话最后一次读数在 25 小时前多一点，按「比最新读数早 25 小时」跳过的话，速度只按今天的几次读数算，偏高好几倍
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-codex-base-\(UUID().uuidString)")
+    let sessions = home.appendingPathComponent("sessions/2026/09")
+    try! FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    func write(_ name: String, _ lines: [String], modified: Date) {
+        let url = sessions.appendingPathComponent(name)
+        try! (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        try! FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: url.path)
+    }
+    write("rollout-yesterday.jsonl", [codexLine(at(19, 7), [(300, 5, at(19, 11)), (10080, 60, at(24, 9))]),
+                                      codexLine(at(19, 11, 50), [(300, 9, at(19, 12)), (10080, 62, at(24, 9))])],
+          modified: at(19, 11, 50))
+    write("rollout-today.jsonl", [codexLine(at(20, 11), [(300, 3, at(20, 15)), (10080, 63, at(24, 9))]),
+                                  codexLine(at(20, 12), [(300, 8, at(20, 15)), (10080, 70, at(24, 9))]),
+                                  codexLine(at(20, 12, 54), [(300, 12, at(20, 15)), (10080, 75, at(24, 9))])],
+          modified: at(20, 12, 54))
+    let weekly = try! CodexProvider(home: home).snapshot(now: at(20, 13)).window("seven_day")
+    check(near(weekly?.burnPerHour, 13.0 / 24), "刚启动时每周的消耗速度也从 24 小时前的 62% 算起：\(String(describing: weekly?.burnPerHour))")
+    try? FileManager.default.removeItem(at: home)
+}
+
 // MARK: - 几家一起显示
 
 do {
@@ -600,6 +685,17 @@ check(FirstLaunch.isInApplicationsFolder("/Applications/QuotaPet.app")
 check(!FirstLaunch.isInApplicationsFolder("/Users/someone/Downloads/QuotaPet.app")
       && !FirstLaunch.isInApplicationsFolder("/private/var/folders/xy/T/AppTranslocation/1234/d/QuotaPet.app"),
       "下载文件夹、被 macOS 挪到临时目录运行时不开开机自启")
+check(FirstLaunch.clearsLoginItemPending(enabling: true, succeeded: true, bundlePath: "/Applications/QuotaPet.app")
+      && FirstLaunch.clearsLoginItemPending(enabling: false, succeeded: true, bundlePath: "/Users/someone/Downloads/QuotaPet.app"),
+      "在应用程序文件夹里打开成功、用户自己关掉：不再替用户打开开机自启")
+check(!FirstLaunch.clearsLoginItemPending(enabling: true, succeeded: false, bundlePath: "/Applications/QuotaPet.app")
+      && !FirstLaunch.clearsLoginItemPending(enabling: true, succeeded: true,
+                                             bundlePath: "/private/var/folders/xy/T/AppTranslocation/1234/d/QuotaPet.app"),
+      "打开失败、在临时目录里打开的（路径之后用不了）：留着，挪进应用程序文件夹后再开")
+check(FirstLaunch.launchedEarlier((at(25, 12), 900), than: (at(25, 12, 1), 100)), "几个 QuotaPet 同时在跑：留先启动的（不看 pid，pid 会循环使用）")
+check(FirstLaunch.launchedEarlier((at(25, 12), 100), than: (at(25, 12), 900)) && !FirstLaunch.launchedEarlier((at(25, 12), 900), than: (at(25, 12), 100))
+      && FirstLaunch.launchedEarlier((at(25, 12), 900), than: (nil, 100)),
+      "同时启动的按 pid，两边的结论一致（只走一个）；不知道启动时间的算晚")
 
 // MARK: - 区间记录 & 学习换算率
 
@@ -620,7 +716,9 @@ do {
     check(near(intervals.first?.usd, 1.2) && intervals.first?.sessionDelta == 4 && intervals.first?.usdByGroup["opus/max"] != nil,
           "区间里的花费、官方增量、按模型/思考程度分的花费")
     check(intervals.last?.sessionDelta == nil && intervals.last?.weeklyDelta == 0, "重置过的区间没有 5 小时增量")
-    check(UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 16)).isEmpty, "刚结束 2 分钟内的区间先不记")
+    check(UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 19)).isEmpty
+          && UsageInterval.extract(samples: samples, requests: reqs, now: at(25, 10, 20)).count == 1,
+          "刚结束 5 分钟内的区间先不记：一个响应的几行隔几分钟才写完时，按最后一行的时间算，切早了会在两段里各算一次")
     check(UsageInterval.extract(samples: samples, requests: reqs, since: at(25, 10, 10), now: at(25, 14)).map(\.start)
               == [at(25, 10, 15), at(25, 10, 30)],
           "本机日志还没覆盖到的区间不切，免得把本机花费记成 0")
@@ -685,6 +783,23 @@ do {
     check(upgraded.merge(intervals) == 2, "补全旧记录（1 条）+ 新记录（1 条），对不上的旧记录不动")
     let reread = IntervalArchive(url: legacyURL).intervals
     check(reread.count == 3 && reread[0] == intervals[0] && reread[1].cacheReadUSD == nil, "读回来时以补全后的那行为准")
+
+    // 文件写坏了：时间离谱的行（读回来算毫秒时会溢出崩溃）跳过；最后一行写到一半时，新记录另起一行，不跟着作废
+    let brokenURL = dir.appendingPathComponent("broken.jsonl")
+    let good = String(decoding: try! JSONEncoder().encode(intervals[0]), as: UTF8.self)
+    let huge = good.replacingOccurrences(of: #""end":[-0-9.e]+"#, with: #""end":1e300"#, options: .regularExpression)
+    try! (huge + "\n" + String(good.prefix(30))).write(to: brokenURL, atomically: true, encoding: .utf8)
+    let broken = IntervalArchive(url: brokenURL)
+    check(huge != good && broken.intervals.isEmpty && broken.merge([intervals[1]]) == 1, "时间离谱的行、写到一半的行都跳过")
+    check(IntervalArchive(url: brokenURL).intervals == [intervals[1]], "写到一半的行后面追加的记录读得回来")
+
+    // 写不进去（比如没权限）：先留在内存里照样用，下次能写了再补上，不当成已经记过
+    let lockedURL = dir.appendingPathComponent("locked.jsonl")
+    FileManager.default.createFile(atPath: lockedURL.path, contents: nil, attributes: [.posixPermissions: 0o444])
+    let locked = IntervalArchive(url: lockedURL)
+    check(locked.merge([intervals[0]]) == 0 && locked.intervals == [intervals[0]], "写失败：返回 0，内存里还有")
+    try! FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: lockedURL.path)
+    check(locked.merge([]) == 1 && IntervalArchive(url: lockedURL).intervals == [intervals[0]], "能写了再补上")
     try? FileManager.default.removeItem(at: dir)
 }
 
@@ -805,6 +920,18 @@ do {
     weekly.burnPerHour = 1
     check(UsageAlerts.evaluate(weekly, state: .init(last: 69), options: options, now: now).alerts.isEmpty,
           "还要一天多才用完，先不提醒")
+
+    // 用量已经 95% 了才在设置里打开 50% 的阈值、提醒关着时跨过了 75%：记上，不补发「已用 50%」这种旧消息
+    var more = options
+    more.thresholds = [50, 75, 90, 100]
+    r = UsageAlerts.evaluate(session(95, burn: nil), state: .init(last: 95, notified: [75, 90]), options: more, now: at(25, 12))
+    check(r.alerts.isEmpty && r.state.notified == [50, 75, 90], "新打开的阈值早就跨过了：不补发：\(r.alerts)")
+    r = UsageAlerts.evaluate(session(96, burn: nil), state: r.state, options: more, now: at(25, 12, 5))
+    check(r.alerts.isEmpty, "之后也不再补发")
+    r = UsageAlerts.evaluate(session(80, burn: nil), state: .init(last: 80), options: options, now: at(25, 12))
+    check(r.alerts.isEmpty && r.state.notified == [75], "提醒关着时跨过的阈值，打开后不补发：\(r.alerts)")
+    r = UsageAlerts.evaluate(next(80), state: .init(last: 92, notified: [75, 90], cycleEnd: at(25, 15)), options: options, now: at(25, 19))
+    check(r.alerts == [.threshold(75, runsOutAt: nil)], "App 没开着时进了新周期、已经用到 80%：新周期的 75% 照常提醒：\(r.alerts)")
 
     let w = session(85, burn: 60)
     check(UsageAlerts.title(.runningOut(at(25, 12, 45)), window: w, provider: .claude) == "Claude 5 小时会话快用完了", "预警标题")
@@ -1107,6 +1234,8 @@ do {
     check(Fmt.clock(at(30, 17, 45), now: at(25, 12)) == "Wed 17:45", "英文 clock 一周内")
     check(Fmt.clock(at(10, 8), now: at(25, 12)) == "Sep 10 08:00", "英文 clock 日期")
     check(Fmt.ago(at(25, 11, 45), now: at(25, 12)) == "15 min ago" && Fmt.ago(at(24, 11), now: at(25, 12)) == "1 day ago", "英文 ago")
+    check(plural(1_500, "token", shown: Fmt.tokens(1_500)) == "1.5K tokens" && plural(1, "token", shown: Fmt.tokens(1)) == "1 token",
+          "数字换了写法也分单复数（面板「今天」那行的 tokens）")
 
     // 快照里的窗口名、说明文字在后台算，也要跟着语言走
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-l10n-\(UUID().uuidString)")

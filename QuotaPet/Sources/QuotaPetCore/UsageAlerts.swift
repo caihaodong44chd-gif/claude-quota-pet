@@ -59,7 +59,8 @@ public enum UsageAlerts {
         // 推算的重置时间会前后挪一点，跳半个窗口以上才算
         var nextCycle = false
         if let old = state.cycleEnd, let end = window.resetsAt { nextCycle = end.timeIntervalSince(old) > window.duration / 2 }
-        if percent < 5 || nextCycle {
+        let newCycle = percent < 5 || nextCycle
+        if newCycle {
             if recovered(from: state.last, to: percent), options.reset { alerts.append(.reset) }
             state.notified = []
             state.warned = false
@@ -68,12 +69,15 @@ public enum UsageAlerts {
         let runsOut = window.projectedExhaustion(now: now)
         let soon = runsOut.map { $0.timeIntervalSince(now) <= window.warningLead } ?? false
         if options.usage {
-            let crossed = options.thresholds.filter { percent >= Double($0) && !state.notified.contains($0) }
-            if let top = crossed.max() {
+            let reached = options.thresholds.filter { percent >= Double($0) && !state.notified.contains($0) }
+            // 只提醒这次刚跨过的。上次就已经在它上面了还没提醒过的（刚在设置里打开的阈值、提醒关着时跨过的），
+            // 记上但不补发：已经用到 95% 了再说「已用 50%」是旧消息，台词也对不上
+            let floor = newCycle ? 0 : state.last
+            if let top = reached.filter({ Double($0) > floor }).max() {
                 alerts.append(.threshold(top, runsOutAt: runsOut))
-                state.notified.formUnion(crossed)
                 if soon { state.warned = true }  // 这条里已经说了几点用完，不用再单独提醒一次
             }
+            state.notified.formUnion(reached)
         }
         if soon, !state.warned, options.usage, options.runningOut, let runsOut {
             alerts.append(.runningOut(runsOut))

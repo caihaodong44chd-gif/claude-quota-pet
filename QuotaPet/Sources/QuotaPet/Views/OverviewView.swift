@@ -130,7 +130,7 @@ struct OverviewView<Pet: View>: View {
             .task(id: refreshedAt) {
                 guard refreshedAt != nil else { return }
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                refreshedAt = nil
+                if !Task.isCancelled { refreshedAt = nil }  // 4 秒内又点了一下时这个任务会被取消：别把新的那次提前清掉
             }
         }
     }
@@ -466,7 +466,7 @@ struct TodayCard: View {
                     .monospacedDigit()
             }
             Text(tr("\(today.requests) 次请求 · \(Fmt.tokens(today.tokens)) tokens · 按 API 价格折算",
-                    "\(plural(today.requests, "request")) · \(Fmt.tokens(today.tokens)) tokens · at API prices"))
+                    "\(plural(today.requests, "request")) · \(plural(today.tokens, "token", shown: Fmt.tokens(today.tokens))) · at API prices"))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             if !today.byFamily.isEmpty {

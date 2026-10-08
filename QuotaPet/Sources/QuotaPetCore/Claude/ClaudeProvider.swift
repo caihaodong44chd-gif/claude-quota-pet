@@ -21,6 +21,9 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// 限流之后的读数，或者限流之前的读数 + 之间本机的用量，至少要到这么多。同一个账号撞线时这里接近 100
     /// （给本机看不到的网页 / 手机用量和估算误差留 25 个点）；别的账号撞线时很难刚好这么高
     static let limitEvidenceFloor = 75.0
+    /// 限流之前的读数要多新才能拿来核对：桌面端正常每 15 分钟记一次。再旧的读数之后别处（网页、手机）用了多少看不到，
+    /// 对不上也说明不了是别的账号，就不拿它否定限流消息
+    static let limitEvidenceMaxAge: TimeInterval = staleAfter
 
     public static var missingHistoryNote: String {
         tr("没找到 Claude 桌面端的额度记录。装好并登录 Claude 桌面端后，它每 15 分钟会记一次官方额度。",
@@ -34,6 +37,9 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// 区间记录；nil 表示不落盘（自检用）
     public let archive: IntervalArchive?
 
+    /// 存每周窗口推出来的开始时间（见 weeklyOrigin），和区间记录放在一起；nil 表示不落盘（自检用）
+    public let originURL: URL?
+
     /// 最近一次 snapshot 用到的数据，--dump 调试用
     public private(set) var lastRequests: [ClaudeRequest] = []
     public private(set) var lastSamples: [PlanUsageSample] = []
@@ -41,12 +47,17 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     private let lock = NSLock()
     private var storedConfig = Config()
     private var historyCache: (mtime: Date, samples: [PlanUsageSample])?
+    /// 每周额度还没看到过重置时，按第一次使用推出来的当前窗口的开始时间。下次从它接着推：本机日志只留 8 天，
+    /// 不记着的话最早的请求每天滚出去一些，窗口的起点跟着往后挪（百分比只剩一两天的用量，旧请求滚出去时还会掉到 0、误报恢复）
+    private var weeklyOrigin: Date?
+    private var originLoaded = false
 
     public init(historyURL: URL = ClaudeDesktopHistory.defaultURL, projectsURL: URL = ClaudeTranscriptScanner.defaultRoot,
                 archiveURL: URL? = IntervalArchive.defaultURL) {
         self.historyURL = historyURL
         self.scanner = ClaudeTranscriptScanner(root: projectsURL)
         self.archive = archiveURL.map { IntervalArchive(url: $0) }
+        self.originURL = archiveURL.map { $0.deletingLastPathComponent().appendingPathComponent("weekly-origin.json") }
     }
 
     /// 可以从任意线程设置
@@ -113,10 +124,13 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             id: "five_hour", title: UsageWindow.sessionTitle, duration: Self.sessionDuration,
             series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
             resetAnchor: nil, limits: limits, live: cfg.liveEstimate, now: now)
+        let origin = loadOrigin()
         let weekly = buildWindow(
             id: "seven_day", title: UsageWindow.weeklyTitle, duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
-            resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, live: cfg.liveEstimate, now: now)
+            resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, origin: origin, live: cfg.liveEstimate, now: now)
+        // 只记按第一次使用推出来的（看到过重置、手动指定、限流中的都有准确的时间）；窗口结束了还没再用时留着旧的
+        if !weekly.scheduleKnown, let start = weekly.startedAt, start != origin { saveOrigin(start) }
 
         return UsageSnapshot(
             provider: .claude, windows: [session, weekly], generatedAt: now, officialAt: samples.last?.time,
@@ -125,11 +139,12 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     }
 
     /// 官方读数 + 读数之后的本机用量 = 当前百分比。本机用量 = Σ percentOf(请求) × scale
-    /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准
+    /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准。
+    /// origin：之前推出来的窗口开始时间（见 weeklyOrigin、WindowInference.infer）
     func buildWindow(id: String, title: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
                      percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, fixedCadence: Bool = false,
-                     limits: [ClaudeLimitEvent] = [], live: Bool, now: Date) -> UsageWindow {
+                     limits: [ClaudeLimitEvent] = [], origin: Date? = nil, live: Bool, now: Date) -> UsageWindow {
         // 和这个窗口的官方读数对不上的限流消息（多半是别的账号，或者额度变了）不用，见 limitEvidenceFloor
         func matchesOfficial(_ limit: ClaudeLimitEvent) -> Bool {
             let start = limit.resetsAt.addingTimeInterval(-duration)
@@ -137,7 +152,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             if let after = readings.last(where: { $0.time > limit.time }) {
                 return after.value >= Self.limitEvidenceFloor
             }
-            guard let before = readings.last else { return true }  // 这个窗口里还没有官方读数，没法核对
+            // 这个窗口里还没有官方读数，或者最近的读数太旧（之后别处用了多少看不到）：没法核对，相信限流消息
+            guard let before = readings.last, limit.time.timeIntervalSince(before.time) <= Self.limitEvidenceMaxAge else { return true }
             var local = 0.0
             for r in requests where r.time > before.time && r.time <= limit.time {
                 local += percentOf(r)
@@ -160,7 +176,7 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             lastReset = current?.start
         } else {
             let inferred = WindowInference.infer(samples: series, activity: requests.map(\.time), duration: duration, now: now,
-                                                 knownResets: limits.map(\.resetsAt), fixedCadence: fixedCadence)
+                                                 knownResets: limits.map(\.resetsAt), fixedCadence: fixedCadence, origin: origin)
             current = inferred.current
             lastReset = inferred.lastReset
             // 按固定时间重置的窗口还没看到过重置：是按第一次使用猜的，会偏晚。5 小时窗口本来就从第一次使用开始算
@@ -188,8 +204,9 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         var official: Double?
         var officialAt: Date?
         var limitReported = false
-        if let last = officialReadings.last, lastReset.map({ $0 <= last.time }) ?? true {
-            // 最近的官方读数还属于当前窗口
+        // 最近的官方读数还属于当前窗口：在最近一次重置之后，也不比一个窗口还旧（窗口就这么长，再旧的读数所在的窗口早就结束了，
+        // 比如每周额度的读数停在 9 天前、桌面端一直没开）
+        if let last = officialReadings.last, lastReset.map({ $0 <= last.time }) ?? true, now.timeIntervalSince(last.time) < duration {
             official = last.value
             officialAt = last.time
             limitReported = last.time == limit?.time
@@ -249,6 +266,42 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         summary.byFamily = byFamily.values.sorted { $0.usd > $1.usd }
         return summary
     }
+
+    // MARK: - 每周窗口的起点
+
+    private struct StoredOrigin: Codable {
+        var start: Date
+    }
+
+    private func loadOrigin() -> Date? {
+        if !originLoaded {
+            originLoaded = true
+            if let originURL, let data = try? Data(contentsOf: originURL),
+               let stored = try? Self.originDecoder.decode(StoredOrigin.self, from: data) {
+                weeklyOrigin = stored.start
+            }
+        }
+        return weeklyOrigin
+    }
+
+    private func saveOrigin(_ start: Date) {
+        weeklyOrigin = start
+        guard let originURL, let data = try? Self.originEncoder.encode(StoredOrigin(start: start)) else { return }
+        try? FileManager.default.createDirectory(at: originURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: originURL, options: .atomic)
+    }
+
+    private static let originEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        return encoder
+    }()
+
+    private static let originDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        return decoder
+    }()
 
     // MARK: - 桌面端读数
 

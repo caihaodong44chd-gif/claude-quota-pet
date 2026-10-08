@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 import QuotaPetCore
 
@@ -125,11 +126,25 @@ struct SettingsView: View {
                           ? tr("开着才能在 Claude 或 Codex 打开时自动出现", "Lets the pet appear when Claude or Codex opens")
                           : tr("开着才能在 Claude 打开时自动出现", "Lets the pet appear when Claude opens"),
                       isOn: Binding(get: { settings.launchAtLogin }, set: { settings.launchAtLogin = $0 }))
-            if let error = settings.launchAtLoginError {
-                Text(tr("设置失败：\(error)（把 App 放进「应用程序」文件夹后再试）",
-                        "Couldn't change this: \(error) (move the app into the Applications folder and try again)"))
+            if settings.launchAtLoginNeedsApproval {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(tr("还要在「系统设置 → 通用 → 登录项」里允许 QuotaPet 才会生效",
+                            "Allow QuotaPet in System Settings → General → Login Items to finish turning this on"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(tr("打开", "Open")) { SMAppService.openSystemSettingsLoginItems() }
+                        .controlSize(.small)
+                }
+            } else if let error = settings.launchAtLoginError {
+                // 只有不在「应用程序」文件夹里运行时，才建议挪过去（在那里也失败了，这句建议帮不上忙）
+                Text(FirstLaunch.isInApplicationsFolder(Bundle.main.bundlePath)
+                        ? tr("设置失败：\(error)", "Couldn't change this: \(error)")
+                        : tr("设置失败：\(error)（把 App 放进「应用程序」文件夹后再试）",
+                             "Couldn't change this: \(error) (move the app into the Applications folder and try again)"))
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

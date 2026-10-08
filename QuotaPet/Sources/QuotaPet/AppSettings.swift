@@ -64,6 +64,8 @@ final class AppSettings: ObservableObject {
     }
     /// 开机自启设置失败时系统给的原因（界面上再套一句提示，跟着界面语言走）
     @Published private(set) var launchAtLoginError: String?
+    /// 打开了开机自启，但要用户在「系统设置 → 通用 → 登录项」里允许（以前在那里关掉过）。已经帮用户打开了那一页
+    @Published private(set) var launchAtLoginNeedsApproval = false
     /// 系统设置里没允许 QuotaPet 发通知（NotificationManager 更新，不存）：提醒开着也弹不出来，设置页要说一声
     @Published var notificationsDenied = false
 
@@ -115,22 +117,38 @@ final class AppSettings: ObservableObject {
         return config
     }
 
-    /// 开机自启（SMAppService，macOS 13+）。开关过一次就不再替用户自动打开（FirstLaunch.loginItemPendingKey）
+    /// 开机自启（SMAppService，macOS 13+）。设置页的开关用它：是用户自己开关的
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
-        set {
-            objectWillChange.send()
-            defaults.removeObject(forKey: FirstLaunch.loginItemPendingKey)
-            do {
-                if newValue {
-                    try SMAppService.mainApp.register()
-                } else {
-                    try SMAppService.mainApp.unregister()
-                }
-                launchAtLoginError = nil
-            } catch {
-                launchAtLoginError = error.localizedDescription
+        set { setLaunchAtLogin(newValue, byUser: true) }
+    }
+
+    /// 开关开机自启。开关成功过一次就不再替用户自动打开（FirstLaunch.loginItemPendingKey，规则见 clearsLoginItemPending）。
+    /// byUser：用户在设置里点的。要在系统设置里允许时，只有用户自己点的才帮他打开「登录项」那一页
+    func setLaunchAtLogin(_ on: Bool, byUser: Bool) {
+        objectWillChange.send()
+        let service = SMAppService.mainApp
+        var succeeded = true
+        do {
+            if on {
+                try service.register()
+            } else {
+                try service.unregister()
             }
+            launchAtLoginError = nil
+        } catch {
+            succeeded = false
+            launchAtLoginError = error.localizedDescription
+        }
+        // 注册上了，只是用户以前在系统设置里关掉过：报错没用，要去「登录项」里允许
+        launchAtLoginNeedsApproval = on && service.status == .requiresApproval
+        if launchAtLoginNeedsApproval {
+            succeeded = true
+            launchAtLoginError = nil
+            if byUser { SMAppService.openSystemSettingsLoginItems() }
+        }
+        if FirstLaunch.clearsLoginItemPending(enabling: on, succeeded: succeeded, bundlePath: Bundle.main.bundlePath) {
+            defaults.removeObject(forKey: FirstLaunch.loginItemPendingKey)
         }
     }
 

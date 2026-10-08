@@ -57,9 +57,11 @@ struct PopoverRoot: View {
                 // 心情和台词一次算出来。面板每次重画都按当前时间算；快照每分钟至少变一次（读取出错时还有 store.tick），和菜单栏同步
                 let status = PetStatus.of(snapshot, failed: store.errors[selected] != nil, memory: store.memory[selected] ?? PetMemory(),
                                           now: Date(), lateNight: state.chat.lateNight)
-                let pet = selected == focus ? animator : headerAnimator
+                let onMenuBar = selected == focus
+                let pet = onMenuBar ? animator : headerAnimator
                 let look = PetLook(mood: status.mood,
-                                   style: PetStyle.of(selected, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle))
+                                   style: PetStyle.of(selected, claudeStyle: settings.petStyle, codexStyle: settings.codexPetStyle),
+                                   onMenuBar: onMenuBar)
                 OverviewView(
                     snapshot: snapshot,
                     errorMessage: store.errors[selected],
@@ -80,7 +82,11 @@ struct PopoverRoot: View {
                         pet.react(mood: status.mood, annoyed: poke.annoyed)
                         return poke.line
                     })
-                    .onChange(of: look, initial: true) { _, look in headerAnimator.show(mood: look.mood, style: look.style) }
+                    // 表情也按这次算的心情：标签、台词、戳的反应都是按它来的。看的是菜单栏上那家时就是菜单栏的 animator，
+                    // 它平时只在新快照、每分钟时重算，面板在别的时候重画（比如跨过「刚恢复」「歇着」的时间门槛）会对不上一会儿
+                    .onChange(of: look, initial: true) { _, look in
+                        (look.onMenuBar ? animator : headerAnimator).show(mood: look.mood, style: look.style)
+                    }
             case .settings:
                 let claude = store.snapshot(for: .claude)
                 SettingsView(settings: settings,
@@ -97,10 +103,11 @@ struct PopoverRoot: View {
     }
 }
 
-/// 面板上的宠物长什么样：哪种心情、哪个形象
+/// 面板上的宠物长什么样：哪种心情、哪个形象，用的是不是菜单栏上那只（同一个 animator）
 struct PetLook: Equatable {
     var mood: PetMood
     var style: PetStyle
+    var onMenuBar: Bool
 }
 
 /// 跟着动画走的宠物

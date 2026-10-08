@@ -18,4 +18,17 @@ public enum FirstLaunch {
     public static func isInApplicationsFolder(_ bundlePath: String) -> Bool {
         bundlePath.contains("/Applications/") && !bundlePath.contains("/AppTranslocation/")
     }
+
+    /// 开关了一次开机自启之后，能不能清掉 loginItemPendingKey（不再等到「应用程序」文件夹里再替用户打开）：
+    /// 关掉成功了（用户不要）；打开成功了、又是在「应用程序」里运行的（在「下载」或临时目录里注册的路径之后用不了）。失败了都留着
+    public static func clearsLoginItemPending(enabling: Bool, succeeded: Bool, bundlePath: String) -> Bool {
+        succeeded && (!enabling || isInApplicationsFolder(bundlePath))
+    }
+
+    /// 同时有几个 QuotaPet 在运行时留哪一个：最早启动的（同时启动的按 pid）。pid 会循环使用，不能只比 pid。
+    /// 每个实例都按同样的规则挑，所以两个同时打开时只会留下一个，不会两个都退出
+    public static func launchedEarlier(_ a: (launched: Date?, pid: Int32), than b: (launched: Date?, pid: Int32)) -> Bool {
+        let ta = a.launched ?? .distantFuture, tb = b.launched ?? .distantFuture
+        return ta != tb ? ta < tb : a.pid < b.pid
+    }
 }

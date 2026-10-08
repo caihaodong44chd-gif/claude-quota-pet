@@ -57,8 +57,10 @@ public enum WindowInference {
         return drop > 0 && (b == 0 || drop >= max(3, a / 2))
     }
 
+    /// origin：之前推出来的窗口开始时间（见 ClaudeProvider 的 weeklyOrigin）。它之前的使用都属于更早、已经结束的窗口，
+    /// 从它接着推；不然本机日志只留 8 天，最早的请求滚出去之后从剩下的推，按第一次使用定的起点会每天往后挪
     public static func infer(samples: [UsageSample], activity: [Date], duration: TimeInterval, now: Date,
-                             knownResets: [Date] = [], fixedCadence: Bool = false) -> WindowInferenceResult {
+                             knownResets: [Date] = [], fixedCadence: Bool = false, origin: Date? = nil) -> WindowInferenceResult {
         let exact = activity.filter { $0 <= now }.sorted()
         var events = exact
         var anchors: [Anchor] = []
@@ -72,8 +74,10 @@ public enum WindowInference {
             if isReset(from: a.value, to: b.value) {
                 anchors.append(Anchor(after: a.time, by: b.time, newUsage: b.value > 0, observed: a.value - b.value >= 3))
             }
-            if b.value > a.value {
-                // 读数上涨：这段时间里有使用。本机已经有精确请求记录的话，就不用这个粗略的时间点
+            // 读数上涨：这段时间里有使用。隔了一个窗口以上还不是 0（比如 5 小时额度隔了一夜 50 → 30、100 → 100）也一样：
+            // 之前的窗口早就结束了，这个读数是这段时间里新开的窗口的，不然会被当成上一个窗口的读数，一直用到下次本机使用
+            if b.value > a.value || (b.value > 0 && b.time.timeIntervalSince(a.time) >= duration) {
+                // 本机已经有精确请求记录的话，就不用这个粗略的时间点
                 let lo = max(a.time, b.time.addingTimeInterval(-sampleSpacing))
                 if firstEvent(in: exact, after: lo, upTo: b.time) == nil {
                     events.append(lo.addingTimeInterval(b.time.timeIntervalSince(lo) / 2))
@@ -99,11 +103,14 @@ public enum WindowInference {
             let window = cycle(from: reset, duration: duration, now: now)
             return WindowInferenceResult(current: window, lastReset: window.start, fromCadence: true)
         }
-        events.sort()
-
         var start: Date?
         var lastReset: Date?
         var nextAnchor = 0
+        if let origin, origin <= now {
+            events = events.filter { $0 > origin } + [origin]
+            lastReset = origin  // 上一个窗口最晚在这时结束：更早的读数不属于之后的窗口
+        }
+        events.sort()
 
         // 处理 t 之前生效的锚点：当前窗口若开始于重置之前，说明它已经在锚点处被重置
         func applyAnchors(upTo t: Date) {

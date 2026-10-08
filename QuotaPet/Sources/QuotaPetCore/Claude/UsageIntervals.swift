@@ -31,8 +31,12 @@ public struct UsageInterval: Codable, Equatable, Sendable {
         return to - from
     }
 
+    /// 区间结束后要等这么久才切：一个响应会分好几行写进日志，时间按最后一行算（和 usage_lab.py 一样），
+    /// 切早了它可能先算进这一段、写完后又算进下一段，记录是只追加的，会重复算。实际日志里同一个响应的各行最多隔几分钟
+    static let settleDelay: TimeInterval = 5 * 60
+
     /// 从官方读数和本机请求里切出完整的区间。只要正常的间隔（≤ 20 分钟，说明桌面端一直开着），
-    /// 并且已经结束 2 分钟以上（晚写进日志的请求也算进来了）。requests 要按时间排序。
+    /// 并且已经结束 settleDelay 以上（晚写进日志的请求也算进来了）。requests 要按时间排序。
     /// since：requests 从什么时候开始是全的（扫描器的保留期）。桌面端的读数可能早得多，更早开始的区间
     /// 本机花费看不全，会被当成 0 记进只追加的记录里，所以不切
     public static func extract(samples: [PlanUsageSample], requests: [ClaudeRequest], since: Date = .distantPast,
@@ -41,7 +45,7 @@ public struct UsageInterval: Codable, Equatable, Sendable {
         var first = 0
         for (a, b) in zip(samples, samples.dropFirst()) {
             let span = b.time.timeIntervalSince(a.time)
-            guard span > 0, span <= 20 * 60, a.time >= since, b.time <= now.addingTimeInterval(-120) else { continue }
+            guard span > 0, span <= 20 * 60, a.time >= since, b.time <= now.addingTimeInterval(-settleDelay) else { continue }
             while first < requests.count, requests[first].time <= a.time { first += 1 }
             var interval = UsageInterval(start: a.time, end: b.time, sessionFrom: a.session, sessionTo: b.session,
                                          weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0, cacheReadUSD: 0,
@@ -73,7 +77,9 @@ public final class IntervalArchive {
     }
 
     public let url: URL
+    /// 文件里的和还没写进去的（写失败了，下次合并时再写）
     private var byEnd: [Int64: UsageInterval] = [:]
+    private var unsaved: Set<Int64> = []
     private var loaded = false
 
     public init(url: URL = IntervalArchive.defaultURL) {
@@ -85,21 +91,31 @@ public final class IntervalArchive {
         return byEnd.values.sorted { $0.end < $1.end }
     }
 
-    /// 合并新切出来的区间，没记过的（或者能补全旧记录的）追加到文件末尾；返回写了几条
+    /// 合并新切出来的区间，没记过的（或者能补全旧记录的）追加到文件末尾；返回写了几条。
+    /// 写失败的先留在内存里（照样用来学习），下次合并时再写
     @discardableResult
     public func merge(_ newIntervals: [UsageInterval]) -> Int {
         load()
+        for interval in newIntervals {
+            guard let key = Self.key(interval), byEnd[key].map({ Self.canUpgrade($0, to: interval) }) ?? true else { continue }
+            byEnd[key] = interval
+            unsaved.insert(key)
+        }
+        guard !unsaved.isEmpty else { return 0 }
         var lines = Data()
-        var added = 0
-        for interval in newIntervals where byEnd[Self.key(interval)].map({ Self.canUpgrade($0, to: interval) }) ?? true {
-            byEnd[Self.key(interval)] = interval
-            guard let line = try? Self.encoder.encode(interval) else { continue }
+        var written: [Int64] = []
+        for key in unsaved.sorted() {
+            guard let interval = byEnd[key], let line = try? Self.encoder.encode(interval) else {
+                unsaved.remove(key)  // 编码不了的（比如花费是 NaN）再试也一样
+                continue
+            }
             lines.append(line)
             lines.append(0x0A)
-            added += 1
+            written.append(key)
         }
-        if !lines.isEmpty { append(lines) }
-        return added
+        guard !lines.isEmpty, append(lines) else { return 0 }
+        unsaved.subtract(written)
+        return written.count
     }
 
     private func load() {
@@ -107,20 +123,33 @@ public final class IntervalArchive {
         loaded = true
         guard let data = try? Data(contentsOf: url) else { return }
         for line in data.split(separator: 0x0A) {
-            if let interval = try? Self.decoder.decode(UsageInterval.self, from: Data(line)) {
-                byEnd[Self.key(interval)] = interval
+            // 写坏了的行（写到一半、时间离谱）跳过，别让一行坏数据每次启动都崩
+            if let interval = try? Self.decoder.decode(UsageInterval.self, from: Data(line)), let key = Self.key(interval) {
+                byEnd[key] = interval
             }
         }
     }
 
-    private func append(_ lines: Data) {
+    /// 追加到文件末尾，成功才返回 true。上次写到一半（文件不是以换行结尾）时先补一个换行，不然这次的第一行会接在坏行后面一起作废
+    private func append(_ lines: Data) -> Bool {
         let fm = FileManager.default
         try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        guard let handle = try? FileHandle(forUpdating: url) else { return false }
         defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: lines)
+        do {
+            var data = lines
+            let end = try handle.seekToEnd()
+            if end > 0 {
+                try handle.seek(toOffset: end - 1)
+                if try handle.read(upToCount: 1) != Data([0x0A]) { data.insert(0x0A, at: 0) }
+                try handle.seekToEnd()
+            }
+            try handle.write(contentsOf: data)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// 旧版本记下的区间没有缓存读花费。本机日志还在（花费对得上）时，用新切出来的再记一行；
@@ -129,8 +158,11 @@ public final class IntervalArchive {
         old.cacheReadUSD == nil && new.cacheReadUSD != nil && abs(old.usd - new.usd) < 0.01
     }
 
-    static func key(_ interval: UsageInterval) -> Int64 {
-        Int64((interval.end.timeIntervalSince1970 * 1000).rounded())
+    /// 按结束时间（毫秒）去重；时间不合理（文件写坏了）时是 nil，这一条不用
+    static func key(_ interval: UsageInterval) -> Int64? {
+        let start = interval.start.timeIntervalSince1970, end = interval.end.timeIntervalSince1970
+        guard start.isFinite, end.isFinite, start >= 0, start <= end, end < 1e11 else { return nil }  // 1e11 秒约是公元 5000 年
+        return Int64((end * 1000).rounded())
     }
 
     // 时间存成毫秒时间戳（和桌面端的 plan-usage-history.json 一样），读回来不丢精度

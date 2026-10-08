@@ -20,10 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 只保留一个实例（重复打开时直接退出）
-        if let id = Bundle.main.bundleIdentifier,
-           NSRunningApplication.runningApplications(withBundleIdentifier: id).count > 1 {
-            NSApp.terminate(nil)
+        // 只保留一个实例：已经有一个先启动了（比如另一个位置的副本），就请它把宠物叫出来，自己退出
+        if let primary = Self.earlierInstance() {
+            Self.revealAndQuit(primary)
             return
         }
 
@@ -39,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 下载版等到在「应用程序」文件夹里打开时再开（用户自己在设置里开关过就不管了，见 AppSettings.launchAtLogin）
         if enableLoginItem
             || (defaults.bool(forKey: FirstLaunch.loginItemPendingKey) && FirstLaunch.isInApplicationsFolder(Bundle.main.bundlePath)) {
-            settings.launchAtLogin = true
+            settings.setLaunchAtLogin(true, byUser: false)
         }
         store = UsageStore(providers: demo ? [DemoProvider(), DemoCodexProvider()] : [ClaudeProvider(), CodexProvider()],
                            settings: settings)
@@ -52,10 +51,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !demo {  // 演示模式的数据一直在变，不发通知
             notifier.start()
-            store.onUpdate = { [weak self] old, new in self?.notifier.process(old: old, new: new) }
+            store.onUpdate = { [weak self] old, new, settingsChanged in
+                self?.notifier.process(old: old, new: new, settingsChanged: settingsChanged)
+            }
         }
         store.start()
         if firstLaunch { statusController.reveal(untilQuit: true) }
+    }
+
+    /// 比自己先启动的另一个 QuotaPet（几个都比自己早就挑最早的）；自己就是最早的时候是 nil
+    private static func earlierInstance() -> NSRunningApplication? {
+        guard let id = Bundle.main.bundleIdentifier else { return nil }
+        let me = NSRunningApplication.current
+        func key(_ app: NSRunningApplication) -> (launched: Date?, pid: Int32) { (app.launchDate, app.processIdentifier) }
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .filter { $0.processIdentifier != me.processIdentifier && !$0.isTerminated }
+        guard let first = others.min(by: { FirstLaunch.launchedEarlier(key($0), than: key($1)) }),
+              FirstLaunch.launchedEarlier(key(first), than: key(me)) else { return nil }
+        return first
+    }
+
+    /// 重新打开正在运行的那个：它会收到 applicationShouldHandleReopen，把藏起来的宠物叫出来。之后自己退出
+    private static func revealAndQuit(_ primary: NSRunningApplication) {
+        guard let url = primary.bundleURL else {
+            NSApp.terminate(nil)
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     private static var isFirstLaunch: Bool {

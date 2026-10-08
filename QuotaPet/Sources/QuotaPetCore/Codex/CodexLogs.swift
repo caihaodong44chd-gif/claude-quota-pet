@@ -71,7 +71,7 @@ public struct CodexRateReading: Equatable, Sendable {
 }
 
 /// 增量读取 Codex 的对话日志（~/.codex 下 sessions 和 archived_sessions 里的 *.jsonl），只取额度读数。
-/// 日志加起来可能有几百 MB：第一次从最近改过的文件往前读，读到最新的一次读数、再往前一天就停；
+/// 日志加起来可能有几百 MB：第一次从最近改过的文件往前读，读到一条比「现在 − 25 小时」还早的读数就停（算消耗速度的起点）；
 /// 之后每个文件只读新追加的部分。
 public final class CodexLogScanner {
     public static var defaultHome: URL {
@@ -84,7 +84,7 @@ public final class CodexLogScanner {
     public let home: URL
     /// 只保留这么久以内的读数（免费版的窗口是 30 天，多留一天）
     public let retention: TimeInterval
-    /// 第一次读时，比最新读数早这么久的文件不用读：算消耗速度最多往回看 24 小时
+    /// 第一次读时要读到这么久以前：算消耗速度最多往回看 24 小时，起点是那之前的最后一次读数
     static let backfill: TimeInterval = 25 * 3600
 
     /// 对话日志所在的目录。~/.codex 下别的文件（auth.json 登录凭据、数据库等）都不碰
@@ -95,7 +95,6 @@ public final class CodexLogScanner {
     private var cursors: [String: LineCursor] = [:]
     /// 按「时间 + 额度桶」去重：对话归档时文件会从 sessions 挪到 archived_sessions，同一条读数会再读到一次
     private var readings: [String: CodexRateReading] = [:]
-    private var latestMain: Date?
     public private(set) var trackedFiles = 0
 
     public init(home: URL = CodexLogScanner.defaultHome, retention: TimeInterval = 31 * 86400) {
@@ -119,29 +118,37 @@ public final class CodexLogScanner {
             }
         }
 
+        // 算消耗速度的起点：回看开始之前的最后一次读数（Codex 总额度）。文件里的读数都不晚于它的修改时间，
+        // 所以比这条读数还早改过的文件里不会有更近的起点。按现在算，不按最新读数算：最新读数可能就是几分钟前的
+        let horizon = now.addingTimeInterval(-Self.backfill)
+        var base = readings.values.filter { $0.isMain && $0.time <= horizon }.map(\.time).max()
         var seen = Set<String>()
         for file in files.sorted(by: { $0.modified > $1.modified }) {  // 新的先读
             let path = file.url.path
             seen.insert(path)
-            if cursors[path] == nil, let latestMain, file.modified < latestMain.addingTimeInterval(-Self.backfill) {
-                // 第一次见到、又比最新读数早一天以上：里面的读数用不上，只从末尾往后跟（接着旧对话聊时会追加）
+            if cursors[path] == nil, let base, file.modified < base {
+                // 第一次见到、里面的读数又比起点还早：用不上，只从末尾往后跟（接着旧对话聊时会追加）
                 cursors[path] = LineCursor(offset: file.size)
                 continue
             }
             var cursor = cursors[path] ?? LineCursor()
-            cursor.readAppended(from: file.url, size: file.size) { ingest(line: $0) }
+            cursor.readAppended(from: file.url, size: file.size) { line in
+                if let reading = ingest(line: line), reading.isMain, reading.time <= horizon, base.map({ reading.time > $0 }) ?? true {
+                    base = reading.time
+                }
+            }
             cursors[path] = cursor
         }
         cursors = cursors.filter { seen.contains($0.key) }
         trackedFiles = cursors.count
         readings = readings.filter { $0.value.time >= cutoff }
-        latestMain = readings.values.filter(\.isMain).map(\.time).max()
         return readings.values.sorted { $0.time < $1.time }
     }
 
-    func ingest(line: Data) {
-        guard let reading = CodexRateReading.parse(line: line) else { return }
+    @discardableResult
+    func ingest(line: Data) -> CodexRateReading? {
+        guard let reading = CodexRateReading.parse(line: line) else { return nil }
         readings["\(reading.time.timeIntervalSince1970)|\(reading.limitID ?? "")"] = reading
-        if reading.isMain, latestMain.map({ reading.time > $0 }) ?? true { latestMain = reading.time }
+        return reading
     }
 }

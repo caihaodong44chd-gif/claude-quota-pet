@@ -16,8 +16,9 @@ final class UsageStore: ObservableObject {
     /// 读取一直出错时快照和错误信息都不变，靠它让菜单栏和面板照样重算
     @Published private(set) var tick = Date()
 
-    /// 每次拿到某一家的新数据时回调（旧快照，新快照），用来发通知
-    var onUpdate: ((UsageSnapshot?, UsageSnapshot) -> Void)?
+    /// 每次拿到某一家的新数据时回调（旧快照，新快照，是不是改设置引起的），用来发通知。
+    /// 改设置引起的变化（关掉实时估算掉到 0%、再打开又涨回去）不是真的用量变化：只更新提醒记录，不发提醒
+    var onUpdate: ((UsageSnapshot?, UsageSnapshot, _ settingsChanged: Bool) -> Void)?
 
     private let providers: [UsageProvider]
     private let settings: AppSettings
@@ -32,6 +33,10 @@ final class UsageStore: ObservableObject {
     /// 正在算的几家，和算的时候又有新变化、算完要再算一次的几家
     private var running: Set<ProviderID> = []
     private var again: Set<ProviderID> = []
+    /// 改了设置、要按新设置重算的几家：下一次开始算的那次结果算「改设置引起的」。
+    /// 改设置时正在算的那次可能已经读到了新设置（另记在 settingsChangedRunning），也一样算
+    private var settingsChanged: Set<ProviderID> = []
+    private var settingsChangedRunning: Set<ProviderID> = []
     private var cancellables: Set<AnyCancellable> = []
 
     init(providers: [UsageProvider], settings: AppSettings) {
@@ -71,8 +76,11 @@ final class UsageStore: ObservableObject {
         Publishers.CombineLatest3(settings.$liveEstimate, settings.$autoLearn, settings.$weeklyResetAnchor)
             .dropFirst()
             .sink { [weak self] live, learn, anchor in
-                self?.applyConfig(AppSettings.providerConfig(liveEstimate: live, autoLearn: learn, weeklyResetAnchor: anchor))
-                self?.refresh([.claude])
+                guard let self else { return }
+                applyConfig(AppSettings.providerConfig(liveEstimate: live, autoLearn: learn, weeklyResetAnchor: anchor))
+                settingsChanged.insert(.claude)
+                if running.contains(.claude) { settingsChangedRunning.insert(.claude) }
+                refresh([.claude])
             }
             .store(in: &cancellables)
 
@@ -134,28 +142,31 @@ final class UsageStore: ObservableObject {
                 continue
             }
             running.insert(id)
+            let afterSettings = settingsChanged.remove(id) != nil
             queue.async { [weak self] in
                 let result = Result { try provider.snapshot(now: Date()) }
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated { self?.finish(id, result) }
+                    MainActor.assumeIsolated { self?.finish(id, result, afterSettings: afterSettings) }
                 }
             }
         }
     }
 
-    private func finish(_ id: ProviderID, _ result: Result<UsageSnapshot, Error>) {
+    private func finish(_ id: ProviderID, _ result: Result<UsageSnapshot, Error>, afterSettings: Bool) {
         running.remove(id)
+        let settingsChange = settingsChangedRunning.remove(id) != nil || afterSettings
         switch result {
         case .success(let new):
             let old = snapshot(for: id)
-            // 要在 snapshots 赋值之前记好：订阅者收到新快照时会来读
-            memory[id] = (memory[id] ?? PetMemory()).updated(from: old, to: new, now: new.generatedAt)
+            // 要在 snapshots 赋值之前记好：订阅者收到新快照时会来读。改设置引起的掉到 0% 不算「刚恢复」
+            memory[id] = (memory[id] ?? PetMemory()).updated(from: settingsChange ? nil : old, to: new, now: new.generatedAt)
             let next = providers.compactMap { $0.id == id ? new : snapshot(for: $0.id) }
             if next != snapshots { snapshots = next }
             if errors[id] != nil { errors[id] = nil }
-            onUpdate?(old, new)
+            onUpdate?(old, new, settingsChange)
         case .failure(let error):
             if errors[id] != error.localizedDescription { errors[id] = error.localizedDescription }
+            if settingsChange { settingsChanged.insert(id) }  // 这次没算出来，下一次成功的还算改设置引起的
         }
         if again.remove(id) != nil { refresh([id]) }
     }

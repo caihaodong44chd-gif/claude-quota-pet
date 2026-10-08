@@ -42,7 +42,8 @@ public func tr(_ zh: @autoclosure () -> String, _ en: @autoclosure () -> String)
     }
 }
 
-/// 英文的单复数：plural(1, "day") = "1 day"，plural(3, "day") = "3 days"
-public func plural(_ count: Int, _ word: String) -> String {
-    "\(count) \(word)\(count == 1 ? "" : "s")"
+/// 英文的单复数：plural(1, "day") = "1 day"，plural(3, "day") = "3 days"。
+/// 数字要换个写法时传 shown：plural(1_500, "token", shown: "1.5K") = "1.5K tokens"
+public func plural(_ count: Int, _ word: String, shown: String? = nil) -> String {
+    "\(shown ?? "\(count)") \(word)\(count == 1 ? "" : "s")"
 }
