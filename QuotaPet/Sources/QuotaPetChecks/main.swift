@@ -185,7 +185,8 @@ for (model, input, cacheRead, output) in [
     ("claude-opus-6", 4, 0.2, 20),  // 还没收录的新版本按当前这一代算
     ("claude-fable-5-1", 10, 0.25, 50), ("claude-fable-5", 10, 1, 50), ("claude-mythos-5-1", 10, 0.25, 50),
     ("claude-sonnet-5", 2, 0.2, 10), ("claude-sonnet-4-6", 3, 0.3, 15), ("claude-3-7-sonnet-20250219", 3, 0.3, 15),
-    ("claude-haiku-4-5-20251001", 1, 0.1, 5), ("anthropic.claude-3-5-haiku-20241022-v1:0", 0.8, 0.08, 4),
+    ("claude-sonnet-5-5", 2, 0.2, 10),
+    ("claude-haiku-5-5", 0.1, 0.01, 0.5), ("claude-haiku-4-5-20251001", 1, 0.1, 5), ("anthropic.claude-3-5-haiku-20241022-v1:0", 0.8, 0.08, 4),
 ] {
     let p = ClaudePricing.price(model: model, family: ModelFamily.of(model: model)!)
     check(p.input == input && p.cacheRead == cacheRead && p.output == output, "\(model) 的价格：\(p)")
@@ -195,6 +196,24 @@ do {  // 日志里是老版本时，扫描出来的请求按老价格算
     scanner.ingest(line: Data(logLine("o5", "2026-09-25T02:00:00.000Z", "claude-opus-5", output: 10_000, cacheRead: 1_000_000).utf8), path: "x")
     let r = scanner.refresh(now: at(25, 23)).first
     check(r?.family == .opus && near(r?.usd, 0.75) && near(r?.cacheReadUSD, 0.5), "Opus 5：1 万输出 $0.25 + 100 万缓存读 $0.5：\(r?.usd ?? -1)")
+}
+
+do {  // Haiku 5.5 按提示词（输入 + 缓存写 + 缓存读）长短分两档：10 万 token 以内 $0.10 / $0.50，超过的整个请求 5 倍
+    let p = ClaudePricing.price(model: "claude-haiku-5-5", family: .haiku)
+    let short = TokenCounts(cacheRead: 100_000, output: 10_000)
+    check(near(ClaudePricing.cost(p, short), 0.006) && near(ClaudePricing.cacheReadCost(p, short), 0.001),
+          "Haiku 5.5：提示词正好 10 万还按低档：\(ClaudePricing.cost(p, short))")
+    let long = TokenCounts(input: 1, cacheRead: 100_000, output: 10_000)
+    check(near(ClaudePricing.cost(p, long), 0.0300005) && near(ClaudePricing.cacheReadCost(p, long), 0.005),
+          "Haiku 5.5：提示词超过 10 万，整个请求按高档：\(ClaudePricing.cost(p, long))")
+    let haiku45 = ClaudePricing.price(model: "claude-haiku-4-5", family: .haiku)
+    check(near(ClaudePricing.cost(haiku45, long), 0.060001), "Haiku 4.5 不分档")
+    // 同一个响应拆成几行时取各字段最大值，合起来超过 10 万就按高档
+    let scanner = ClaudeTranscriptScanner(root: tmp, retention: 365 * 86400)
+    scanner.ingest(line: Data(logLine("h55", "2026-09-25T02:00:00.000Z", "claude-haiku-5-5", output: 10_000, cacheRead: 90_000).utf8), path: "x")
+    scanner.ingest(line: Data(logLine("h55", "2026-09-25T02:00:01.000Z", "claude-haiku-5-5", input: 20_000, cacheRead: 90_000).utf8), path: "x")
+    let r = scanner.refresh(now: at(25, 23))
+    check(r.count == 1 && near(r.first?.usd, 0.0045 + 0.01 + 0.025), "Haiku 5.5：合并后的提示词 11 万按高档：\(r.first?.usd ?? -1)")
 }
 
 check(ClaudeRates.starting.usdPerSessionPercent == 0.27 && ClaudeRates.starting.usdPerWeeklyPercent == 2.0,
