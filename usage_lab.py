@@ -31,13 +31,14 @@ HISTORY = HOME + "/Library/Application Support/Claude/plan-usage-history.json"
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots.jsonl")
 
 # 官方 API 价格，$/百万 tokens：输入, 5分钟缓存写, 1小时缓存写, 缓存读, 输出
-# 来源：platform.claude.com/docs/en/about-claude/pricing（2026-09）
-# 各模型族当前这一代（Fable 5.1、Opus 5.5、Sonnet 5、Haiku 4.5），与 ClaudePricing.currentPrice 一致
+# 按提示词长短分两档的模型后面再跟两项：提示词超过多少 token、超过时各项乘几（与 ModelPrice.longPromptAbove 一致）
+# 来源：platform.claude.com/docs/en/about-claude/pricing（2026-10）
+# 各模型族当前这一代（Fable 5.1、Opus 5.5、Sonnet 5.5、Haiku 5.5），与 ClaudePricing.currentPrice 一致
 PRICES = {
     "fable": (10, 12.5, 20, 0.25, 50),
     "opus": (4, 5, 8, 0.20, 20),
     "sonnet": (2, 2.5, 4, 0.20, 10),
-    "haiku": (1, 1.25, 2, 0.10, 5),
+    "haiku": (0.1, 0.125, 0.2, 0.01, 0.5, 100_000, 5),  # Haiku 5.5：提示词超过 10 万 token 的整个请求 $0.50 / $2.50
 }
 # 同一族里更老、价格不一样的版本：版本号低于第一项的按第二项算，从新到旧排（与 ClaudePricing.olderPrices 一致）。
 # 模型名里读不出版本号的（或者是还没收录的新版本）按 PRICES 算
@@ -46,7 +47,8 @@ OLDER_PRICES = {
     "opus": [((5, 5), (5, 6.25, 10, 0.50, 25)),          # Opus 4.5～5
              ((4, 5), (15, 18.75, 30, 1.50, 75))],       # Opus 4、4.1
     "sonnet": [((5, 0), (3, 3.75, 6, 0.30, 15))],        # Sonnet 4.6 及更早
-    "haiku": [((4, 5), (0.8, 1, 1.6, 0.08, 4))],         # Haiku 3.5（Bedrock 等还能用）
+    "haiku": [((5, 5), (1, 1.25, 2, 0.10, 5)),          # Haiku 4.5
+              ((4, 5), (0.8, 1, 1.6, 0.08, 4))],         # Haiku 3.5（Bedrock 等还能用）
 }
 # 缓存读在额度里大约只算 API 价格的一半（与 ClaudePricing.cacheReadQuotaWeight 一致）
 CACHE_READ_WEIGHT = 0.5
@@ -99,8 +101,16 @@ def price(model, fam):
     return p
 
 
+def applied(p, tok):
+    """这个请求实际用的价格（和 ModelPrice.applied 一样）：分档的模型提示词（输入 + 缓存写 + 缓存读）超过门槛时各项乘倍数"""
+    if len(p) > 5 and sum(tok[k] for k in FIELDS if k != "out") > p[5]:
+        return tuple(x * p[6] for x in p[:5])
+    return p[:5]
+
+
 def cost(p, tok):
     """API 等价花费，p 是 price() 给的价格"""
+    p = applied(p, tok)
     return sum(tok[k] * p[i] for i, k in enumerate(FIELDS)) / 1e6
 
 
@@ -185,7 +195,7 @@ def bucket(reqs, t0, t1):
             for k in FIELDS:
                 x["tok"][k] += r["tok"][k]
             x["usd"] += cost(r["price"], r["tok"])
-            x["cr_usd"] += r["tok"]["cr"] * r["price"][3] / 1e6
+            x["cr_usd"] += r["tok"]["cr"] * applied(r["price"], r["tok"])[3] / 1e6
             x["price"] = r["price"]
     return out
 

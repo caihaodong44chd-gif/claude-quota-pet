@@ -59,7 +59,7 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - `UsageStore` 按数据源分开刷新：文件变了只重算那一家（`providersAffected`），每分钟兜底全部重算，也顺便给启动后才出现的目录补上监听。
   - 只解析带 `rate_limits` 的行，只取时间和额度字段；`~/.codex` 下别的文件（`auth.json` 登录凭据、数据库）都不碰。
 - **和 `usage_lab.py` 要保持一致的地方**，改一边就要改另一边（只涉及 Claude；Codex 不用估算，usage_lab 里没有它）：
-  - `ClaudePricing.currentPrice` 对应 `PRICES`（各族当前这一代），`olderPrices` 对应 `OLDER_PRICES`（同一族里价格不一样的老版本），`cacheReadQuotaWeight` 对应 `CACHE_READ_WEIGHT`，`ClaudeRates.starting` 对应 `STARTING`，`OtherUsage.threshold` 对应 `OTHER_THRESHOLD`
+  - `ClaudePricing.currentPrice` 对应 `PRICES`（各族当前这一代），`olderPrices` 对应 `OLDER_PRICES`（同一族里价格不一样的老版本），按提示词长短分档（`ModelPrice.longPromptAbove` / `longPromptMultiplier`，现在只有 Haiku 5.5：输入 + 缓存写 + 缓存读超过 10 万 token 的整个请求 5 倍）对应 `PRICES` 元组的后两项和 `applied()`，`cacheReadQuotaWeight` 对应 `CACHE_READ_WEIGHT`，`ClaudeRates.starting` 对应 `STARTING`，`OtherUsage.threshold` 对应 `OTHER_THRESHOLD`
   - `ModelFamily.of` 对应 `family()`：按模型名里的子串匹配（Mythos 算 Fable），名字里不含 fable、mythos、opus、sonnet、haiku 的新模型族不会计价，要加 case 和价格
   - `ClaudePricing.version` / `price(model:family:)` 对应 `version()` / `price()`：每个请求按模型名里的版本号定价（`claude-opus-5` 按 Opus 5 的价格，不是 Opus 5.5 的）。出了新一代、价格变了时，把旧的当前价挪进老版本表，再改当前价
   - `ClaudeTranscripts` 的解析规则：按 `message.id` 去重、同一个响应的各字段取最大值、跳过 synthetic 和写到一半的行（限流消息只有 App 读，usage_lab 不需要）

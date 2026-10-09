@@ -29,6 +29,8 @@ public struct TokenCounts: Equatable, Sendable {
     }
 
     public var total: Int { input + cacheWrite5m + cacheWrite1h + cacheRead + output }
+    /// 提示词长度：输入 + 缓存写 + 缓存读，按长短分档定价时看它
+    public var prompt: Int { input + cacheWrite5m + cacheWrite1h + cacheRead }
 
     /// 同一个响应在流式写入时会出现多行，各字段取最大值
     public mutating func formMax(_ other: TokenCounts) {
@@ -47,17 +49,30 @@ public struct ModelPrice: Equatable, Sendable {
     public var cacheWrite1h: Double
     public var cacheRead: Double
     public var output: Double
+    /// 按提示词长短分两档的模型（Haiku 5.5）：提示词超过这么多 token 时，这个请求的各项价格都乘 longPromptMultiplier
+    public var longPromptAbove: Int? = nil
+    public var longPromptMultiplier: Double = 1
+
+    /// 这个请求实际用的价格
+    public func applied(to t: TokenCounts) -> ModelPrice {
+        guard let above = longPromptAbove, t.prompt > above else { return self }
+        let k = longPromptMultiplier
+        return ModelPrice(input: input * k, cacheWrite5m: cacheWrite5m * k, cacheWrite1h: cacheWrite1h * k, cacheRead: cacheRead * k,
+                          output: output * k)
+    }
 }
 
 public enum ClaudePricing {
-    /// 各模型族当前这一代的价格（Fable 5.1、Opus 5.5、Sonnet 5、Haiku 4.5），与 usage_lab.py 的 PRICES 保持一致。
-    /// 来源：platform.claude.com/docs/en/about-claude/pricing（2026-09）。用 switch 写：加了新的模型族忘了写价格会编译不过
+    /// 各模型族当前这一代的价格（Fable 5.1、Opus 5.5、Sonnet 5.5、Haiku 5.5），与 usage_lab.py 的 PRICES 保持一致。
+    /// 来源：platform.claude.com/docs/en/about-claude/pricing（2026-10）。用 switch 写：加了新的模型族忘了写价格会编译不过
     public static func currentPrice(_ family: ModelFamily) -> ModelPrice {
         switch family {
         case .fable: return ModelPrice(input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50)
         case .opus: return ModelPrice(input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.20, output: 20)
         case .sonnet: return ModelPrice(input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.20, output: 10)
-        case .haiku: return ModelPrice(input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.10, output: 5)
+        // Haiku 5.5：提示词 10 万 token 以内 $0.10 / $0.50，超过的整个请求 $0.50 / $2.50
+        case .haiku: return ModelPrice(input: 0.1, cacheWrite5m: 0.125, cacheWrite1h: 0.2, cacheRead: 0.01, output: 0.5,
+                                       longPromptAbove: 100_000, longPromptMultiplier: 5)
         }
     }
 
@@ -75,7 +90,10 @@ public enum ClaudePricing {
             ((4, 5), ModelPrice(input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75)),  // Opus 4、4.1
         ],
         .sonnet: [((5, 0), ModelPrice(input: 3, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3, output: 15))],  // Sonnet 4.6 及更早
-        .haiku: [((4, 5), ModelPrice(input: 0.8, cacheWrite5m: 1, cacheWrite1h: 1.6, cacheRead: 0.08, output: 4))],  // Haiku 3.5（Bedrock 等还能用）
+        .haiku: [
+            ((5, 5), ModelPrice(input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.10, output: 5)),      // Haiku 4.5
+            ((4, 5), ModelPrice(input: 0.8, cacheWrite5m: 1, cacheWrite1h: 1.6, cacheRead: 0.08, output: 4)),    // Haiku 3.5（Bedrock 等还能用）
+        ],
     ]
 
     /// 某个模型的价格：先按族取当前这一代的，模型名里的版本号更老时换成那一代的
@@ -109,6 +127,7 @@ public enum ClaudePricing {
 
     /// API 等价花费（美元）
     public static func cost(_ p: ModelPrice, _ t: TokenCounts) -> Double {
+        let p = p.applied(to: t)
         let sum = Double(t.input) * p.input
             + Double(t.cacheWrite5m) * p.cacheWrite5m
             + Double(t.cacheWrite1h) * p.cacheWrite1h
@@ -119,7 +138,7 @@ public enum ClaudePricing {
 
     /// 其中缓存读的部分（美元）
     public static func cacheReadCost(_ p: ModelPrice, _ t: TokenCounts) -> Double {
-        Double(t.cacheRead) * p.cacheRead / 1e6
+        Double(t.cacheRead) * p.applied(to: t).cacheRead / 1e6
     }
 
     /// 额度加权花费：API 等价花费，但缓存读打折。实时估算和学习换算率都用它
