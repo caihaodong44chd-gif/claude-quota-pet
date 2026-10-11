@@ -131,8 +131,10 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
             recorded = archive.intervals
         }
         let starting = ClaudeRates.starting
-        let sessionFit = RateLearner.learn(recorded, delta: \.sessionDelta, prior: starting.usdPerSessionPercent)
-        let weeklyFit = RateLearner.learn(recorded, delta: \.weeklyDelta, prior: starting.usdPerWeeklyPercent)
+        // 按旧价格记下、花费里有 Haiku 的区间（Haiku 5.5 改价前）本机日志又不在了没法重算：花费不对，不拿来学
+        let learnable = recorded.filter { $0.isCurrentPriceBasis || !$0.hasHaikuSpend }
+        let sessionFit = RateLearner.learn(learnable, delta: \.sessionDelta, prior: starting.usdPerSessionPercent)
+        let weeklyFit = RateLearner.learn(learnable, delta: \.weeklyDelta, prior: starting.usdPerWeeklyPercent)
         let sessionRate = cfg.autoLearn ? sessionFit.usdPerPercent : starting.usdPerSessionPercent
         let weeklyRate = cfg.autoLearn ? weeklyFit.usdPerPercent : starting.usdPerWeeklyPercent
         let estimation = EstimationInfo(

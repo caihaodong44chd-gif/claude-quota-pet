@@ -80,6 +80,11 @@ public enum ClaudePricing {
     /// 长对话里缓存读占的成本很大，按原价算的话，换算率会随上下文变长一路漂高（产品规划第 7 节）。
     public static let cacheReadQuotaWeight = 0.5
 
+    /// 价格的版本。区间记录里存着当时按哪一版价格算的花费（UsageInterval.priceBasis）：价格表改了、
+    /// 已经存下的花费就不对了（比如 Haiku 5.5 改价之前记下的），改一次价就加一。
+    /// 1 = Haiku 5.5 改价之前（旧记录没有这个字段，当成 1），2 = Haiku 5.5 自己的价格
+    public static let basis = 2
+
     /// 同一族里更老、价格不一样的版本：版本号低于 below 的按 price 算，从新到旧排。与 usage_lab.py 的 OLDER_PRICES 保持一致。
     /// 模型名里读不出版本号的（或者是还没收录的新版本）按 currentPrice 算
     static let olderPrices: [ModelFamily: [(below: (Int, Int), price: ModelPrice)]] = [

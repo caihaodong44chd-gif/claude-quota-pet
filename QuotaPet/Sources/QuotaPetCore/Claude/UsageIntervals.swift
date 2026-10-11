@@ -19,6 +19,14 @@ public struct UsageInterval: Codable, Equatable, Sendable {
     public var usdByGroup: [String: Double]
     public var outputTokens: Int
     public var thinkingTokens: Int
+    /// 这段的花费是按哪一版价格算的（ClaudePricing.basis）；旧版本记下的没有这一项，当成 1
+    public var priceBasis: Int? = nil
+
+    /// 花费是按当前这版价格算的
+    public var isCurrentPriceBasis: Bool { (priceBasis ?? 1) >= ClaudePricing.basis }
+
+    /// 花费里有 Haiku：价格改过之后旧版本记下的这种区间花费不对，本机日志又不在了没法重算，就不拿来学换算率
+    public var hasHaikuSpend: Bool { usdByGroup.contains { $0.key.hasPrefix("haiku") && $0.value > 0 } }
 
     /// 这段时间里官方读数涨了多少；中间重置过就是 nil
     public var sessionDelta: Double? { Self.delta(sessionFrom, sessionTo) }
@@ -49,7 +57,7 @@ public struct UsageInterval: Codable, Equatable, Sendable {
             while first < requests.count, requests[first].time <= a.time { first += 1 }
             var interval = UsageInterval(start: a.time, end: b.time, sessionFrom: a.session, sessionTo: b.session,
                                          weeklyFrom: a.weekly, weeklyTo: b.weekly, requests: 0, usd: 0, cacheReadUSD: 0,
-                                         usdByGroup: [:], outputTokens: 0, thinkingTokens: 0)
+                                         usdByGroup: [:], outputTokens: 0, thinkingTokens: 0, priceBasis: ClaudePricing.basis)
             var i = first
             while i < requests.count, requests[i].time <= b.time {
                 let r = requests[i]
@@ -133,7 +141,9 @@ public final class IntervalArchive {
     /// 旧版本记下的区间没有缓存读花费。本机日志还在（花费对得上）时，用新切出来的再记一行；
     /// 读回来时同一段以后面那行为准，所以文件还是只追加
     static func canUpgrade(_ old: UsageInterval, to new: UsageInterval) -> Bool {
-        old.cacheReadUSD == nil && new.cacheReadUSD != nil && abs(old.usd - new.usd) < 0.01
+        // 价格表改过：旧价格算的花费用新价格重算的换掉（新切出来的才有本机日志，日志不在了的留着旧的）
+        if (old.priceBasis ?? 1) < (new.priceBasis ?? 1) { return true }
+        return old.cacheReadUSD == nil && new.cacheReadUSD != nil && abs(old.usd - new.usd) < 0.01
     }
 
     /// 按结束时间（毫秒）去重；时间不合理（文件写坏了）时是 nil，这一条不用

@@ -112,7 +112,7 @@ public enum ClaudeCLIReadings {
     /// 对不上的命令行读数不用：命令行登的可能是另一个账号，混进来会让百分比来回跳
     public static func merge(desktop: [PlanUsageSample], cli: [CLIReading]) -> [PlanUsageSample] {
         let org = desktop.last?.org ?? latest(cli)?.org
-        let extra = cli.filter { org == nil || $0.org == nil || $0.org == org }.compactMap(\.sample)
+        let extra = cli.filter { matches($0, org: org) }.compactMap(\.sample)
         guard !extra.isEmpty else { return desktop }
         return (desktop + extra).enumerated()
             .sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }
@@ -121,10 +121,17 @@ public enum ClaudeCLIReadings {
 
     private static func latest(_ cli: [CLIReading]) -> CLIReading? { cli.max { $0.time < $1.time } }
 
+    /// 读数是不是这个组织的。已经知道桌面端的组织时，读数里没有组织（命令行没给）就核对不了，不用；
+    /// 桌面端的组织也不知道时没法核对，都用
+    private static func matches(_ reading: CLIReading, org: String?) -> Bool {
+        guard let org else { return true }
+        return reading.org == org
+    }
+
     /// 能用的命令行读数（组织对得上的），按时间排序
     public static func usable(_ cli: [CLIReading], desktopOrg: String?) -> [CLIReading] {
         let org = desktopOrg ?? latest(cli)?.org
-        return cli.filter { org == nil || $0.org == nil || $0.org == org }.sorted { $0.time < $1.time }
+        return cli.filter { matches($0, org: org) }.sorted { $0.time < $1.time }
     }
 
     /// 最近一次读数里官方给的重置时间（5 小时、每周）
