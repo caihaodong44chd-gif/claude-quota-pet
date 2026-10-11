@@ -15,6 +15,9 @@ final class UsageStore: ObservableObject {
     /// 每次兜底刷新时走一下。宠物的心情和时间有关（刚恢复十分钟、闲了半小时），
     /// 读取一直出错时快照和错误信息都不变，靠它让菜单栏和面板照样重算
     @Published private(set) var tick = Date()
+    /// 「用命令行补官方读数」的状态，设置页上说明用；没有 Claude 数据源（演示模式）时是 nil
+    @Published private(set) var cliProbeStatus: ClaudeCLIProbeStatus?
+    private var cliProbe: CLIProbe?
 
     /// 每次拿到某一家的新数据时回调（旧快照，新快照，是不是改设置引起的），用来发通知。
     /// 改设置引起的变化（关掉实时估算掉到 0%、再打开又涨回去）不是真的用量变化：只更新提醒记录，不发提醒
@@ -43,6 +46,22 @@ final class UsageStore: ObservableObject {
         self.providers = providers
         self.settings = settings
         applyConfig(settings.providerConfig)
+        if let claude = providers.first(where: { $0 is ClaudeProvider }) as? ClaudeProvider, let archive = claude.cliArchive {
+            let probe = CLIProbe(settings: settings, archive: archive, desktopOrg: { claude.desktopOrg })
+            probe.onStatus = { [weak self] status in self?.cliProbeStatus = status }
+            probe.onReading = { [weak self] in self?.refresh([.claude]) }
+            cliProbe = probe
+            cliProbeStatus = probe.status
+        }
+    }
+
+    /// 命令行的位置（设置页上的登录命令要用）
+    var cliBinary: URL? { cliProbe?.binary }
+
+    /// 用户点了刷新：本机文件马上重读，打开了「用命令行补官方读数」的话也让命令行查一次
+    func refreshNow() {
+        refresh()
+        cliProbe?.requestNow()
     }
 
     /// 面板和菜单栏要显示的几家
@@ -72,16 +91,23 @@ final class UsageStore: ObservableObject {
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &cancellables)
 
-        // 改了实时估算 / 自动学习 / 每周重置时间，立刻重算（只影响 Claude）
-        Publishers.CombineLatest3(settings.$liveEstimate, settings.$autoLearn, settings.$weeklyResetAnchor)
+        // 改了实时估算 / 自动学习 / 每周重置时间 / 命令行读数，立刻重算（只影响 Claude）
+        Publishers.CombineLatest4(settings.$liveEstimate, settings.$autoLearn, settings.$weeklyResetAnchor, settings.$claudeCLIProbe)
             .dropFirst()
-            .sink { [weak self] live, learn, anchor in
+            .sink { [weak self] live, learn, anchor, cli in
                 guard let self else { return }
-                applyConfig(AppSettings.providerConfig(liveEstimate: live, autoLearn: learn, weeklyResetAnchor: anchor))
+                applyConfig(AppSettings.providerConfig(liveEstimate: live, autoLearn: learn, weeklyResetAnchor: anchor,
+                                                       useCLIReadings: cli))
                 settingsChanged.insert(.claude)
                 if running.contains(.claude) { settingsChangedRunning.insert(.claude) }
                 refresh([.claude])
             }
+            .store(in: &cancellables)
+
+        // 打开「用命令行补官方读数」：马上查一次，设置页上就有结果
+        settings.$claudeCLIProbe
+            .dropFirst()
+            .sink { [weak self] on in self?.cliProbe?.settingChanged(on: on) }
             .store(in: &cancellables)
 
         // 换了界面语言：快照里的窗口名、说明文字要用新语言重算
@@ -164,6 +190,7 @@ final class UsageStore: ObservableObject {
             if next != snapshots { snapshots = next }
             if errors[id] != nil { errors[id] = nil }
             onUpdate?(old, new, settingsChange)
+            if id == .claude { cliProbe?.consider(new) }
         case .failure(let error):
             if errors[id] != error.localizedDescription { errors[id] = error.localizedDescription }
             if settingsChange { settingsChanged.insert(id) }  // 这次没算出来，下一次成功的还算改设置引起的

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Claude 额度：官方读数（桌面端）+ 本机 Claude Code 日志实时估算 + 日志里的限流消息。不联网、不读凭据。
+/// Claude 额度：官方读数（桌面端；用户打开时还有官方命令行查到的）+ 本机 Claude Code 日志实时估算 + 日志里的限流消息。
+/// 这个类自己只读本机文件，不联网、不读凭据：命令行的读数是 App 另外存进文件的（见 ClaudeCLIReadings）。
 public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     public struct Config: Equatable, Sendable {
         /// 用本机日志估算两次官方读数之间的用量
@@ -9,6 +10,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         public var autoLearn = true
         /// 用户手动指定的某一次每周重置时间（之后每 7 天一次）；nil 表示自动推算
         public var weeklyResetAnchor: Date?
+        /// 用命令行查到的官方读数和重置时间（设置里的「用 Claude 命令行补官方读数」）；关掉就当没有这些读数
+        public var useCLIReadings = true
 
         public init() {}
     }
@@ -39,6 +42,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
 
     /// 存每周窗口推出来的开始时间（见 weeklyOrigin），和区间记录放在一起；nil 表示不落盘（自检用）
     public let originURL: URL?
+    /// 命令行查到的官方读数（见 ClaudeCLIReadings），和区间记录放在一起；nil 表示不读（自检用）
+    public let cliArchive: CLIReadingArchive?
 
     /// 最近一次 snapshot 用到的数据，--dump 调试用
     public private(set) var lastRequests: [ClaudeRequest] = []
@@ -47,6 +52,8 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     private let lock = NSLock()
     private var storedConfig = Config()
     private var historyCache: (mtime: Date, samples: [PlanUsageSample])?
+    private var cliCache: (mtime: Date, readings: [CLIReading])?
+    private var storedDesktopOrg: String?
     /// 每周额度还没看到过重置时，按第一次使用推出来的当前窗口的开始时间。下次从它接着推：本机日志只留 8 天，
     /// 不记着的话最早的请求每天滚出去一些，窗口的起点跟着往后挪（百分比只剩一两天的用量，旧请求滚出去时还会掉到 0、误报恢复）
     private var weeklyOrigin: Date?
@@ -58,6 +65,13 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         self.scanner = ClaudeTranscriptScanner(root: projectsURL)
         self.archive = archiveURL.map { IntervalArchive(url: $0) }
         self.originURL = archiveURL.map { $0.deletingLastPathComponent().appendingPathComponent("weekly-origin.json") }
+        self.cliArchive = archiveURL.map { CLIReadingArchive(url: $0.deletingLastPathComponent().appendingPathComponent("cli-readings.jsonl")) }
+    }
+
+    /// 桌面端读数里最近一次的组织：命令行登录的账号要和它对得上才用命令行的读数。可以从任意线程读
+    public var desktopOrg: String? {
+        lock.lock(); defer { lock.unlock() }
+        return storedDesktopOrg
     }
 
     /// 可以从任意线程设置
@@ -83,21 +97,29 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let limits = scanner.limitEvents
         var notes: [String] = []
 
-        let samples: [PlanUsageSample]
+        // 命令行查到的读数（用户打开了「用命令行补官方读数」才有）：有的话桌面端的读数缺着也不用提示
+        let cliReadings = cfg.useCLIReadings ? loadCLIReadings(now: now) : []
+        let desktop: [PlanUsageSample]
         switch loadHistory() {
         case .ok(let s):
-            samples = s
-            if s.isEmpty {
+            desktop = s
+            if s.isEmpty, cliReadings.isEmpty {
                 notes.append(tr("Claude 桌面端还没记录到额度，暂时只能用本机日志估算。",
                                 "The Claude desktop app hasn't recorded any usage yet, so for now everything is estimated from local logs."))
             }
         case .missing:
-            samples = []
-            notes.append(Self.missingHistoryNote)
+            desktop = []
+            if cliReadings.isEmpty { notes.append(Self.missingHistoryNote) }
         case .unreadable(let reason):
-            samples = []
+            desktop = []
             notes.append(tr("Claude 桌面端的额度记录读不了：\(reason)", "Can't read the Claude desktop app's usage history: \(reason)"))
         }
+        lock.lock()
+        storedDesktopOrg = desktop.last?.org
+        lock.unlock()
+        let usableCLI = ClaudeCLIReadings.usable(cliReadings, desktopOrg: desktop.last?.org)
+        let samples = ClaudeCLIReadings.merge(desktop: desktop, cli: usableCLI)
+        let officialResets = ClaudeCLIReadings.latestResets(usableCLI)
         lastRequests = requests
         lastSamples = samples
 
@@ -123,12 +145,13 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         let session = buildWindow(
             id: "five_hour", title: UsageWindow.sessionTitle, duration: Self.sessionDuration,
             series: sessionSeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / sessionRate },
-            resetAnchor: nil, limits: limits, live: cfg.liveEstimate, now: now)
+            resetAnchor: nil, officialReset: officialResets.session, limits: limits, live: cfg.liveEstimate, now: now)
         let origin = loadOrigin()
         let weekly = buildWindow(
             id: "seven_day", title: UsageWindow.weeklyTitle, duration: Self.weekDuration,
             series: weeklySeries, requests: requests, scale: 1, percentOf: { $0.quotaUSD / weeklyRate },
-            resetAnchor: cfg.weeklyResetAnchor, fixedCadence: true, limits: limits, origin: origin, live: cfg.liveEstimate, now: now)
+            resetAnchor: cfg.weeklyResetAnchor, officialReset: officialResets.weekly, fixedCadence: true, limits: limits,
+            origin: origin, live: cfg.liveEstimate, now: now)
         // 只记按第一次使用推出来的（看到过重置、手动指定、限流中的都有准确的时间）；窗口结束了还没再用时留着旧的
         if !weekly.scheduleKnown, let start = weekly.startedAt, start != origin { saveOrigin(start) }
 
@@ -141,9 +164,11 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
     /// 官方读数 + 读数之后的本机用量 = 当前百分比。本机用量 = Σ percentOf(请求) × scale
     /// limits 是限流消息（只用 window == id 的）：还没到恢复时间时算一次 100% 的官方读数，窗口的开始和重置时间也以它为准。
     /// origin：之前推出来的窗口开始时间（见 weeklyOrigin、WindowInference.infer）
+    /// officialReset：命令行查到的官方重置时间（最近一次读数里的）。每周窗口按固定时间重置，过去的重置时间也能往后每 7 天推；
+    /// 5 小时窗口只有还没到的才是当前窗口的结束时间，已经过了的当成一次精确的重置
     func buildWindow(id: String, title: String, duration: TimeInterval,
                      series: [UsageSample], requests: [ClaudeRequest], scale: Double,
-                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, fixedCadence: Bool = false,
+                     percentOf: (ClaudeRequest) -> Double, resetAnchor: Date?, officialReset: Date? = nil, fixedCadence: Bool = false,
                      limits: [ClaudeLimitEvent] = [], origin: Date? = nil, live: Bool, now: Date) -> UsageWindow {
         // 和这个窗口的官方读数对不上的限流消息（多半是别的账号，或者额度变了）不用，见 limitEvidenceFloor
         func matchesOfficial(_ limit: ClaudeLimitEvent) -> Bool {
@@ -170,13 +195,24 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         var current: InferredWindow?
         var lastReset: Date?
         var scheduleKnown = true
-        // 限流中：限流消息里的恢复时间就是这个窗口的结束时间，和手动指定的每周重置时间一样算
-        if let anchor = limit?.resetsAt ?? resetAnchor {
+        // 限流中：限流消息里的恢复时间就是这个窗口的结束时间；其次是官方给的重置时间（比手动指定的准）；
+        // 和手动指定的每周重置时间一样按它往后推
+        var anchor = limit?.resetsAt
+        var pastOfficialReset: [Date] = []
+        if anchor == nil, let officialReset {
+            if fixedCadence || officialReset > now {
+                anchor = officialReset
+            } else {
+                pastOfficialReset = [officialReset]
+            }
+        }
+        if let anchor = anchor ?? resetAnchor {
             current = WindowInference.cycle(from: anchor, duration: duration, now: now)
             lastReset = current?.start
         } else {
             let inferred = WindowInference.infer(samples: series, activity: requests.map(\.time), duration: duration, now: now,
-                                                 knownResets: limits.map(\.resetsAt), fixedCadence: fixedCadence, origin: origin)
+                                                 knownResets: limits.map(\.resetsAt) + pastOfficialReset, fixedCadence: fixedCadence,
+                                                 origin: origin)
             current = inferred.current
             lastReset = inferred.lastReset
             // 按固定时间重置的窗口还没看到过重置：是按第一次使用猜的，会偏晚。5 小时窗口本来就从第一次使用开始算
@@ -309,6 +345,17 @@ public final class ClaudeProvider: UsageProvider, @unchecked Sendable {
         case ok([PlanUsageSample])
         case missing
         case unreadable(String)
+    }
+
+    /// 命令行读数文件里的内容，按修改时间缓存（探测器写入之后才重读）
+    private func loadCLIReadings(now: Date) -> [CLIReading] {
+        guard let cliArchive, let mtime = cliArchive.modificationDate else { return [] }
+        // 缓存的是文件里的全部读数：过了保留期的在使用时去掉（文件不变时缓存里的不会自己过期）
+        let cutoff = now.addingTimeInterval(-ClaudeCLIReadings.retention)
+        if let cache = cliCache, cache.mtime == mtime { return cache.readings.filter { $0.time > cutoff } }
+        let readings = cliArchive.readings(now: now)
+        cliCache = (mtime, readings)
+        return readings.filter { $0.time > cutoff }
     }
 
     private func loadHistory() -> HistoryState {

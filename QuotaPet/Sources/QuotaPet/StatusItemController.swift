@@ -290,7 +290,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         return item
     }
 
-    @objc private func refreshNow() { store.refresh() }
+    @objc private func refreshNow() { store.refreshNow() }
     @objc private func openSettings() { togglePopover(page: .settings) }
     @objc private func quit() { NSApp.terminate(nil) }
 }

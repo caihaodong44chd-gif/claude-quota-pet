@@ -19,6 +19,10 @@ struct SettingsView: View {
     var watchesCodex = false
     /// 有桌面端可以跟（见 MenuBarVisibility.shouldShow）；没有时「打开时出现」按一直显示算，说明里要讲
     var canFollowApp = true
+    /// 「用命令行补官方读数」的状态；nil 表示没有这个功能（演示模式），不显示这一组
+    var cliProbeStatus: ClaudeCLIProbeStatus?
+    /// 命令行没登录时给出的登录命令
+    var cliLoginCommand: String?
     var onBack: () -> Void
     /// 打开时在哪一页（渲染预览图时也用它指定）
     @State var page: Page = .general
@@ -172,6 +176,47 @@ struct SettingsView: View {
                 DatePicker(tr("下次重置", "Next reset"), selection: Binding(get: { anchor }, set: { settings.weeklyResetAnchor = $0 }),
                            displayedComponents: [.date, .hourAndMinute])
                     .font(.system(size: 12))
+            }
+        }
+
+        officialReading
+    }
+
+    /// 桌面端停止更新官方读数时的备用办法：让命令行发一个最小请求。默认关闭
+    @ViewBuilder private var officialReading: some View {
+        if let status = cliProbeStatus {
+            SettingsGroup(tr("官方读数", "Official Reading")) {
+                SwitchRow(tr("用 Claude 命令行补官方读数", "Fill in readings via the Claude command line"),
+                          subtitle: tr("桌面端停止更新读数时的备用办法（会联网，默认关闭）",
+                                       "A fallback for when the desktop app stops updating readings (goes online, off by default)"),
+                          isOn: $settings.claudeCLIProbe)
+                Text(tr("打开后，在你用 Claude Code、官方读数又旧了时，让 Claude 命令行发一个最小请求（haiku、一个字），从回复里读出 5 小时和每周额度的百分比和重置时间。每次占一点额度；联网的是命令行，用它自己的登录，QuotaPet 不读登录凭据。手动刷新会立刻查一次。",
+                        "When on, while you're using Claude Code and the official reading has gone stale, the Claude command line sends one tiny request (Haiku, one word) and QuotaPet reads the 5-hour and weekly percentages and reset times from the reply. Each check uses a little quota. The command line does the networking with its own login; QuotaPet reads no login credentials. Refreshing manually checks right away."))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if settings.claudeCLIProbe {
+                    Text(status.text(now: Date()))
+                        .font(.system(size: 11))
+                        .foregroundStyle(status.needsLogin || status == .notFound ? Color.orange : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if status == .notLoggedIn || status == .wrongAccount, let login = cliLoginCommand {
+                        // 账号不对时给的是退出命令：先退出，再用桌面端的账号登录
+                        let command = status == .wrongAccount ? login.replacingOccurrences(of: " auth login", with: " auth logout") : login
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(command)
+                                .font(.system(size: 10, design: .monospaced))
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Button(tr("复制", "Copy")) {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(command, forType: .string)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
             }
         }
     }

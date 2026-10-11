@@ -11,6 +11,13 @@ enum PreviewRenderer {
         _ = NSApplication.shared
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let settings = AppSettings()  // 它会按设置切换界面语言，所以要在下面固定语言之前建
+        // 「官方读数」那一组打开时的样子：用一份临时的设置，不动本机真实的设置（它建出来时也会切换界面语言，所以在下面固定语言之前）
+        let probeSuite = "dev.quotapet.previews"
+        UserDefaults.standard.removePersistentDomain(forName: probeSuite)
+        let probeDefaults = UserDefaults(suiteName: probeSuite)!
+        probeDefaults.set(true, forKey: "claudeCLIProbe")
+        let probeSettings = AppSettings(defaults: probeDefaults)
+        defer { UserDefaults.standard.removePersistentDomain(forName: probeSuite) }
         L10n.language = .zhHans  // 动画表上的心情名、真实数据那两张用中文
         for style in PetStyle.allCases {
             let suffix = style == .classic ? "" : "-\(style.rawValue)"
@@ -74,8 +81,20 @@ enum PreviewRenderer {
             // 设置页三个分页：settings（通用）、settings-claude、settings-codex
             for (name, page) in [("", SettingsView.Page.general), ("-claude", .claude), ("-codex", .codex)] {
                 let view = SettingsView(settings: settings, suggestedWeeklyReset: nil, estimation: estimation, hasCodex: true,
-                                        codexReadingAt: now.addingTimeInterval(-12 * 60), watchesCodex: true, onBack: {}, page: page)
+                                        codexReadingAt: now.addingTimeInterval(-12 * 60), watchesCodex: true,
+                                        cliProbeStatus: .idle, onBack: {}, page: page)
                 write(renderInWindow(view, dark: false), to: dir.appendingPathComponent("settings\(name)\(lang).png"))
+                if page == .claude {  // 「官方读数」打开之后：查到了 / 命令行还没登录
+                    let fakeCLI = URL(fileURLWithPath: "/Applications/Claude.app/claude-code/claude")
+                    for (suffix, status) in [("-probe", ClaudeCLIProbeStatus.ok(at: now.addingTimeInterval(-9 * 60))),
+                                             ("-probe-login", .notLoggedIn)] {
+                        let probeView = SettingsView(settings: probeSettings, suggestedWeeklyReset: nil, estimation: estimation,
+                                                     hasCodex: true, codexReadingAt: now.addingTimeInterval(-12 * 60), watchesCodex: true,
+                                                     cliProbeStatus: status, cliLoginCommand: ClaudeCLI.loginCommand(fakeCLI),
+                                                     onBack: {}, page: .claude)
+                        write(renderInWindow(probeView, dark: false), to: dir.appendingPathComponent("settings\(suffix)\(lang).png"))
+                    }
+                }
                 if page == .general {
                     write(renderInWindow(view, dark: true), to: dir.appendingPathComponent("settings\(lang)-dark.png"))
                 }
