@@ -4,6 +4,21 @@ import QuotaPetCore
 
 /// QuotaPet --dump：在终端打印当前的额度推算，方便调试、和 usage_lab.py 对账；最后附上 Codex 的读数
 enum DumpCommand {
+    /// QuotaPet --probe-cli：用 Claude 命令行查一次官方读数（会联网、占一个最小请求），写进 cli-readings.jsonl 并打印结果。
+    /// 和 App 里「用 Claude 命令行补官方读数」跑的是同一段代码，调试用
+    static func probe() {
+        L10n.language = .zhHans
+        let org = (try? ClaudeDesktopHistory.parse(Data(contentsOf: ClaudeDesktopHistory.defaultURL)))?.last?.org
+        let archive = CLIReadingArchive()
+        let started = Date()
+        let status = CLIProbeRunner.run(archive: archive, expectedOrg: org)
+        print("\(status.text(now: Date()))（用时 \(Int(Date().timeIntervalSince(started))) 秒）")
+        if let last = archive.readings().last, case .ok = status {
+            print("5 小时 \(last.session.map { Fmt.percent($0) } ?? "-")，\(last.sessionResetsAt.map { Fmt.clock($0, now: Date()) } ?? "-") 重置")
+            print("每周 \(last.weekly.map { Fmt.percent($0) } ?? "-")，\(last.weeklyResetsAt.map { Fmt.clock($0, now: Date()) } ?? "-") 重置")
+        }
+    }
+
     static func run() {
         L10n.language = .zhHans  // 对账工具，和 usage_lab.py 一样只输出中文
         let provider = ClaudeProvider()
@@ -29,6 +44,19 @@ enum DumpCommand {
             print("  \(Fmt.clock(s.time, now: now))  5h \(fh.padding(toLength: 5, withPad: " ", startingAt: 0))周 \(sd)")
         }
         print("")
+
+        let cli = provider.cliArchive?.readings(now: now) ?? []
+        if !cli.isEmpty {
+            print("最近的命令行读数（设置里打开「用 Claude 命令行补官方读数」才有）：")
+            for r in cli.suffix(4) {
+                let fh = r.session.map { Fmt.percent($0) } ?? "-"
+                let sd = r.weekly.map { Fmt.percent($0) } ?? "-"
+                let resets = [r.sessionResetsAt.map { "5h 重置 \(Fmt.clock($0, now: now))" },
+                              r.weeklyResetsAt.map { "周重置 \(Fmt.clock($0, now: now))" }].compactMap { $0 }.joined(separator: "，")
+                print("  \(Fmt.clock(r.time, now: now))  5h \(fh.padding(toLength: 5, withPad: " ", startingAt: 0))周 \(sd)  \(resets)")
+            }
+            print("")
+        }
 
         if !provider.scanner.limitEvents.isEmpty {
             print("最近的限流消息（Claude Code 日志）：")

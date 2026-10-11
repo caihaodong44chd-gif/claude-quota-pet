@@ -6,7 +6,7 @@ import QuotaPetCore
 /// 用户设置，存在 UserDefaults 里
 @MainActor
 final class AppSettings: ObservableObject {
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     @Published var menuBarText: MenuBarTextMode {
         didSet { defaults.set(menuBarText.rawValue, forKey: Keys.menuBarText) }
@@ -52,6 +52,10 @@ final class AppSettings: ObservableObject {
     @Published var autoLearn: Bool {
         didSet { defaults.set(autoLearn, forKey: Keys.autoLearn) }
     }
+    /// 用 Claude 官方命令行补官方读数（联网：命令行发一个最小请求）。默认关闭，见 CLIProbe
+    @Published var claudeCLIProbe: Bool {
+        didSet { defaults.set(claudeCLIProbe, forKey: Keys.claudeCLIProbe) }
+    }
     /// 手动指定的每周重置时间；nil = 自动推算
     @Published var weeklyResetAnchor: Date? {
         didSet { defaults.set(weeklyResetAnchor, forKey: Keys.weeklyResetAnchor) }
@@ -69,7 +73,9 @@ final class AppSettings: ObservableObject {
     /// 系统设置里没允许 QuotaPet 发通知（NotificationManager 更新，不存）：提醒开着也弹不出来，设置页要说一声
     @Published var notificationsDenied = false
 
-    init() {
+    /// defaults：渲染预览图时用临时的一份，不动本机真实的设置
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         defaults.register(defaults: [
             Keys.animatePet: true,
             Keys.notificationsEnabled: true,
@@ -96,6 +102,7 @@ final class AppSettings: ObservableObject {
         liveEstimate = defaults.bool(forKey: Keys.liveEstimate)
         autoLearn = defaults.bool(forKey: Keys.autoLearn)
         weeklyResetAnchor = defaults.object(forKey: Keys.weeklyResetAnchor) as? Date
+        claudeCLIProbe = defaults.bool(forKey: Keys.claudeCLIProbe)
         language = Language(rawValue: defaults.string(forKey: Keys.language) ?? "")
         L10n.language = language ?? .preferred()  // init 里不会触发 willSet
     }
@@ -106,14 +113,17 @@ final class AppSettings: ObservableObject {
     nonisolated static func hiddenProviders(showCodex: Bool) -> Set<ProviderID> { showCodex ? [] : [.codex] }
 
     var providerConfig: ClaudeProvider.Config {
-        Self.providerConfig(liveEstimate: liveEstimate, autoLearn: autoLearn, weeklyResetAnchor: weeklyResetAnchor)
+        Self.providerConfig(liveEstimate: liveEstimate, autoLearn: autoLearn, weeklyResetAnchor: weeklyResetAnchor,
+                            useCLIReadings: claudeCLIProbe)
     }
 
-    nonisolated static func providerConfig(liveEstimate: Bool, autoLearn: Bool, weeklyResetAnchor: Date?) -> ClaudeProvider.Config {
+    nonisolated static func providerConfig(liveEstimate: Bool, autoLearn: Bool, weeklyResetAnchor: Date?,
+                                           useCLIReadings: Bool) -> ClaudeProvider.Config {
         var config = ClaudeProvider.Config()
         config.liveEstimate = liveEstimate
         config.autoLearn = autoLearn
         config.weeklyResetAnchor = weeklyResetAnchor
+        config.useCLIReadings = useCLIReadings
         return config
     }
 
@@ -166,6 +176,7 @@ final class AppSettings: ObservableObject {
         static let liveEstimate = "liveEstimate"
         static let autoLearn = "autoLearn"
         static let weeklyResetAnchor = "weeklyResetAnchor"
+        static let claudeCLIProbe = "claudeCLIProbe"
         static let language = "language"
     }
 }

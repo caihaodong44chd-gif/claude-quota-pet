@@ -71,10 +71,11 @@ struct PopoverRoot: View {
                     tabs: shown.count > 1 ? shown : [],
                     focus: focus,
                     onSelect: { state.selected = $0; state.picked = true },
-                    onRefresh: { store.refresh() },
+                    onRefresh: { store.refreshNow() },
                     onSettings: { state.page = .settings },
                     onQuit: onQuit,
                     claudeRunning: state.claudeRunning,
+                    cliProbe: settings.claudeCLIProbe,
                     said: OverviewView<LivePet>.Said(situation: status.situation, pick: state.chat.pick),
                     onSay: state.said,
                     onPoke: {
@@ -96,6 +97,8 @@ struct PopoverRoot: View {
                              codexReadingAt: store.snapshot(for: .codex)?.officialAt,
                              watchesCodex: state.usesCodex,
                              canFollowApp: state.canFollowApp,
+                             cliProbeStatus: store.cliProbeStatus,
+                             cliLoginCommand: store.cliProbeStatus?.needsLogin == true ? store.cliBinary.map(ClaudeCLI.loginCommand) : nil,
                              onBack: { state.page = .overview })
             }
         }

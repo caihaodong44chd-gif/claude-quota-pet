@@ -49,6 +49,8 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - 换算率由 `RateLearner` 从 `IntervalArchive` 学出来（`~/Library/Application Support/QuotaPet/intervals.jsonl`，只追加，半衰期 3 小时），起始值 $0.27 / 1%。
   - 窗口的开始和重置时间由 `WindowInference` 推算：5 小时窗口从第一次使用开始；每周额度按固定时间重置（`fixedCadence`），看到过一次重置（读数掉了至少 3 个点，或限流消息）后就按它每 7 天循环，多次跳变取交集收窄时间、取最晚的时刻。用户手动指定了每周重置时间时，按它往后每 7 天算一次。还没看到过重置时，按第一次使用推出来的窗口开始时间存在 `weekly-origin.json`（和 `intervals.jsonl` 在一起），下次从它接着推（`origin`）：日志只留 8 天，不然起点每天往后挪。
   - 官方读数要属于当前窗口才用：在最近一次重置之后，也不比一个窗口还旧。隔了一个窗口以上还不是 0 的读数（比如 5 小时额度隔夜 50 → 30）算新窗口里的使用，不当成上一个窗口的。
+  - 命令行读数（可选，默认关闭）：`CLIProbe`（App 里）让官方命令行发一个最小请求，`ClaudeCLIReadings.parse` 从 stream-json 输出的 `rate_limit_event` 里取 `unifiedWindows` 的 `utilization`（0–1 小数）和 `resetsAt`（秒），存进 `cli-readings.jsonl`（`CLIReadingArchive`，留 8 天，和 `intervals.jsonl` 在一起）。`ClaudeProvider` 把它们和桌面端读数合并（`ClaudeCLIReadings.merge`：组织以桌面端最近一次为准，对不上的不用），所以换算率学习、其他端用量、窗口推算都不用管读数从哪来。官方给的 `resetsAt` 比手动指定的和推算的优先（`buildWindow` 的 `officialReset`；限流中仍以限流消息为准）：每周窗口按它每 7 天往后推，5 小时窗口只有还没到的才算当前窗口的结束，已经过了的当成一次精确重置（进 `knownResets`），不往后接着排一个 5 小时。
+  - 什么时候查在 `ClaudeCLIProbePolicy`（Core，进自检）：5 小时窗口已经在跑、官方读数之后有本机用量、官方读数超过 17 分钟没来，才自动查；失败按倍数退避、最多 2 小时。**不在用的时候不查**：窗口从第一次请求才开始计时，空闲时查会让它提前开始。手动刷新、刚打开开关会立刻查一次。只认 `authMethod == claude.ai` 的订阅登录，进程环境里的 API Key 和第三方云开关会去掉。
   - Claude Code 被限流时会在日志里写一条 synthetic 消息，带 `quotaLimits`（`rateLimitType`、秒级 `resetsAt`）。扫描器把它记成 `ClaudeLimitEvent`：没到恢复时间前这个窗口直接算用完，重置时间以它为准。
   - 其他端（网页、手机、桌面端聊天）用量由 `OtherUsage` 算：相邻两次官方读数之间，官方增量比本机估算多出门槛以上的部分。`RateLearner` 学换算率时也用同一个门槛，跳过这种混用的区间。
   - **不变量**：官方读数没到 100 时，估算值最多 99%。只有官方读数或限流消息能宣布「用完了」，免得宠物误睡、误发提醒。
@@ -87,7 +89,9 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
 
 ## 隐私（仓库是公开的）
 
-- 只读本机文件：不联网，不读任何登录凭据。「用凭据调官方 usage 接口」是刻意不做的。Codex 也一样：只读 `~/.codex` 下对话日志里的额度字段，不读 `~/.codex/auth.json`。
+- 默认只读本机文件：不联网，不读任何登录凭据。「用凭据调官方 usage 接口」是刻意不做的。Codex 也一样：只读 `~/.codex` 下对话日志里的额度字段，不读 `~/.codex/auth.json`。
+  - 唯一的例外是用户在设置里自己打开的「用 Claude 命令行补官方读数」（`CLIProbe`，默认关闭）：让桌面端自带的 `claude` 命令行用它自己的登录发一个最小请求，从输出的 `rate_limit_event` 读额度。QuotaPet 仍然不读钥匙串、`~/.claude` 里的凭据、命令行的 token，只看 `auth status` 的 `loggedIn` / `authMethod` / `orgId`，也不存邮箱。别把它改成默认开启，也别加别的联网功能。
+  - `cli-readings.jsonl`、`cli-probe/` 和 `--probe-cli` 的输出一样是真实数据，不进 git。
 - `make previews` 会额外生成 `popover-live.png` 和 `popover-live-dark.png`，用的是**本机真实额度数据**（Claude 和 Codex），不能复制进 `docs/images/` 或提交；其余预览图都是假数据。
 - `make dump` 和 `usage_lab.py` 的输出、`snapshots.jsonl`、`intervals.jsonl` 都是真实数据，不进 git，也不贴进 issue 或 PR。
 - `.githooks/pre-commit` 会在提交时拦住 `.jsonl` 文件、截图、`popover-live*`、本机绝对路径和不是 noreply 的邮箱。它是用 `git config core.hooksPath .githooks` 启用的，被拦了就改内容，不要加 `--no-verify` 绕过。

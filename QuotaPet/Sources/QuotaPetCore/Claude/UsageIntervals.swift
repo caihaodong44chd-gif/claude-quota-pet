@@ -113,7 +113,7 @@ public final class IntervalArchive {
             lines.append(0x0A)
             written.append(key)
         }
-        guard !lines.isEmpty, append(lines) else { return 0 }
+        guard !lines.isEmpty, JSONLFile.append(lines, to: url) else { return 0 }
         unsaved.subtract(written)
         return written.count
     }
@@ -127,28 +127,6 @@ public final class IntervalArchive {
             if let interval = try? Self.decoder.decode(UsageInterval.self, from: Data(line)), let key = Self.key(interval) {
                 byEnd[key] = interval
             }
-        }
-    }
-
-    /// 追加到文件末尾，成功才返回 true。上次写到一半（文件不是以换行结尾）时先补一个换行，不然这次的第一行会接在坏行后面一起作废
-    private func append(_ lines: Data) -> Bool {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
-        guard let handle = try? FileHandle(forUpdating: url) else { return false }
-        defer { try? handle.close() }
-        do {
-            var data = lines
-            let end = try handle.seekToEnd()
-            if end > 0 {
-                try handle.seek(toOffset: end - 1)
-                if try handle.read(upToCount: 1) != Data([0x0A]) { data.insert(0x0A, at: 0) }
-                try handle.seekToEnd()
-            }
-            try handle.write(contentsOf: data)
-            return true
-        } catch {
-            return false
         }
     }
 

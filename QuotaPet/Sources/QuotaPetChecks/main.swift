@@ -822,6 +822,200 @@ do {
     try? FileManager.default.removeItem(at: dir)
 }
 
+// MARK: - 命令行读数
+
+do {
+    let now = at(20, 14, 40)
+    func epoch(_ d: Date) -> Int { Int(d.timeIntervalSince1970) }
+    func event(_ info: String) -> String { #"{"type":"rate_limit_event","rate_limit_info":\#(info),"session_id":"s"}"# }
+    func unified(five: Double, sevenDay: Double, fiveReset: Date, weekReset: Date, status: String = "allowed", type: String = "five_hour") -> String {
+        event(#"{"status":"\#(status)","resetsAt":\#(epoch(fiveReset)),"rateLimitType":"\#(type)","unifiedWindows":{"five_hour":{"utilization":\#(five),"resetsAt":\#(epoch(fiveReset))},"seven_day":{"utilization":\#(sevenDay),"resetsAt":\#(epoch(weekReset))}}}"#)
+    }
+    let fiveReset = at(20, 17), weekReset = at(25, 10)
+    let output = ["{\"type\":\"system\",\"subtype\":\"init\"}", "{\"type\":\"assistant\"}",
+                  unified(five: 0.09, sevenDay: 0.06, fiveReset: fiveReset, weekReset: weekReset),
+                  "{\"type\":\"result\",\"result\":\"ok\"}"].joined(separator: "\n")
+    let parsed = ClaudeCLIReadings.parse(output, org: "A", now: now)
+    check(near(parsed?.session, 9) && near(parsed?.weekly, 6) && parsed?.org == "A" && parsed?.time == now,
+          "命令行输出里的 utilization（0–1）换成百分比：\(String(describing: parsed))")
+    check(parsed?.sessionResetsAt == fiveReset && parsed?.weeklyResetsAt == weekReset, "官方给的重置时间")
+    check(parsed?.sample?.values["fh"] == 9 && parsed?.sample?.values["sd"] == 6 && parsed?.sample?.org == "A", "转成和桌面端一样的读数")
+    check(near(ClaudeCLIReadings.parse(unified(five: 0.07, sevenDay: 0.29, fiveReset: fiveReset, weekReset: weekReset), org: nil, now: now)?.weekly, 29),
+          "0.29 × 100 的浮点误差不留在数里")
+
+    // 快到限额时的老格式：只有 rateLimitType + utilization；被拒绝就是用完了
+    let legacy = event(#"{"status":"allowed_warning","resetsAt":\#(epoch(fiveReset)),"rateLimitType":"five_hour","utilization":0.82}"#)
+    let old = ClaudeCLIReadings.parse(legacy, org: nil, now: now)
+    check(near(old?.session, 82) && old?.weekly == nil && old?.sessionResetsAt == fiveReset, "老格式的读数：\(String(describing: old))")
+    let rejected = ClaudeCLIReadings.parse(event(#"{"status":"rejected","resetsAt":\#(epoch(fiveReset)),"rateLimitType":"five_hour"}"#),
+                                           org: nil, now: now)
+    check(near(rejected?.session, 100), "被拒绝：这个窗口用完了")
+    let rejectedWeek = ClaudeCLIReadings.parse(unified(five: 0.4, sevenDay: 1, fiveReset: fiveReset, weekReset: weekReset, status: "rejected",
+                                                        type: "seven_day"), org: nil, now: now)
+    check(near(rejectedWeek?.weekly, 100) && near(rejectedWeek?.session, 40), "被拒绝的是每周额度：只有每周算 100")
+    check(near(ClaudeCLIReadings.parse(event(#"{"unifiedWindows":{"five_hour":{"utilization":37,"resetsAt":\#(epoch(fiveReset))}}}"#),
+                                       org: nil, now: now)?.session, 37), "大于 1 的当成已经是百分比")
+
+    // 认不出来的退回估算，不抛错
+    check(ClaudeCLIReadings.parse("", org: nil, now: now) == nil, "空输出")
+    check(ClaudeCLIReadings.parse("Not logged in · Please run /login\n{\"type\":\"result\"}", org: nil, now: now) == nil, "没登录的输出")
+    check(ClaudeCLIReadings.parse(event(#"{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":"x"}}}"#), org: nil, now: now) == nil,
+          "字段类型变了")
+    check(ClaudeCLIReadings.parse(String(unified(five: 0.1, sevenDay: 0.2, fiveReset: fiveReset, weekReset: weekReset).dropLast(20)),
+                                  org: nil, now: now) == nil, "写到一半的行")
+    let crazy = ClaudeCLIReadings.parse(unified(five: 0.1, sevenDay: 0.2, fiveReset: at(20, 12), weekReset: at(30, 10)), org: nil, now: now)
+    check(near(crazy?.session, 10) && crazy?.sessionResetsAt == nil && crazy?.weeklyResetsAt == nil,
+          "重置时间不在窗口说得通的范围里（已经过去、比一个窗口还远）：读数照用，时间不用")
+
+    // 合并：命令行读数和桌面端读数按时间排在一起；对不上组织的不用
+    func desk(_ t: Date, _ fh: Double, _ sd: Double, org: String = "A") -> PlanUsageSample {
+        PlanUsageSample(time: t, org: org, values: ["fh": fh, "sd": sd])
+    }
+    let desktop = [desk(at(20, 12), 30, 40), desk(at(20, 12, 15), 33, 40)]
+    let cli = [CLIReading(time: at(20, 12, 5), org: "A", session: 31, weekly: 40), CLIReading(time: at(20, 14), org: "A", session: 10, weekly: 41),
+               CLIReading(time: at(20, 13), org: "B", session: 99, weekly: 99)]
+    let merged = ClaudeCLIReadings.merge(desktop: desktop, cli: cli)
+    check(merged.map(\.time) == [at(20, 12), at(20, 12, 5), at(20, 12, 15), at(20, 14)] && merged.last?.session == 10,
+          "合并后按时间排序，别的账号的读数不用：\(merged.map(\.time))")
+    check(ClaudeCLIReadings.merge(desktop: [], cli: cli).map(\.time) == [at(20, 12, 5), at(20, 14)],
+          "桌面端没有读数时以命令行最近一次的组织为准")
+    check(ClaudeCLIReadings.merge(desktop: desktop, cli: []) == desktop, "没有命令行读数时原样")
+    check(ClaudeCLIReadings.usable(cli, desktopOrg: "A").map(\.time) == [at(20, 12, 5), at(20, 14)]
+          && ClaudeCLIReadings.usable(cli, desktopOrg: "B").map(\.time) == [at(20, 13)], "能用的读数按桌面端的组织筛")
+
+    // 记录文件：追加、读回、保留期、写坏的行
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quotapet-cli-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let archive = CLIReadingArchive(url: dir.appendingPathComponent("sub/cli-readings.jsonl"))
+    check(archive.readings(now: now).isEmpty && archive.modificationDate == nil, "没有文件时是空的")
+    check(archive.append(CLIReading(time: at(20, 12), org: "A", session: 5, weekly: 40, sessionResetsAt: at(20, 17), weeklyResetsAt: at(25, 10)),
+                         now: now), "第一条（目录还不存在）")
+    check(archive.append(CLIReading(time: at(20, 13), org: "A", session: 8, weekly: 41), now: now), "追加")
+    let back = archive.readings(now: now)
+    check(back.count == 2 && back[0].sessionResetsAt == at(20, 17) && back[1].weekly == 41 && back[1].sessionResetsAt == nil,
+          "读回来的内容一样：\(back)")
+    // 写到一半的行：跳过，下一次追加前补换行
+    let handle = try! FileHandle(forWritingTo: archive.url)
+    try! handle.seekToEnd()
+    try! handle.write(contentsOf: Data(#"{"time":1"#.utf8))
+    try! handle.close()
+    check(archive.readings(now: now).count == 2, "写坏的行跳过")
+    check(archive.append(CLIReading(time: at(20, 14), org: "A", session: 9, weekly: 41), now: now) && archive.readings(now: now).count == 3,
+          "写坏的行后面再追加不受影响")
+    // 过了保留期的旧读数：追加时清掉
+    check(archive.append(CLIReading(time: at(30, 11), org: "A", session: 10), now: at(30, 12)), "追加（旧的过期了）")
+    check(archive.readings(now: at(30, 12)).map(\.time) == [at(30, 11)], "过了 8 天的读数清掉：\(archive.readings(now: at(30, 12)).count)")
+    check(try! String(contentsOf: archive.url, encoding: .utf8).split(separator: "\n").count == 1, "文件也重写成只剩没过期的")
+
+    // 找命令行：版本最高的优先，不是可执行文件的不算，没有桌面端自带的时看常见位置
+    let root = dir.appendingPathComponent("claude-code")
+    func makeBinary(_ version: String, _ hash: String, executable: Bool = true) -> URL {
+        let url = root.appendingPathComponent("\(version)/\(hash)/claude.app/Contents/MacOS/claude")
+        try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: executable ? 0o755 : 0o644])
+        return url
+    }
+    check(ClaudeCLI.locate(desktopRoot: root, home: dir, extraCandidates: []) == nil, "什么都没有")
+    let v9 = makeBinary("2.1.9", "aaa"), v30 = makeBinary("2.1.30", "bbb")
+    check(ClaudeCLI.locate(desktopRoot: root, home: dir, extraCandidates: []) == v30, "版本按数字比：2.1.30 比 2.1.9 新")
+    _ = makeBinary("2.1.100", "ccc", executable: false)
+    check(ClaudeCLI.locate(desktopRoot: root, home: dir, extraCandidates: []) == v30, "最新那份不能执行就用上一份")
+    try! FileManager.default.removeItem(at: root)
+    let fallback = dir.appendingPathComponent("bin/claude")
+    try! FileManager.default.createDirectory(at: fallback.deletingLastPathComponent(), withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: fallback.path, contents: Data(), attributes: [.posixPermissions: 0o755])
+    check(ClaudeCLI.locate(desktopRoot: root, home: dir, extraCandidates: [fallback.path]) == fallback, "桌面端没有自带的，用常见位置的")
+    _ = v9
+
+    check(ClaudeCLI.loginCommand(URL(fileURLWithPath: "/a b/it's/claude")) == "'/a b/it'\\''s/claude' auth login", "登录命令的路径加引号")
+
+    // 什么时候探测：窗口在跑、有官方读数没看到的本机用量、读数旧了
+    typealias P = ClaudeCLIProbePolicy
+    let ends = now.addingTimeInterval(2 * hour)
+    func should(official: Date? = at(20, 14), active: Date? = at(20, 14, 30), ends: Date? = ends, last: Date? = nil, failures: Int = 0,
+                now: Date = now) -> Bool {
+        P.shouldProbe(now: now, sessionEndsAt: ends, officialAt: official, lastActiveAt: active, lastAttempt: last, failures: failures)
+    }
+    check(should(), "窗口在跑、14:00 之后还在用、读数 40 分钟没来：查")
+    check(!should(ends: nil) && !should(ends: now.addingTimeInterval(-60)), "5 小时窗口没在跑：不查（会让窗口提前开始）")
+    check(!should(active: nil) && !should(active: at(20, 13, 30)), "官方读数之后没有本机用量：不查")
+    check(!should(official: at(20, 14, 30), active: at(20, 14, 35)), "官方读数才 10 分钟：桌面端的下一次快到了，不查")
+    check(should(official: nil) , "一次官方读数都没有，但在用：查")
+    check(!should(last: now.addingTimeInterval(-10 * 60)) && should(last: now.addingTimeInterval(-16 * 60)), "两次至少隔 15 分钟")
+    check(!should(last: now.addingTimeInterval(-20 * 60), failures: 1) && should(last: now.addingTimeInterval(-31 * 60), failures: 1),
+          "失败一次后等 30 分钟")
+    check(P.retryDelay(failures: 0) == 15 * 60 && P.retryDelay(failures: 10) == 2 * hour, "失败多了也最多等 2 小时")
+    check(P.shouldProbeManually(now: now, lastAttempt: nil) && !P.shouldProbeManually(now: now, lastAttempt: now.addingTimeInterval(-10))
+          && P.shouldProbeManually(now: now, lastAttempt: now.addingTimeInterval(-40)), "手动刷新只防连点")
+
+    // 接进 ClaudeProvider：命令行的读数当官方读数用，官方给的重置时间当窗口的开始和结束
+    /// 返回提供者本身时（provider），可以用同一个再算一次
+    func makeProvider(cli readings: [CLIReading], desktop: [PlanUsageSample], now: Date,
+                      config: ClaudeProvider.Config = .init()) -> ClaudeProvider {
+        let d = dir.appendingPathComponent("p-\(UUID().uuidString)")
+        try! FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        let rows = desktop.map { #"{"t":\#(Int($0.time.timeIntervalSince1970 * 1000)),"org":"\#($0.org ?? "")","u":{"fh":\#($0.session ?? 0),"sd":\#($0.weekly ?? 0)}}"# }
+        try! #"{"version":2,"samples":[\#(rows.joined(separator: ","))]}"#.write(to: d.appendingPathComponent("history.json"), atomically: true, encoding: .utf8)
+        let store = CLIReadingArchive(url: d.appendingPathComponent("cli-readings.jsonl"))
+        for r in readings { store.append(r, now: now) }
+        let provider = ClaudeProvider(historyURL: d.appendingPathComponent("history.json"), projectsURL: d.appendingPathComponent("projects"),
+                                      archiveURL: d.appendingPathComponent("intervals.jsonl"))
+        provider.config = config
+        return provider
+    }
+    func snapshot(cli readings: [CLIReading], desktop: [PlanUsageSample], now: Date, config: ClaudeProvider.Config = .init()) -> UsageSnapshot {
+        try! makeProvider(cli: readings, desktop: desktop, now: now, config: config).snapshot(now: now)
+    }
+    let base = [desk(at(20, 12), 30, 40)]
+    let withCLI = snapshot(cli: [CLIReading(time: at(20, 14, 30), org: "A", session: 12, weekly: 41, sessionResetsAt: at(20, 17), weeklyResetsAt: at(25, 10))],
+                           desktop: base, now: at(20, 14, 40))
+    check(near(withCLI.window("five_hour")?.official, 12) && withCLI.officialAt == at(20, 14, 30), "命令行的读数比桌面端新就用它")
+    check(withCLI.window("five_hour")?.startedAt == at(20, 12) && withCLI.window("five_hour")?.resetsAt == at(20, 17),
+          "5 小时窗口按官方给的重置时间：\(String(describing: withCLI.window("five_hour")))")
+    check(withCLI.window("seven_day")?.resetsAt == at(25, 10) && withCLI.window("seven_day")?.scheduleKnown == true
+          && near(withCLI.window("seven_day")?.official, 41), "每周窗口按官方给的重置时间")
+    let nextWeek = snapshot(cli: [CLIReading(time: at(20, 14, 30), org: "A", session: 12, weekly: 41, weeklyResetsAt: at(25, 10))],
+                            desktop: base, now: at(27, 9))
+    check(nextWeek.window("seven_day")?.resetsAt == at(25, 10) + week && nextWeek.window("seven_day")?.startedAt == at(25, 10),
+          "每周额度固定时间重置：过去的重置时间也按 7 天往后推")
+    let overFive = snapshot(cli: [CLIReading(time: at(20, 14, 30), org: "A", session: 12, sessionResetsAt: at(20, 17))],
+                            desktop: base, now: at(20, 18))
+    check(overFive.window("five_hour")?.startedAt == nil && overFive.window("five_hour")?.resetsAt == nil,
+          "5 小时窗口的重置时间已经过了：窗口没在跑，等下次使用才开始（不是往后接着一个 5 小时）")
+    let otherAccount = snapshot(cli: [CLIReading(time: at(20, 14, 30), org: "B", session: 90, weekly: 90, sessionResetsAt: at(20, 18),
+                                                 weeklyResetsAt: at(23, 10))], desktop: base, now: at(20, 14, 40))
+    check(near(otherAccount.window("five_hour")?.official, 30) && otherAccount.officialAt == at(20, 12)
+          && otherAccount.window("seven_day")?.resetsAt != at(23, 10), "命令行登的是另一个账号：读数和重置时间都不用")
+    let cliOnly = snapshot(cli: [CLIReading(time: at(20, 14, 30), org: "A", session: 12, weekly: 41)], desktop: [], now: at(20, 14, 40))
+    check(near(cliOnly.window("five_hour")?.official, 12) && cliOnly.hasData && cliOnly.notes.isEmpty,
+          "没有桌面端的记录、只有命令行的读数：照常用，不提示缺桌面端：\(cliOnly.notes)")
+
+    // 优先级：限流消息 > 官方给的重置时间 > 手动指定的；关掉开关就当没有命令行的读数；过了保留期的读数不用
+    let reading = CLIReading(time: at(20, 14, 30), org: "A", session: 12, weekly: 41, sessionResetsAt: at(20, 17), weeklyResetsAt: at(25, 10))
+    var manualConfig = ClaudeProvider.Config()
+    manualConfig.weeklyResetAnchor = at(22, 8)
+    let manual = snapshot(cli: [reading], desktop: base, now: at(20, 14, 40), config: manualConfig)
+    check(manual.window("seven_day")?.resetsAt == at(25, 10), "官方给的重置时间比手动指定的优先：\(String(describing: manual.window("seven_day")?.resetsAt))")
+    let noCLI = ClaudeProvider(historyURL: URL(fileURLWithPath: "/nonexistent/h.json"), projectsURL: URL(fileURLWithPath: "/nonexistent/p"),
+                               archiveURL: nil)
+    let limitHit = ClaudeLimitEvent(time: at(20, 14, 45), window: "five_hour", resetsAt: at(20, 18))
+    let both = noCLI.buildWindow(id: "five_hour", title: "", duration: fiveHours, series: [S(time: at(20, 14, 30), value: 85)], requests: [],
+                                 scale: 1, percentOf: { _ in 0 }, resetAnchor: nil, officialReset: at(20, 19), limits: [limitHit],
+                                 live: true, now: at(20, 14, 50))
+    check(both.resetsAt == at(20, 18), "限流中：限流消息给的恢复时间比命令行读数里的优先：\(String(describing: both.resetsAt))")
+    var off = ClaudeProvider.Config()
+    off.useCLIReadings = false
+    let disabled = snapshot(cli: [reading], desktop: base, now: at(20, 14, 40), config: off)
+    check(near(disabled.window("five_hour")?.official, 30) && disabled.officialAt == at(20, 12)
+          && disabled.window("seven_day")?.scheduleKnown == false && disabled.window("seven_day")?.resetsAt != at(25, 10),
+          "关掉开关：命令行的读数和重置时间都不用：\(String(describing: disabled.window("five_hour")?.official))")
+    let aging = makeProvider(cli: [reading], desktop: base, now: at(20, 14, 40))
+    check(try! aging.snapshot(now: at(20, 14, 40)).officialAt == at(20, 14, 30), "读数还在保留期内")
+    check(try! aging.snapshot(now: at(30, 12)).officialAt != at(20, 14, 30), "文件没变、读数过了 8 天：不再用（缓存也要过期）")
+}
+
 // MARK: - 菜单栏文字 & 预测
 
 do {
@@ -1288,6 +1482,8 @@ do {
     english += MenuBarVisibility.allCases.flatMap { v in [true, false].flatMap { c in [v.note(codex: c, canFollow: true), v.note(codex: c, canFollow: false)] } }
     english += (stale.windows + demo.windows + codex.windows).map(\.title) + stale.notes + missing.notes + demo.notes + codex.notes
     english += [CodexProvider.missingNote, CodexProvider.staleNote(readAt: Date(timeIntervalSinceNow: -5 * 3600), now: Date()), UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
+    english += [ClaudeCLIProbeStatus.idle, .querying, .ok(at: at(20, 12)), .failed(at: at(20, 12)), .notFound, .notLoggedIn, .wrongAccount]
+        .map { $0.text(now: at(20, 13)) }
     english += [ClaudeDesktopHistory.ParseError.unexpectedFormat.localizedDescription,
                 Fmt.clock(at(24, 9), now: at(25, 12)), Fmt.duration(30)]
     let alertWindow = UsageWindow(id: "five_hour", title: UsageWindow.sessionTitle, duration: fiveHours, percent: 85,
