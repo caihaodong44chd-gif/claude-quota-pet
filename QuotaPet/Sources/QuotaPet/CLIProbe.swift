@@ -99,7 +99,11 @@ enum CLIProbeRunner {
         // 用 API Key 登的不是订阅额度，读数不对，查一次还会按量计费
         guard object["authMethod"] as? String == "claude.ai" else { return .notLoggedIn }
         let org = object["orgId"] as? String
-        if let org, let expectedOrg, org != expectedOrg { return .wrongAccount }
+        if let expectedOrg {
+            // 桌面端的组织已知：命令行没给组织就核对不了是不是同一个账号，不查（读数也不会被用）
+            guard let org else { return .failed(at: Date()) }
+            if org != expectedOrg { return .wrongAccount }
+        }
 
         // --safe-mode：不加载用户的钩子、插件、CLAUDE.md，更快也更不会干扰。老版本命令行没有这个参数，先看一眼 --help，
         // 不是失败了就去掉重试：那样断网时会带着用户的钩子、插件再跑一遍

@@ -1014,6 +1014,41 @@ do {
     let aging = makeProvider(cli: [reading], desktop: base, now: at(20, 14, 40))
     check(try! aging.snapshot(now: at(20, 14, 40)).officialAt == at(20, 14, 30), "读数还在保留期内")
     check(try! aging.snapshot(now: at(30, 12)).officialAt != at(20, 14, 30), "文件没变、读数过了 8 天：不再用（缓存也要过期）")
+
+    // 命令行没给组织：桌面端的组织已知时核对不了是不是同一个账号，不用；桌面端的组织也不知道时都用
+    let anonymous = CLIReading(time: at(20, 14), org: nil, session: 90, weekly: 90)
+    check(ClaudeCLIReadings.merge(desktop: desktop, cli: [anonymous]) == desktop
+          && ClaudeCLIReadings.usable([anonymous], desktopOrg: "A").isEmpty, "桌面端的组织已知、读数没有组织：不用")
+    check(ClaudeCLIReadings.usable([anonymous], desktopOrg: nil).count == 1
+          && ClaudeCLIReadings.merge(desktop: [], cli: [anonymous]).count == 1, "桌面端的组织不知道：没法核对，用")
+
+    // 价格表改过之后：新切出来的区间带着价格版本；旧价格算的换掉；换不掉的、花费里有 Haiku 的不拿来学
+    let fresh = UsageInterval.extract(samples: [desk(at(20, 10), 10, 20), desk(at(20, 10, 15), 14, 20)],
+                                      requests: [ClaudeRequest(id: "r", time: at(20, 10, 5), family: .haiku, tokens: TokenCounts(output: 100_000))],
+                                      now: at(20, 14)).first
+    check(fresh?.priceBasis == ClaudePricing.basis && fresh?.isCurrentPriceBasis == true && fresh?.hasHaikuSpend == true,
+          "新区间带着价格版本：\(String(describing: fresh?.priceBasis))")
+    var legacyHaiku = fresh!
+    legacyHaiku.priceBasis = nil
+    legacyHaiku.usd *= 10
+    let priceArchive = IntervalArchive(url: dir.appendingPathComponent("price/intervals.jsonl"))
+    priceArchive.merge([legacyHaiku])
+    check(priceArchive.intervals.first.map { !$0.isCurrentPriceBasis } == true, "旧版本记下的区间没有价格版本，算旧价格")
+    priceArchive.merge([fresh!])
+    check(priceArchive.intervals.count == 1 && priceArchive.intervals.first?.priceBasis == ClaudePricing.basis
+          && near(priceArchive.intervals.first?.usd, fresh!.usd), "本机日志还在：旧价格算的区间换成新价格重算的")
+    // 日志已经不在了换不掉：花费里有 Haiku 的区间不学，别的照学
+    let lines = [legacyHaiku, { () -> UsageInterval in var o = legacyHaiku; o.usdByGroup = ["opus/max": o.usd]; o.end = o.end.addingTimeInterval(900); o.start = o.start.addingTimeInterval(900); return o }()]
+    let learnDir = dir.appendingPathComponent("learn")
+    try! FileManager.default.createDirectory(at: learnDir, withIntermediateDirectories: true)
+    let enc = JSONEncoder()
+    enc.dateEncodingStrategy = .millisecondsSince1970
+    try! lines.map { String(decoding: try! enc.encode($0), as: UTF8.self) }.joined(separator: "\n")
+        .write(to: learnDir.appendingPathComponent("intervals.jsonl"), atomically: true, encoding: .utf8)
+    let learned = try! ClaudeProvider(historyURL: URL(fileURLWithPath: "/nonexistent/h.json"), projectsURL: URL(fileURLWithPath: "/nonexistent/p"),
+                                      archiveURL: learnDir.appendingPathComponent("intervals.jsonl")).snapshot(now: at(20, 14))
+    check(learned.estimation?.recordedIntervals == 2 && learned.estimation?.learnedIntervals == 1,
+          "旧价格记下的 Haiku 区间不拿来学：\(String(describing: learned.estimation))")
 }
 
 // MARK: - 菜单栏文字 & 预测

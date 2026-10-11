@@ -64,6 +64,7 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
   - `ClaudePricing.currentPrice` 对应 `PRICES`（各族当前这一代），`olderPrices` 对应 `OLDER_PRICES`（同一族里价格不一样的老版本），按提示词长短分档（`ModelPrice.longPromptAbove` / `longPromptMultiplier`，现在只有 Haiku 5.5：输入 + 缓存写 + 缓存读超过 10 万 token 的整个请求 5 倍）对应 `PRICES` 元组的后两项和 `applied()`，`cacheReadQuotaWeight` 对应 `CACHE_READ_WEIGHT`，`ClaudeRates.starting` 对应 `STARTING`，`OtherUsage.threshold` 对应 `OTHER_THRESHOLD`
   - `ModelFamily.of` 对应 `family()`：按模型名里的子串匹配（Mythos 算 Fable），名字里不含 fable、mythos、opus、sonnet、haiku 的新模型族不会计价，要加 case 和价格
   - `ClaudePricing.version` / `price(model:family:)` 对应 `version()` / `price()`：每个请求按模型名里的版本号定价（`claude-opus-5` 按 Opus 5 的价格，不是 Opus 5.5 的）。出了新一代、价格变了时，把旧的当前价挪进老版本表，再改当前价
+  - 改价格会让已经存下的区间花费不对（`intervals.jsonl` 只追加）：改价格表时给 `ClaudePricing.basis` 加一，区间记录里存着当时的版本（`UsageInterval.priceBasis`，旧记录没有就当 1）；新切出来的区间会换掉旧版本的，换不掉的、花费里有 Haiku 的不拿来学换算率。其他族的价格改了要不要排除，照 `hasHaikuSpend` 的写法改。
   - `ClaudeTranscripts` 的解析规则：按 `message.id` 去重、同一个响应的各字段取最大值、跳过 synthetic 和写到一半的行（限流消息只有 App 读，usage_lab 不需要）
 - 改换算相关的逻辑之前，先看 `docs/PRODUCT_PLAN.md` 第 7 节的回归结论：所有模型用一个系数，思考程度（effort）不单独算，缓存读按半价。改完用 `python3 usage_lab.py backtest` 回测，和改之前比一比。
 - 宠物的八款形象都是 GPT 出图切成的图片，没有像素画，也没有单色模式（0.2.0 及以前有过，已经删掉）。`PetFrame` 里的图是 `PetPicture`（哪款形象、头像还是半身像、哪个表情），`PetRenderer` 只负责读图；各种心情播哪几个表情在 `PetSprites.frames`。
