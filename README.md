@@ -6,6 +6,8 @@
 
 **简体中文** · [English](README.en.md)
 
+[![CI](https://github.com/caihaodong44chd-gif/claude-quota-pet/actions/workflows/ci.yml/badge.svg)](https://github.com/caihaodong44chd-gif/claude-quota-pet/actions/workflows/ci.yml)
+
 **住在 macOS 菜单栏里的二次元小人，实时显示你的 Claude 订阅额度，也能一起看 Codex 的。**<br>
 额度越紧张她越累，用完了就睡着，还会告诉你多久后恢复。
 
