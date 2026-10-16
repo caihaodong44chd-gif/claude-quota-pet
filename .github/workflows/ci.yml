@@ -24,18 +24,40 @@ jobs:
       run:
         working-directory: QuotaPet
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
+      # 出错的地方都写成注解（::error）：云端会话打不开 Actions 的日志，但能用 gh api 读 check run 的注解
       - name: Swift 版本
-        run: swift --version
+        run: echo "::notice title=Swift::$(swift --version 2>&1 | head -1)"
 
       # make check 只编译 QuotaPetCore 和自检，App 本体（界面代码）的编译错误要靠这一步发现
       - name: 编译所有 target
-        run: swift build
+        run: |
+          set -o pipefail
+          if swift build 2>&1 | tee "$RUNNER_TEMP/build.log"; then exit 0; fi
+          errors=$(grep -E '^/.+:[0-9]+:[0-9]+: error: ' "$RUNNER_TEMP/build.log" | sort -u | head -30)
+          if [ -z "$errors" ]; then
+            echo "::error title=swift build 失败::$(tail -25 "$RUNNER_TEMP/build.log" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          fi
+          printf '%s\n' "$errors" | while IFS= read -r l; do
+            [ -n "$l" ] || continue
+            file=${l%%:*}; rest=${l#*:}; line=${rest%%:*}; msg=${l#*: error: }
+            echo "::error file=${file#$GITHUB_WORKSPACE/},line=$line::$msg"
+          done
+          exit 1
 
       # 自检用了 @testable import，只能 debug 构建，不要加 -c release
       - name: 自检
-        run: make check
+        run: |
+          set -o pipefail
+          if make check 2>&1 | tee "$RUNNER_TEMP/check.log"; then exit 0; fi
+          grep -E '^✗ ' "$RUNNER_TEMP/check.log" | head -30 | while IFS= read -r l; do
+            n=$(printf '%s' "$l" | sed -nE 's/^✗ 第 ([0-9]+) 行：.*/\1/p')
+            if [ -n "$n" ]; then echo "::error file=QuotaPet/Sources/QuotaPetChecks/main.swift,line=$n::$l"; else echo "::error::$l"; fi
+          done
+          grep -qE '^✗ ' "$RUNNER_TEMP/check.log" ||
+            echo "::error title=自检失败::$(tail -25 "$RUNNER_TEMP/check.log" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          exit 1
 
       # 预览图都是假数据，只有 popover-live* 读本机真实额度；runner 上没有真实数据，但还是删掉，免得以后误传
       - name: 渲染预览图
@@ -47,7 +69,7 @@ jobs:
 
       - name: 上传预览图
         if: steps.previews.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: previews
           path: QuotaPet/build/previews
@@ -58,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
