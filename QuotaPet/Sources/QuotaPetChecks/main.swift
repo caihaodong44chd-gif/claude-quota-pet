@@ -1515,7 +1515,10 @@ do {
     english += PetStyle.allCases.map(\.label) + MenuBarTextMode.allCases.map(\.label) + MenuBarVisibility.allCases.map(\.label)
     english += MenuBarVisibility.allCases.map { $0.label(codex: true) }
     english += MenuBarVisibility.allCases.flatMap { v in [true, false].flatMap { c in [v.note(codex: c, canFollow: true), v.note(codex: c, canFollow: false)] } }
-    english += (stale.windows + demo.windows + codex.windows).map(\.title) + stale.notes + missing.notes + demo.notes + codex.notes
+    // 分开写：连在一起时 Swift 6.1（CI 用的）类型推断会超时
+    english += (stale.windows + demo.windows + codex.windows).map(\.title)
+    english += stale.notes + missing.notes
+    english += demo.notes + codex.notes
     english += [CodexProvider.missingNote, CodexProvider.staleNote(readAt: Date(timeIntervalSinceNow: -5 * 3600), now: Date()), UsageWindow.title(minutes: 43200), UsageWindow.title(minutes: 120)]
     english += [ClaudeCLIProbeStatus.idle, .querying, .ok(at: at(20, 12)), .failed(at: at(20, 12)), .notFound, .notLoggedIn, .wrongAccount]
         .map { $0.text(now: at(20, 13)) }
