@@ -19,6 +19,7 @@ make release    # Apple 芯片 + Intel 通用版 zip（build/QuotaPet-<版本>.z
 ```
 
 - 自检是 `Sources/QuotaPetChecks/main.swift` 里的一串顶层 `check(...)`，按 `// MARK:` 分组，**不能单独跑某一项**，失败时会打印行号。它用了 `@testable import`，只能 debug 构建，不要加 `-c release`。
+- GitHub Actions（`.github/workflows/ci.yml`）每次 push 和 PR 都在 macOS 上跑 `swift build`、`make check`、渲染预览图（在 Actions 页面的 `previews` 附件里），另外按 `.githooks/pre-commit` 的规则查一遍隐私。云端会话没有 Swift：改了 Swift 代码推上去，用 `gh run list` / `gh run view --log-failed` 看结果。
 - 仓库根目录下的 `usage_lab.py` 是做 App 之前的实验工具，只用标准库：`python3 usage_lab.py summary|snap|ratio|calibrate|backtest`。
 
 ## 架构

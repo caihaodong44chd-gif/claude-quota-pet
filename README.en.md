@@ -6,6 +6,8 @@
 
 [简体中文](README.md) · **English**
 
+[![CI](https://github.com/caihaodong44chd-gif/claude-quota-pet/actions/workflows/ci.yml/badge.svg)](https://github.com/caihaodong44chd-gif/claude-quota-pet/actions/workflows/ci.yml)
+
 **An anime-style pet that lives in your macOS menu bar and shows your Claude subscription usage in real time, with Codex alongside if you use it.**<br>
 The tighter your quota gets, the more tired she looks. When it runs out she falls asleep and tells you when it comes back.
 
