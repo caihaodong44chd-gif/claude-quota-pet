@@ -35,7 +35,8 @@ jobs:
         run: |
           set -o pipefail
           if swift build 2>&1 | tee "$RUNNER_TEMP/build.log"; then exit 0; fi
-          errors=$(grep -E '^/.+:[0-9]+:[0-9]+: error: ' "$RUNNER_TEMP/build.log" | sort -u | head -30)
+          # bash -e + pipefail：grep 没找到时返回 1 会直接退出，走不到下面的兜底，所以都要 || true
+          errors=$(grep -E '^/.+:[0-9]+:[0-9]+: error: ' "$RUNNER_TEMP/build.log" | sort -u | head -30 || true)
           if [ -z "$errors" ]; then
             echo "::error title=swift build 失败::$(tail -25 "$RUNNER_TEMP/build.log" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
           fi
@@ -51,7 +52,7 @@ jobs:
         run: |
           set -o pipefail
           if make check 2>&1 | tee "$RUNNER_TEMP/check.log"; then exit 0; fi
-          grep -E '^✗ ' "$RUNNER_TEMP/check.log" | head -30 | while IFS= read -r l; do
+          { grep -E '^✗ ' "$RUNNER_TEMP/check.log" || true; } | head -30 | while IFS= read -r l; do
             n=$(printf '%s' "$l" | sed -nE 's/^✗ 第 ([0-9]+) 行：.*/\1/p')
             if [ -n "$n" ]; then echo "::error file=QuotaPet/Sources/QuotaPetChecks/main.swift,line=$n::$l"; else echo "::error::$l"; fi
           done
